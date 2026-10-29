@@ -1,0 +1,51 @@
+{
+ "data": [
+  {
+   "attFileSize": "0 Bytes",
+   "audited": "Un-Audited",
+   "broadcast_Date": "17-Oct-2026 17:47:13",
+   "cmName": "HDFC Bank Limited",
+   "consolidated": "Consolidated",
+   "creation_Date": "17-Oct-2026 17:48:12",
+   "diff": "00:00:59",
+   "ixbrl": "https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_BANKING_202132_17102026174812_iXBRL_WEB.html",
+   "ixbrlFileSize": "62.00 KB",
+   "pdf_attach": "https://nsearchives.nseindia.com/corporate/null",
+   "qe_Date": "30-SEP-2026",
+   "revised_Date": null,
+   "revision_Remark": null,
+   "seq_Id": "202132",
+   "smName": "HDFC Bank Limited",
+   "symbol": "HDFCBANK",
+   "type": "Integrated Filing- Financials",
+   "type_Sub": "Original",
+   "xbrl": "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_BANKING_1740913_17102026054812_WEB.xml",
+   "xbrlFileSize": "78.86 KB"
+  },
+  {
+   "attFileSize": "0 Bytes",
+   "audited": "Un-Audited",
+   "broadcast_Date": "17-Oct-2026 17:46:30",
+   "cmName": "HDFC Bank Limited",
+   "consolidated": "Standalone",
+   "creation_Date": "17-Oct-2026 17:48:07",
+   "diff": "00:01:37",
+   "ixbrl": "https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_BANKING_202131_17102026174807_iXBRL_WEB.html",
+   "ixbrlFileSize": "528.46 KB",
+   "pdf_attach": "https://nsearchives.nseindia.com/corporate/null",
+   "qe_Date": "30-SEP-2026",
+   "revised_Date": null,
+   "revision_Remark": null,
+   "seq_Id": "202131",
+   "smName": "HDFC Bank Limited",
+   "symbol": "HDFCBANK",
+   "type": "Integrated Filing- Financials",
+   "type_Sub": "Original",
+   "xbrl": "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_BANKING_1740912_17102026054806_WEB.xml",
+   "xbrlFileSize": "1.30 MB"
+  }
+ ],
+ "size": 20,
+ "page": -1,
+ "totalCount": 2
+}

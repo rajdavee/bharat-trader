@@ -1,0 +1,7 @@
+{
+  "cash": 38358.67,
+  "positions": {
+    "RELIANCE": {"qty": 42, "avg_price": 1174.30, "product": "MIS"},
+    "TCS": {"qty": 5, "avg_price": 2460.00, "product": "CNC"}
+  }
+}

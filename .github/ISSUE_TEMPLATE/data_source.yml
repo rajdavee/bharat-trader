@@ -1,0 +1,22 @@
+name: Data source broken
+description: NSE or Yahoo changed an endpoint, a format, or started blocking requests
+labels: [data-source]
+body:
+  - type: input
+    id: url
+    attributes:
+      label: Endpoint
+      placeholder: https://www.nseindia.com/api/...
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Error or changed response
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: when
+    attributes:
+      label: When it started (IST)

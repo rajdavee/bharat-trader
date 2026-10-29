@@ -1,0 +1,48 @@
+name: Bug report
+description: Something gives a wrong number, crashes, or behaves unexpectedly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Never paste broker API keys, client IDs or account numbers.**
+  - type: input
+    id: skill
+    attributes:
+      label: Skill
+      description: Which tool? (e.g. trader-scanner, trader-risk)
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command you ran
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Full output or traceback
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: when
+    attributes:
+      label: Date and time (IST) you ran it
+      placeholder: 2026-10-29 10:20 IST
+  - type: input
+    id: env
+    attributes:
+      label: Python version and OS
+      placeholder: Python 3.12, macOS 15
+    validations:
+      required: true

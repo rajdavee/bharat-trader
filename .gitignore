@@ -1,0 +1,25 @@
+# Runtime data written by the tools (your trades, config, caches)
+trader/
+!tests/fixtures/**
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Secrets — never commit broker keys
+.env
+.env.*
+*.key

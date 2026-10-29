@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<rss version="2.0">
+    <channel>
+        <copyright>Copyright (c) 2026 Yahoo Inc. All rights reserved.</copyright>
+        <description>Latest Financial News for INFY.NS</description>
+        <image>
+            <height>45</height>
+            <link>http://finance.yahoo.com/q/h?s=INFY.NS</link>
+            <title>Yahoo! Finance: INFY.NS News</title>
+            <url>https://s.yimg.com/rz/stage/p/yahoo_finance_en-US_h_p_finance_2.png</url>
+            <width>144</width>
+        </image>
+        <item>
+            <description>Companies In The News Are: SLB, E, INFY, FCNCA.</description>
+            <guid isPermaLink="false">add21763-a0fc-3857-a5bc-2a773bf3d77c</guid>
+            <link>https://finance.yahoo.com/markets/stocks/articles/company-news-oct-26-2026-085900060.html?.tsrc=rss</link>
+            <pubDate>Mon, 26 Oct 2026 08:59:00 +0000</pubDate>
+            <title>Company News for Oct 26, 2026</title>
+        </item>
+        <item>
+            <description>Investing.com-- Infosys (NSE:INFY) shares fell on Monday after India's second-largest IT services company lowered its annual revenue growth forecast, offsetting strong large deal wins and growth in artificial intelligence-related business.</description>
+            <guid isPermaLink="false">da1c7357-e6ee-3f0b-84c6-d111baff0920</guid>
+            <link>https://finance.yahoo.com/markets/stocks/articles/infosys-shares-dip-lower-growth-055649568.html?.tsrc=rss</link>
+            <pubDate>Mon, 26 Oct 2026 05:56:49 +0000</pubDate>
+            <title>Infosys shares dip as lower growth outlook offsets strong deal wins</title>
+        </item>
+        <item>
+            <description>Although the revenue and EPS for Infosys (INFY) give a sense of how its business performed in the quarter ended September 2026, it might be worth considering how some key metrics compare with Wall Street estimates and the year-ago numbers.</description>
+            <guid isPermaLink="false">b33659e8-0ef1-3b53-a733-4ba82c85fbad</guid>
+            <link>https://finance.yahoo.com/markets/stocks/articles/infosys-infy-q2-earnings-key-123002973.html?.tsrc=rss</link>
+            <pubDate>Fri, 23 Oct 2026 12:30:02 +0000</pubDate>
+            <title>Infosys (INFY) Q2 Earnings: How Key Metrics Compare to Wall Street Estimates</title>
+        </item>
+        <item>
+            <description>Infosys drops after trimming its guidance and reporting a decline in earnings per share.</description>
+            <guid isPermaLink="false">c2db6b87-6fb8-388e-af0e-9fb496223c73</guid>
+            <link>https://in.finance.yahoo.com/m/c2db6b87-6fb8-388e-af0e-9fb496223c73/2-reasons-why-infosys%E2%80%99-ai.html?.tsrc=rss</link>
+            <pubDate>Fri, 23 Oct 2026 11:39:00 +0000</pubDate>
+            <title>2 Reasons Why Infosys’ AI Revenue Boom Isn’t Enough to Save Earnings</title>
+        </item>
+        <language>en-US</language>
+        <lastBuildDate>Thu, 29 Oct 2026 10:59:27 +0000</lastBuildDate>
+        <link>http://finance.yahoo.com/q/h?s=INFY.NS</link>
+        <title>Yahoo! Finance: INFY.NS News</title>
+    </channel>
+</rss>

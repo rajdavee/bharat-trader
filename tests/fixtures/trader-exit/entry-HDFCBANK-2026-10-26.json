@@ -1,0 +1,21 @@
+{
+  "created_by": "trader-entry",
+  "symbol": "HDFCBANK",
+  "setup": "orb",
+  "side": "buy",
+  "date": "2026-10-26",
+  "status": "triggered",
+  "time": "10:10",
+  "bar_start": "10:05",
+  "bar_index": 10,
+  "price": 692.7,
+  "level": 692.0,
+  "interval": "5m",
+  "opening_range": {
+    "high": 692.0,
+    "low": 687.85,
+    "minutes": 15
+  },
+  "source": "yahoo",
+  "checked_at": "2026-10-26T04:40:05Z"
+}

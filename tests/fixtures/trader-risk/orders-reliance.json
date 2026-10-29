@@ -1,0 +1,41 @@
+{
+  "created_by": "trader-budget",
+  "created_at": "2026-10-29T04:10:00Z",
+  "status": "proposed",
+  "paper": true,
+  "note": "Proposals only. Nothing is placed until trader-risk passes each order and you say yes to it.",
+  "source": "trader/plan.json (RELIANCE orb 2026-10-29)",
+  "orders": [
+    {
+      "symbol": "RELIANCE",
+      "exchange": "NSE",
+      "product": "MIS",
+      "side": "BUY",
+      "qty": 42,
+      "order_type": "LIMIT",
+      "price": 1174.3,
+      "stop_loss": {
+        "order_type": "SL-M",
+        "trigger_price": 1163.3
+      },
+      "target": {
+        "order_type": "LIMIT",
+        "price": 1196.3
+      },
+      "validity": "DAY",
+      "why": "opening-range breakout on RELIANCE: 42 shares, bound by your position cap (50% of ₹1,00,000.00 = ₹50,000.00 / 1174.30). At the stop: 42 x 11.00 = ₹462.00 plus about ₹52.00 charges = ₹514.00, inside your ₹1,000.00 max loss per trade.",
+      "plan": {
+        "entry": 1174.3,
+        "stop": 1163.3,
+        "target": 1196.3,
+        "risk_per_share": 11.0,
+        "max_loss": 462.0,
+        "charges": 52.0,
+        "max_loss_with_charges": 514.0,
+        "setup": "orb",
+        "entry_time": "09:40",
+        "flat_by": "15:10"
+      }
+    }
+  ]
+}
