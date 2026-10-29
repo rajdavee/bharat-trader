@@ -23,9 +23,5 @@ All notable changes are documented here. The format follows
   risk checks.
 - Paper broker with broker-neutral order tickets (entry, SL-M stop, LIMIT target).
 
-### Changed
-- Ported from day-trader-skill v2.0.0 (US markets); the US Congress tracker is
-  replaced by `trader-insider`.
-
 [Unreleased]: https://github.com/rajdavee/bharat-trader/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/rajdavee/bharat-trader/releases/tag/v0.1.0

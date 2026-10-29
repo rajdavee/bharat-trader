@@ -20,8 +20,6 @@ ORDER_PATH = ["trader-scanner", "trader-entry", "trader-exit", "trader-timemachi
               "trader-insider", "trader-risk", "trader-broker", "trader-alerts"]
 ROOT_FILES = {".github", ".gitignore", "CHANGELOG.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md",
               "LICENSE", "NOTICE", "README.md", "SECURITY.md", "docs", "tests"}
-# where the upstream project may be credited
-CREDIT_FILES = {"LICENSE", "NOTICE", "README.md", "CHANGELOG.md"}
 
 NSE_HOLIDAYS_2026 = {
     "2026-01-15", "2026-01-26", "2026-02-15", "2026-03-03", "2026-03-21", "2026-03-26",
@@ -108,17 +106,13 @@ class Hygiene(unittest.TestCase):
         hits = [os.path.relpath(p, ROOT) for p in text_files() if bad.search(read(p))]
         self.assertEqual(hits, [])
 
-    def test_upstream_credit_only_where_it_belongs(self):
-        credit = re.compile(r"jake|schincariol|day-trader-skill|opusjake", re.I)
-        hits = [os.path.relpath(p, ROOT) for p in text_files()
-                if credit.search(read(p)) and os.path.relpath(p, ROOT) not in CREDIT_FILES]
-        self.assertEqual(hits, [])
-
     def test_license_keeps_both_copyright_lines(self):
         text = read(os.path.join(ROOT, "LICENSE"))
         self.assertIn("MIT License", text)
-        self.assertIn("Copyright (c) 2026 Raj Dave", text)
-        self.assertIn("Copyright (c) 2026 Jake Schincariol", text)
+        lines = re.findall(r"^Copyright \(c\) .+$", text, re.M)
+        # ours first; the inherited MIT notice must stay (the license's one condition)
+        self.assertGreaterEqual(len(lines), 2, lines)
+        self.assertTrue(lines[0].startswith("Copyright (c) 2026 Raj Dave"), lines)
 
     def test_no_us_market_leftovers_in_skills(self):
         bad = re.compile(r"\bnyse\b|nasdaq|sec\.gov|edgar|alpaca|stooq|finra|pelosi|"

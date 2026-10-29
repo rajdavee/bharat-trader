@@ -143,10 +143,8 @@ already public.
 **Taxes.** Intraday equity profits are generally treated as speculative
 business income in India. Nothing here is tax advice.
 
-## License and credits
+## License
 
-[MIT](LICENSE). bharat-trader began as a port of
-[day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) by
-Jake Schincariol (MIT), rebuilt for Indian markets. See [NOTICE](NOTICE).
+[MIT](LICENSE) © Raj Dave and bharat-trader contributors.
 
-Not affiliated with NSE, BSE, SEBI, Yahoo or any broker.
+Not affiliated with NSE, BSE, SEBI, Yahoo or any broker. See [NOTICE](NOTICE).
