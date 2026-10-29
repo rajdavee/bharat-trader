@@ -5,7 +5,7 @@ description: >-
   before you enter, so you know when to get out. Reads the entry from
   trader-entry (or a rupee price you give), puts the stop at the
   opening-range midpoint by default (or the range low, your price, a percent,
-  or a multiple of the ATR), rounds it down to the tick (₹0.05 by default),
+  or a multiple of the ATR), rounds it down to the NSE tick for its price band,
   and sets the target at 2R (or 1R, or your price), rounded to the nearest
   tick. Estimates round-trip charges (brokerage, STT, exchange fee, SEBI fee,
   stamp duty, GST) and shows reward:risk gross and net of them. Refuses a
@@ -52,7 +52,7 @@ estimate), `--no-charges`, `--tick 0.10`, `--json`, `--now "2026-10-26
 | file | what |
 | --- | --- |
 | `trader/entry.json` | the trigger from trader-entry: symbol, entry price, IST time ("10:10"), bar, opening range |
-| `trader/config.json` | `flat_by` (15:10), `tick_size` (0.05), `min_reward_risk` (1.5: a note here, trader-risk enforces it), `include_charges`, `charges`, `product`, `max_loss_per_trade`, `max_order_value`, `extra_holidays`, `special_sessions`. Missing keys take these defaults |
+| `trader/config.json` | `flat_by` (15:10), `tick_size` ("auto"), `min_reward_risk` (1.5: a note here, trader-risk enforces it), `include_charges`, `charges`, `product`, `max_loss_per_trade`, `max_order_value`, `extra_holidays`, `special_sessions`. Missing keys take these defaults |
 | Yahoo chart API | only for an `atr:K` stop: `SYMBOL.NS` 5-minute bars up to the entry bar, free and unofficial |
 | `trader/plan.json` | with `--write`: entry, stop and its rule, target and its R, risk a share, reward:risk gross and net, the charges estimate, flat by. trader-timemachine, trader-budget and trader-alerts read it |
 
@@ -71,9 +71,11 @@ A level setup has no opening range to lean on, so it needs a stop you name.
 - **Ticks.** The stop rounds DOWN to the tick, away from the entry. The
   target rounds to the NEAREST tick. Risk = entry minus stop. Target = entry
   + R x risk. `2R` by default; `1R`, `1.5R` or `price:X` also work. The tick
-  is `tick_size` in the config (₹0.05 by default). NSE tick sizes depend on
-  the price band of the stock: check yours, and set `tick_size` (or `--tick`)
-  when it is not ₹0.05.
+  is `tick_size` in the config, `"auto"` by default: NSE sets each stock's
+  tick by price band, and auto rounds to the coarsest tick of the band
+  (₹0.05 under ₹1,000, ₹0.10 under ₹5,000, ₹0.50 under ₹10,000, ₹1 under
+  ₹20,000, ₹5 above), which is always a valid price. A number in `tick_size`
+  (or `--tick`) overrides it.
 - **Refused, with the reason.** A stop at or above the entry. A target at or
   below it. A risk under the larger of 0.05% of the price and two ticks: too
   tight to survive the spread, normal wiggle would stop you out. An
