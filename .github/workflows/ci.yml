@@ -21,10 +21,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python: ["3.10", "3.11", "3.12", "3.13"]
         include:
+          # end-of-life Pythons are only on the older runner image
           - os: ubuntu-22.04
             python: "3.8"
+          - os: ubuntu-22.04
+            python: "3.9"
           - os: macos-latest
             python: "3.12"
           - os: windows-latest
