@@ -44,7 +44,7 @@ key is optional: a missing key falls back to the default below.
 | --- | --- | --- |
 | `exchange` | `"NSE"` | Only NSE in v0.1. |
 | `product` | `"MIS"` | `MIS` intraday or `CNC` delivery. Changes STT and stamp duty. |
-| `tick_size` | 0.05 | Prices are rounded to this. Stops round down. |
+| `tick_size` | `"auto"` | NSE tick by price band (see [data sources](data-sources.md#tick-sizes)); a number overrides. Stops round down. |
 | `broker` | `"paper"` | Only the paper broker in v0.1. |
 | `paper` | true | Keep it true until a live adapter exists and you have tested on paper. |
 | `blocked` | `[]` | Symbols you never trade. |

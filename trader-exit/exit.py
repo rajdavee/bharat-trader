@@ -24,7 +24,7 @@ Targets (round to the NEAREST tick, half up):
   2R (default), 1R, 1.5R ...   entry + R x risk, where risk = entry - stop
   price:X                      your price
 
-The tick is "tick_size" in trader/config.json (default 0.05) or --tick.
+The tick is "tick_size" in trader/config.json ("auto": by NSE price band) or --tick.
 
 Refused, with the reason: a stop at or above the entry, a target at or below
 it, a risk under the larger of 0.05% of the price and two ticks (too tight to

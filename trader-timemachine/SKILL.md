@@ -54,7 +54,7 @@ bars), `--qty N` (shares for the charges), `--no-charges`, `--config PATH`,
 | file | what |
 | --- | --- |
 | `trader/plan.json` | the plan from trader-exit: symbol, date, entry, entry_time ("10:10") / entry_bar, stop, stop_rule, target, target_r, opening range, flat_by, charges.qty |
-| `trader/config.json` | `flat_by` (15:10), `no_entries_after` (14:45), `tick_size` (0.05), `include_charges`, `charges`, `product`, max loss settings, `extra_holidays`, `special_sessions`. Missing keys take the defaults |
+| `trader/config.json` | `flat_by` (15:10), `no_entries_after` (14:45), `tick_size` ("auto", by NSE price band), `include_charges`, `charges`, `product`, max loss settings, `extra_holidays`, `special_sessions`. Missing keys take the defaults |
 | Yahoo chart API | one request: `SYMBOL.NS`, 60 days of 5-minute bars (`range=60d&interval=5m`), free and unofficial, can lag |
 | `trader/timemachine.json` | with `--write`: `{plan, charges, mc, history}` plus the verdict. `mc` holds the odds, average R gross and net, percentiles, the fan-chart bands, 160 sample paths and a 24-bin histogram of the price at the flat-by |
 
