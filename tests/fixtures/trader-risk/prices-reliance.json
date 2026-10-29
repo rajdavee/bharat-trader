@@ -1,0 +1,11 @@
+{
+  "as_of": "2026-10-29T10:20:00+05:30",
+  "source": "yahoo",
+  "note": "Free Yahoo quotes, unofficial and can lag. The broker's price is the one that fills.",
+  "prices": {"RELIANCE": 1177.30, "TCS": 2478.00, "SBIN": 971.90},
+  "detail": {
+    "RELIANCE": {"price": 1177.30, "prev_close": 1158.00, "time": "2026-10-29T10:20:00+05:30", "source": "yahoo", "fetched": "2026-10-29T10:20:05+05:30"},
+    "TCS": {"price": 2478.00, "prev_close": 2460.00, "time": "2026-10-29T10:20:00+05:30", "source": "yahoo", "fetched": "2026-10-29T10:20:05+05:30"},
+    "SBIN": {"price": 971.90, "prev_close": 956.80, "time": "2026-10-29T10:20:00+05:30", "source": "yahoo", "fetched": "2026-10-29T10:20:05+05:30"}
+  }
+}

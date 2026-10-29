@@ -1,0 +1,59 @@
+{
+  "created_by": "trader-exit",
+  "symbol": "HDFCBANK",
+  "exchange": "NSE",
+  "side": "buy",
+  "date": "2026-10-26",
+  "setup": "orb",
+  "entry": 692.7,
+  "entry_time": "10:10",
+  "entry_bar": 10,
+  "interval": "5m",
+  "opening_range": {
+    "high": 692.0,
+    "low": 687.85,
+    "minutes": 15
+  },
+  "stop": 689.9,
+  "stop_rule": "or_mid",
+  "stop_label": "opening-range midpoint",
+  "target": 698.3,
+  "target_r": 2.0,
+  "target_label": "2R (two times the risk)",
+  "risk_per_share": 2.8,
+  "reward_risk": 2.0,
+  "flat_by": "15:10",
+  "tick_size": 0.05,
+  "stop_detail": "(₹692.00 + ₹687.85) / 2 = ₹689.925, rounded down to the ₹0.05 tick",
+  "created_at": "2026-10-26T04:41:00Z",
+  "note": "A stop is a plan, not a guarantee: a gap or a fast market can fill past it.",
+  "charges": {
+    "qty": 72,
+    "qty_source": "estimate",
+    "product": "MIS",
+    "at_target": {
+      "brokerage": 30.05,
+      "stt": 12.57,
+      "exchange": 2.97,
+      "sebi": 0.1,
+      "stamp": 1.5,
+      "gst": 5.96,
+      "total": 53.15
+    },
+    "at_stop": {
+      "brokerage": 29.86,
+      "stt": 12.42,
+      "exchange": 2.96,
+      "sebi": 0.1,
+      "stamp": 1.5,
+      "gst": 5.93,
+      "total": 52.77
+    },
+    "reward_gross": 403.2,
+    "reward_net": 350.05,
+    "risk_gross": 201.6,
+    "risk_net": 254.37,
+    "reward_risk_net": 1.38
+  },
+  "reward_risk_net": 1.38
+}

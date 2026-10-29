@@ -1,0 +1,11 @@
+{
+  "source": "Example split for illustration only, not a recommendation",
+  "as_of": "2026-10-29",
+  "weights": [
+    {"symbol": "RELIANCE", "name": "Reliance Industries", "weight": 30},
+    {"symbol": "HDFCBANK", "name": "HDFC Bank", "weight": 25},
+    {"symbol": "TCS", "name": "Tata Consultancy Services", "weight": 20},
+    {"symbol": "INFY", "name": "Infosys", "weight": 15},
+    {"symbol": "SBIN", "name": "State Bank of India", "weight": 10}
+  ]
+}

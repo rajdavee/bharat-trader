@@ -1,0 +1,36 @@
+{
+ "data": [
+  {
+   "appId": "384",
+   "broadcastDateTime": "22-May-2026 22:07:04",
+   "companyName": "Reliance Industries Limited",
+   "diff": "00:00:02",
+   "exchdisstime": "22-May-2026 22:07:06",
+   "ixbrl": "https://nsearchives.nseindia.com/corporate/ixbrl/IT_20260522_220704_WEB.html",
+   "ixbrlFileSize": "23.90 KB",
+   "prevAppId": null,
+   "regulation": "Regulation 7 (2)",
+   "revisionRemark": null,
+   "symbol": "RELIANCE",
+   "typeOfSubmission": "Original",
+   "xbrlFileSize": "5.70 KB",
+   "xmlFileName": "https://nsearchives.nseindia.com/corporate/xbrl/PIT_500325_22520262270_IT_WebXMLFile_20260522_220704532.xml"
+  },
+  {
+   "appId": "331",
+   "broadcastDateTime": "20-May-2026 23:37:48",
+   "companyName": "Reliance Industries Limited",
+   "diff": "00:00:02",
+   "exchdisstime": "20-May-2026 23:37:50",
+   "ixbrl": "https://nsearchives.nseindia.com/corporate/ixbrl/IT_20260520_233748_WEB.html",
+   "ixbrlFileSize": "23.20 KB",
+   "prevAppId": null,
+   "regulation": "Regulation 7 (2)",
+   "revisionRemark": null,
+   "symbol": "RELIANCE",
+   "typeOfSubmission": "Original",
+   "xbrlFileSize": "5.45 KB",
+   "xmlFileName": "https://nsearchives.nseindia.com/corporate/xbrl/PIT_500325_2052026233741_IT_WebXMLFile_20260520_233748505.xml"
+  }
+ ]
+}

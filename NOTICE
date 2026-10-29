@@ -1,0 +1,11 @@
+bharat-trader
+Copyright (c) 2026 Raj Dave and bharat-trader contributors
+
+This project began as a port of "day-trader-skill" v2.0.0 by Jake Schincariol
+(https://github.com/Jakeschincariol/day-trader-skill, MIT License), adapted
+for the Indian cash market (NSE). The original copyright notice is retained
+in LICENSE as the MIT License requires.
+
+Market data is fetched at runtime from public sources (NSE India, Yahoo
+Finance). This project is not affiliated with, endorsed by, or sponsored by
+NSE, BSE, SEBI, Yahoo, or any broker. All trademarks belong to their owners.
