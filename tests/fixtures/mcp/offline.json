@@ -1,0 +1,19 @@
+{
+  "note": "Offline bundle for the MCP server: each tool reads the real saved answers the skills' own tests use, with the clock pinned to when they were taken. The paper account is the UI demo's (Thu 29 Oct 2026, 14:30 IST).",
+  "now": "2026-10-29 14:30",
+  "ui": "../ui",
+  "trader": "../ui/trader",
+  "tools": {
+    "scan_daily": {"offline": "../trader-scanner/daily-v8-2026-10-29.json.gz", "now": "2026-10-29 16:00"},
+    "scan_orb": {"offline": "../trader-scanner/wall5m-2026-10-29.json.gz", "now": "2026-10-29 10:15"},
+    "news": {"offline": "../trader-news", "now": "2026-10-29T16:30:00+05:30"},
+    "entry_check": {"offline": "../trader-entry/{symbol}-2026-10-29-5m.json", "now": "2026-10-29 10:15"},
+    "exit_plan": {"offline": "../trader-exit/{symbol}-2026-10-26-5m.json", "now": "2026-10-26 10:11"},
+    "timemachine_run": {"offline": "../trader-timemachine/{symbol}-60d5m.json.gz", "now": "2026-10-26 10:15"},
+    "options_chain": {"offline": "../trader-options", "now": "2026-11-01 10:00"},
+    "options_summary": {"offline": "../trader-options", "now": "2026-11-01 10:00"},
+    "results_analyse": {"offline": "../trader-analyst", "now": "2026-10-29"},
+    "insider_deals": {"offline": "../trader-insider", "now": "2026-10-29"},
+    "insider_disclosures": {"offline": "../trader-insider", "now": "2026-10-29"}
+  }
+}

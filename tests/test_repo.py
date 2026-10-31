@@ -20,7 +20,7 @@ SKILLS = ["trader-scanner", "trader-news", "trader-entry", "trader-exit", "trade
 ORDER_PATH = ["trader-scanner", "trader-entry", "trader-exit", "trader-timemachine", "trader-budget",
               "trader-insider", "trader-risk", "trader-broker", "trader-alerts"]
 ROOT_FILES = {".github", ".gitignore", "CHANGELOG.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md",
-              "LICENSE", "NOTICE", "README.md", "SECURITY.md", "docs", "tests", "ui"}
+              "LICENSE", "NOTICE", "README.md", "SECURITY.md", "docs", "mcp", "tests", "ui"}
 
 NSE_HOLIDAYS_2026 = {
     "2026-01-15", "2026-01-26", "2026-02-15", "2026-03-03", "2026-03-21", "2026-03-26",
