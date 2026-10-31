@@ -1,0 +1,26 @@
+{
+ "doc_derived": true,
+ "source": "https://upstox.com/developer/api-documentation/v3/place-order (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/v3/order/place"
+ },
+ "response": {
+  "status": 403,
+  "body": {
+   "status": "error",
+   "errors": [
+    {
+     "errorCode": "UDAPI1154",
+     "message": "Access to this API is blocked due to static IP restrictions.",
+     "propertyPath": null,
+     "invalidValue": null,
+     "error_code": "UDAPI1154",
+     "property_path": null,
+     "invalid_value": null
+    }
+   ]
+  }
+ },
+ "note": "UDAPI1154 from the place-order page's error table; the HTTP status is not stated there"
+}

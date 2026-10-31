@@ -20,6 +20,7 @@ import contextlib
 import datetime
 import importlib.util
 import io
+import ipaddress
 import json
 import os
 import re
@@ -480,6 +481,7 @@ def _command_result(ctx, rc, out, err):
 
 
 def r_confirm(ctx, q, body):
+    skill("broker").paper_only(ctx.config(), "the local UI's confirm")
     idx = _int(body, "index")
     text = (body or {}).get("yes_text")
     if not isinstance(text, str) or not text.strip():
@@ -544,6 +546,92 @@ def r_refresh_prices(ctx, q, body):
         res["result"] = None
     res["output"] = "" if res["result"] else res["output"]
     return res
+
+
+# ---------------------------------------------------------------- routes: live broker (read only)
+
+def broker_status(ctx):
+    """Which broker the config names, and for each live broker: which BT_* variables are set (never their
+    values), the capabilities and plans, and the last preflight. No network."""
+    b = skill("broker")
+    cfg = ctx.config()
+    try:
+        mode, live = b.mode_of(cfg)
+        err = None
+    except b.TicketError as e:
+        mode, live, err = "invalid", None, str(e)
+    named = b.broker_name(cfg.get("broker"))
+    pre = ctx.read("state", "preflight.json")
+    pre = pre if isinstance(pre, dict) else {}
+    le = cfg.get("live_enabled") if isinstance(cfg.get("live_enabled"), dict) else {}
+    rows = []
+    for name in b.LIVE_BROKERS:
+        ad = b.get_adapter(name, cfg)
+        p = pre.get(name) if isinstance(pre.get(name), dict) else None
+        rows.append({"broker": name, "title": ad.title, "configured": name == named,
+                     "live_enabled": le.get(name) is True, "credentials": ad.credentials_status(),
+                     "token": bool(ad.token()), "token_cutoff": ad.token_cutoff, "capabilities": ad.caps(),
+                     "plans": ad.plans,
+                     "preflight": {k: p.get(k) for k in ("at", "date", "passed", "public_ip", "static_ip",
+                                                         "registered_ips", "checks")} if p else None,
+                     "preflight_today": bool(p and p.get("date") == ctx.today() and p.get("passed"))})
+    return {"mode": mode, "broker": live or named, "error": err, "brokers": rows,
+            "rule": "Reading your account works from any IP. A live order needs the config broker, \"paper\": "
+                    "false, live_enabled, trader-risk PASS, your typed yes and today's preflight, and is sent "
+                    "only by ticket.py place in your own terminal. This page never sends an order.",
+            "commands": {"login": "python3 trader-broker/ticket.py login <broker>",
+                         "preflight": "python3 trader-broker/ticket.py preflight <broker>"},
+            "disclaimer": DISCLAIMER}
+
+
+def _broker_pick(ctx, q):
+    b = skill("broker")
+    want = b.broker_name(q.get("broker") or ctx.config().get("broker"))
+    if want == "paper":
+        return None, "The config broker is paper: there is no live account to read. Pick one with ?broker=upstox, " \
+                     "kite or dhan (read only)."
+    if want not in b.LIVE_BROKERS:
+        raise ApiError(400, "broker is one of %s" % ", ".join(b.LIVE_BROKERS))
+    return want, None
+
+
+def broker_rows(ctx, q, what):
+    """Holdings or positions straight from the live broker (read only, cached 30 s)."""
+    b = skill("broker")
+    name, why_not = _broker_pick(ctx, q)
+    if name is None:
+        return {"connected": False, "broker": None, "rows": [], "note": why_not, "read_only": True}
+    ad = b.get_adapter(name, ctx.config())
+    if ctx.offline:
+        return {"connected": False, "broker": name, "title": ad.title, "rows": [], "read_only": True,
+                "note": "Offline mode: the live broker is not called."}
+    if not ad.token():
+        return {"connected": False, "broker": name, "title": ad.title, "rows": [], "read_only": True,
+                "note": "No %s token in this server's environment. In the shell that starts the UI: eval \"$(python3 "
+                        "trader-broker/ticket.py login %s)\", then start it again." % (ad.env_names["access_token"],
+                                                                                    name)}
+    base = b.adapters().base
+    try:
+        rows = ctx.cached("broker-%s-%s" % (what, name), 30, getattr(ad, what))
+    except base.BrokerError as e:
+        raise ApiError(502, "%s: %s" % (ad.title, e.message))
+    value = sum((r.get("last_price") or r.get("avg_price") or 0) * abs(r.get("qty") or 0) for r in rows)
+    pnl = [r.get("pnl") for r in rows if r.get("pnl") is not None]
+    return {"connected": True, "broker": name, "title": ad.title, "read_only": True, "as_of": ist_text(ctx.now_ist()),
+            "rows": rows, "value": round(value, 2), "pnl": round(sum(pnl), 2) if pnl else None,
+            "note": "Read only, from %s's API. Nothing here places or changes an order." % ad.title}
+
+
+def r_broker(ctx, q, body):
+    return broker_status(ctx)
+
+
+def r_broker_holdings(ctx, q, body):
+    return broker_rows(ctx, q, "holdings")
+
+
+def r_broker_positions(ctx, q, body):
+    return broker_rows(ctx, q, "positions")
 
 
 # ---------------------------------------------------------------- routes: risk
@@ -811,7 +899,7 @@ def r_dashboard(ctx, q, body):
 
 def known_keys():
     keys = {}
-    for name in ("risk", "budget", "scanner", "entry"):
+    for name in ("risk", "budget", "scanner", "entry", "broker"):
         for k, v in skill(name).DEFAULTS.items():
             keys.setdefault(k, v)
     keys.setdefault("insider_watch_clients", [])
@@ -857,6 +945,9 @@ def validate_config(doc):
             warnings.append("%s is not read by any tool in this version (kept as it is)" % k)
             continue
         d = keys[k]
+        if k in LIVE_KEYS:
+            errors.extend(_live_key_errors(k, v, broker))
+            continue
         if isinstance(d, bool):
             if not isinstance(v, bool):
                 errors.append("%s must be true or false" % k)
@@ -891,10 +982,15 @@ def validate_config(doc):
         errors.append("product is MIS (intraday) or CNC (delivery)")
     if "exchange" in doc and str(doc["exchange"]).upper() != "NSE":
         errors.append("exchange is NSE (this version trades the NSE cash market)")
+    errors.extend(broker.config_mode_errors(doc))
     try:
-        broker.paper_only(doc)
-    except broker.TicketError as e:
-        errors.append(str(e))
+        mode, live = broker.mode_of(doc)
+    except broker.TicketError:
+        mode, live = "paper", None
+    if mode == "live":
+        warnings.append("LIVE with %s (\"paper\": false): orders would use real money. They go out only with "
+                        "ticket.py place in your own terminal, after every gate (live_enabled, trader-risk PASS, "
+                        "your yes, today's preflight); this page never sends one" % live)
     if isinstance(doc.get("blocked"), list):
         for s in doc["blocked"]:
             if not isinstance(s, str) or not risk.TICKER.match(s.strip().upper()):
@@ -929,6 +1025,39 @@ def validate_config(doc):
     return errors, warnings
 
 
+LIVE_KEYS = ("live_enabled", "static_ip", "order_rate_per_sec")
+GUARDED = ("broker", "paper", "live_enabled")     # going live is done in the file, not from this page
+
+
+def _live_key_errors(k, v, broker):
+    if k == "live_enabled":
+        if not isinstance(v, dict) or any(not isinstance(x, bool) for x in v.values()):
+            return ["live_enabled is an object like {\"upstox\": true}"]
+        bad = [n for n in v if broker.broker_name(n) not in broker.LIVE_BROKERS]
+        return ["live_enabled: %s is not a broker (%s)" % (n, ", ".join(broker.LIVE_BROKERS)) for n in bad]
+    if k == "static_ip":
+        vals = list(v.values()) if isinstance(v, dict) else [v]
+        flat = []
+        for x in vals:
+            flat.extend(x if isinstance(x, list) else [x])
+        for x in flat:
+            if not isinstance(x, str):
+                return ["static_ip is an IP address, a list of them, or {\"kite\": \"...\"} per broker"]
+            if x.strip():
+                try:
+                    ipaddress.ip_address(x.strip())
+                except ValueError:
+                    return ["static_ip: %r is not an IP address" % x]
+        return []
+    if k == "order_rate_per_sec":
+        if not _is_num(v) or v <= 0:
+            return ["order_rate_per_sec must be a number above 0"]
+        if v > 9:
+            return ["order_rate_per_sec is at most 9 (SEBI: more than 10 orders a second needs exchange algo "
+                    "registration)"]
+    return []
+
+
 def _summary(doc):
     budget = skill("budget")
     try:
@@ -953,8 +1082,9 @@ def r_config(ctx, q, body):
     return {"path": ctx.path("config.json"), "exists": exists, "config": doc,
             "effective": skill("risk").merged_config(doc), "errors": errors, "warnings": warnings,
             "summary": _summary(doc) if exists and not errors else None, "schema": schema,
-            "help": "Every key is optional: a missing key uses its default. Paper trading stays on in this "
-                    "version. Create one with: python3 trader-budget/size.py init"}
+            "help": "Every key is optional: a missing key uses its default. Paper trading is the default; going "
+                    "live (broker, paper, live_enabled) is your own edit of trader/config.json, never this page "
+                    "(see docs/brokers.md). Create one with: python3 trader-budget/size.py init"}
 
 
 def _body_config(body):
@@ -975,6 +1105,13 @@ def r_config_save(ctx, q, body):
     errors, warnings = validate_config(doc)
     if errors:
         return {"ok": False, "saved": False, "errors": errors, "warnings": warnings, "summary": None}
+    cur = ctx.read("config.json")
+    cur = cur if isinstance(cur, dict) else {}
+    changed = [k for k in GUARDED if doc.get(k) != cur.get(k)]
+    if changed:
+        return {"ok": False, "saved": False, "errors": [
+            "%s cannot be changed from this page: going live (or back to paper) is your own edit of "
+            "trader/config.json (see docs/brokers.md)" % ", ".join(changed)], "warnings": warnings, "summary": None}
     p = ctx.path("config.json")
     with ctx.cmd_lock:
         os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -1367,6 +1504,9 @@ ROUTES = [
     ("GET", "/api/alerts", r_alerts, "alert rules and what would ring now (dry run)", False),
     ("GET", "/api/portfolio", r_portfolio, "paper cash, positions, working legs, fills, today's limits", False),
     ("GET", "/api/orders", r_orders, "order tickets with their trader-risk status", False),
+    ("GET", "/api/broker", r_broker, "live broker connection: credentials set, capabilities, last preflight", False),
+    ("GET", "/api/broker/holdings", r_broker_holdings, "holdings at the live broker, read only: ?broker=", False),
+    ("GET", "/api/broker/positions", r_broker_positions, "positions at the live broker, read only: ?broker=", False),
     ("GET", "/api/risk", r_risk, "your limits, the recorded verdicts and a fresh preview", False),
     ("GET", "/api/config", r_config, "trader/config.json, the effective settings and their meaning", False),
     ("GET", "/api/options", r_options, "option chain with IV, Greeks, PCR, max pain, walls: ?symbol=&expiry=", False),

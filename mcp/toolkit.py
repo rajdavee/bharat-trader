@@ -592,7 +592,7 @@ YES_SCHEMA = {
 
 def t_paper_order_confirm(kit, a, call):
     broker = api.skill("broker")
-    broker.paper_only(kit.ctx.config())            # a non-paper config stops here, before anything
+    broker.paper_only(kit.ctx.config(), "paper_order_confirm")   # a live config stops here, before anything
     idx, fp = a.get("index"), a.get("risk_fingerprint")
     view = api.tickets(kit.ctx)
     tks = view["tickets"]
@@ -733,6 +733,28 @@ def t_config_get(kit, a, call):
     if not a.get("with_schema"):
         view.pop("schema", None)
     return view, ["Read only. Edit trader/config.json yourself, or use the local UI's Settings page."]
+
+
+def _broker_q(a):
+    b = a.get("broker")
+    return {"broker": b} if b else {}
+
+
+def t_broker_status(kit, a, call):
+    view = api.broker_status(kit.ctx)
+    view.pop("disclaimer", None)
+    return view, ["Read only, no network: which BT_* variables are set (never their values), what each broker's "
+                  "API can do, the last preflight. There is no order tool here."]
+
+
+def t_broker_holdings(kit, a, call):
+    return api.broker_rows(kit.ctx, _broker_q(a), "holdings"), [
+        "Read only: delivery holdings from the live broker's own API. Nothing is placed or changed."]
+
+
+def t_broker_positions(kit, a, call):
+    return api.broker_rows(kit.ctx, _broker_q(a), "positions"), [
+        "Read only: today's positions from the live broker's own API. Nothing is placed or changed."]
 
 
 # ---------------------------------------------------------------- tools: the strategy lab
@@ -1217,6 +1239,24 @@ def build_tools():
                   "Your own option legs (up to 12, strikes by number, offset from ATM, delta or premium, other "
                   "expiries allowed) with every number strategy_build gives. Read only: it proposes nothing.",
                   t_strategy_price, price_props, ["symbol", "legs"], data=result))
+    broker_arg = {"broker": S("string", "the live broker to read (default: the config broker)",
+                              enum=["upstox", "kite", "dhan"])}
+    rows_data = obj({"connected": S("boolean"), "broker": {}, "rows": ANY_LIST, "read_only": {"const": True}},
+                    ["connected", "rows", "read_only"], extra=True)
+    T.append(tool("broker_status", "Broker connection",
+                  "The live broker connection, read only and without network: the config's broker and mode, for "
+                  "Upstox, Zerodha Kite and Dhan which BT_* environment variables are set (true/false, never the "
+                  "values), what each API can do, the plan notes and the last static-IP preflight. Places nothing.",
+                  t_broker_status, {}, data=obj({"mode": S("string"), "brokers": ANY_LIST}, ["mode", "brokers"],
+                                                extra=True), network=False))
+    T.append(tool("broker_holdings", "Broker holdings",
+                  "Delivery holdings read from the live broker's API (Upstox, Zerodha Kite or Dhan): symbol, qty, "
+                  "average, last price, P&L. Read only; needs the user's own token in the server's environment.",
+                  t_broker_holdings, broker_arg, data=rows_data))
+    T.append(tool("broker_positions", "Broker positions",
+                  "Today's positions read from the live broker's API: symbol, exchange, product, qty, average, P&L. "
+                  "Read only; needs the user's own token in the server's environment.",
+                  t_broker_positions, broker_arg, data=rows_data))
     T.append(tool("doctor", "Data sources self-test",
                   "Probe every free data source the tools read (NSE equity list, market status, holidays, "
                   "announcements, board meetings, results, bulk/block deals, PIT, option chain and contract info, "

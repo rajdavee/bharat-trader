@@ -1,0 +1,34 @@
+{
+ "doc_derived": true,
+ "source": "https://upstox.com/developer/api-documentation/get-user-fund-margin (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/v2/user/get-funds-and-margin"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": "success",
+   "data": {
+    "equity": {
+     "used_margin": 0.8,
+     "payin_amount": 200.0,
+     "span_margin": 0.0,
+     "adhoc_margin": 0.0,
+     "notional_cash": 0.0,
+     "available_margin": 15507.46,
+     "exposure_margin": 0.0
+    },
+    "commodity": {
+     "used_margin": 0,
+     "payin_amount": 0,
+     "span_margin": 0,
+     "adhoc_margin": 0,
+     "notional_cash": 0,
+     "available_margin": 0,
+     "exposure_margin": 0
+    }
+   }
+  }
+ }
+}

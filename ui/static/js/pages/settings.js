@@ -1,16 +1,19 @@
 // trader/config.json: every key with its meaning (from docs/configuration.md), validated by the server
-// with the skills' own parsers before it is saved. Paper trading cannot be switched off here.
+// with the skills' own parsers before it is saved. Paper trading cannot be switched off here: going live
+// (broker, paper, live_enabled) is your own edit of the file. The broker connection card is read only.
 import { get, post } from '../api.js';
 import { h, clear, card, note, loading } from '../dom.js';
+import { statusCard, status } from '../broker.js';
 
-const LOCKED = new Set(['paper', 'broker', 'exchange']);
+const LOCKED = new Set(['paper', 'broker', 'exchange', 'live_enabled']);
 const GROUPS = [
   ['Money and risk', ['capital', 'risk_per_trade_pct', 'max_loss_per_trade', 'max_daily_loss', 'max_trades_per_day',
     'max_orders_per_day', 'max_position_pct', 'max_order_value', 'min_order_value', 'cash_buffer_pct',
     'min_reward_risk', 'require_stop', 'include_charges']],
   ['Time (IST)', ['no_entries_before', 'no_entries_after', 'flat_by', 'extra_holidays', 'special_sessions']],
-  ['Market and broker', ['exchange', 'product', 'tick_size', 'broker', 'paper', 'blocked', 'allow_short', 'allow_fno',
-    'min_price', 'min_turnover', 'insider_watch_clients', 'risk_free_rate']],
+  ['Market and broker', ['exchange', 'product', 'tick_size', 'broker', 'paper', 'live_enabled', 'static_ip',
+    'order_rate_per_sec', 'blocked', 'allow_short', 'allow_fno', 'min_price', 'min_turnover', 'insider_watch_clients',
+    'risk_free_rate']],
   ['Charges', ['charges']],
 ];
 
@@ -37,7 +40,7 @@ function fieldFor(s, cfg) {
   input.dataset.type = s.type;
   if (LOCKED.has(s.key)) input.disabled = true;
   return h('div', { class: 'field' },
-    h('label', { for: id }, h('code', null, s.key), LOCKED.has(s.key) ? h('span', { class: 'badge' }, 'fixed in this version') : null),
+    h('label', { for: id }, h('code', null, s.key), LOCKED.has(s.key) ? h('span', { class: 'badge' }, 'edit the file yourself') : null),
     input, s.doc ? h('p', { class: 'small muted' }, s.doc) : null);
 }
 
@@ -77,9 +80,10 @@ export async function render(root) {
   const body = h('div');
   root.appendChild(body);
   loading(body);
-  const d = await get('/api/config');
+  const [d, st] = await Promise.all([get('/api/config'), status()]);
   clear(body);
   body.appendChild(note(d.help, 'info'));
+  body.appendChild(statusCard(st));
   if (!d.exists) body.appendChild(note('There is no trader/config.json in this folder yet. Saving here creates one.', 'warn'));
   const bySchema = Object.fromEntries(d.schema.map((s) => [s.key, s]));
   const form = h('form', { class: 'settings', novalidate: true });

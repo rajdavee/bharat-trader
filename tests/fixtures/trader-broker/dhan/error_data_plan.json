@@ -1,0 +1,17 @@
+{
+ "doc_derived": true,
+ "source": "https://dhanhq.co/docs/v2/annexure/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/v2/marketfeed/ltp"
+ },
+ "response": {
+  "status": 400,
+  "body": {
+   "errorType": "Invalid_Access",
+   "errorCode": "DH-902",
+   "errorMessage": "User has not subscribed to Data APIs or does not have access to Trading APIs. Kindly subscribe to Data APIs to be able to fetch Data."
+  }
+ },
+ "note": "code and message from the annexure's error table"
+}

@@ -32,7 +32,7 @@ ever placed without your yes.
 | `trader-timemachine` | Replays the rest of the session 10,000 times from the stock's own last 60 days, plus every past day the setup fired. Honest odds. |
 | `trader-budget` | `init` builds your risk config from your capital. Sizes each trade so the loss at the stop, charges included, fits your limit. |
 | `trader-risk` | PASS or BLOCK for every order: stop, max loss, daily loss, trades per day, entry window, market hours, position size, cash. |
-| `trader-broker` | Paper broker: plain-language tickets, records your yes, simulates fills with charges, flattens before square-off. |
+| `trader-broker` | Paper broker: plain-language tickets, records your yes, simulates fills with charges, flattens before square-off. Reads your real Upstox, Zerodha Kite or Dhan account; a live order only after every gate. |
 | `trader-alerts` | Rings on your stop, your target, the opening bell and your flat-by time. Knows the NSE calendar. |
 | `trader-analyst` | Quarterly results straight from NSE XBRL filings: revenue, margins, profit, EPS, YoY and QoQ, in ₹ crore. |
 | `trader-insider` | NSE bulk and block deals and SEBI insider-trading (PIT) disclosures, flagged when they touch stocks you hold or watch. |
@@ -72,6 +72,7 @@ python3 trader-timemachine/timemachine.py run --write
 python3 trader-budget/size.py --write                  # -> trader/orders.json
 python3 trader-risk/check.py                           # PASS / BLOCK
 python3 trader-broker/ticket.py show                   # the paper ticket
+python3 trader-broker/ticket.py holdings --broker kite # your real holdings, read only (docs/brokers.md)
 python3 trader-alerts/alerts.py add --from-plan        # stop, target, flat by 15:10
 python3 trader-analyst/facts.py TCS                    # last quarters from NSE filings
 python3 trader-insider/insider.py deals                # today's bulk and block deals
@@ -96,10 +97,10 @@ See [docs/ui.md](docs/ui.md).
 ## Use it from your AI assistant (MCP)
 
 `mcp/server.py` is a standard-library [MCP](https://modelcontextprotocol.io/)
-server: connect any MCP-compatible AI assistant and it can call 26 tools
+server: connect any MCP-compatible AI assistant and it can call 29 tools
 (market status, scans, news, entry and exit plans, the time machine, sizing,
-risk, the paper broker, option chains, results, insider deals, the strategy lab, the
-data self-test) and 5 prompts
+risk, the paper broker, option chains, results, insider deals, the strategy lab,
+the data self-test, your broker's holdings and positions, read only) and 5 prompts
 (morning briefing, intraday plan, options income scan, weekly review,
 research a strategy). Add it to your client's configuration:
 
@@ -172,7 +173,10 @@ if you need advice.
 
 **Nothing is placed without your yes.** Only `trader-broker` can lead to an
 order, only after `trader-risk` passes that exact order, and only after you
-type yes. In v0.1 the broker is paper only.
+type yes. Paper is the default. A live order at Upstox, Zerodha Kite or Dhan
+also needs `"paper": false`, `live_enabled` for that broker, a passed
+static-IP preflight today, and you running `ticket.py place` yourself. See
+[docs/brokers.md](docs/brokers.md).
 
 **The Time Machine is a simulation, not a prediction.** It is built from the
 stock's last 60 days of 5-minute bars. Results days, circuit limits, news and

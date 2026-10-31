@@ -1,0 +1,43 @@
+{
+ "doc_derived": true,
+ "source": "https://upstox.com/developer/api-documentation/get-profile (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/v2/user/profile"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": "success",
+   "data": {
+    "email": "user@example.invalid",
+    "exchanges": [
+     "NSE",
+     "NFO",
+     "BSE",
+     "CDS",
+     "BFO",
+     "BCD"
+    ],
+    "products": [
+     "D",
+     "CO",
+     "I"
+    ],
+    "broker": "UPSTOX",
+    "user_id": "******",
+    "user_name": "TEST USER",
+    "order_types": [
+     "MARKET",
+     "LIMIT",
+     "SL",
+     "SL-M"
+    ],
+    "user_type": "individual",
+    "poa": false,
+    "ddpi": false,
+    "is_active": true
+   }
+  }
+ }
+}

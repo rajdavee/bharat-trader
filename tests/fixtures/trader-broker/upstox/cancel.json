@@ -1,0 +1,20 @@
+{
+ "doc_derived": true,
+ "source": "https://upstox.com/developer/api-documentation/v3/cancel-order (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "DELETE",
+  "path": "/v3/order/cancel"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": "success",
+   "data": {
+    "order_id": "1644490272000"
+   },
+   "metadata": {
+    "latency": 30
+   }
+  }
+ }
+}

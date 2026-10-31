@@ -1,0 +1,18 @@
+{
+ "doc_derived": true,
+ "source": "https://dhanhq.co/docs/v2/authentication/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/v2/ip/getIP"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "modifyDateSecondary": "2025-09-30",
+   "secondaryIP": "10.420.43.12",
+   "modifyDatePrimary": "2025-09-28",
+   "primaryIP": "10.420.29.14"
+  }
+ },
+ "note": "the docs' sample IPs are not valid IPv4 (420 > 255); kept as printed"
+}

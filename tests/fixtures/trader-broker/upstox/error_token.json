@@ -1,0 +1,26 @@
+{
+ "doc_derived": true,
+ "source": "https://upstox.com/developer/api-documentation/error-codes (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/v2/user/profile"
+ },
+ "response": {
+  "status": 401,
+  "body": {
+   "status": "error",
+   "errors": [
+    {
+     "errorCode": "UDAPI100050",
+     "message": "Invalid token used to access API",
+     "propertyPath": null,
+     "invalidValue": null,
+     "error_code": "UDAPI100050",
+     "property_path": null,
+     "invalid_value": null
+    }
+   ]
+  }
+ },
+ "note": "error code and message from the error-codes page, in the documented errors-array format"
+}

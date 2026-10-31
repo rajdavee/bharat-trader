@@ -1,0 +1,24 @@
+{
+ "doc_derived": true,
+ "source": "https://upstox.com/developer/api-documentation/v3/place-order (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/v3/order/place"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": "success",
+   "data": {
+    "order_ids": [
+     "1644490272000",
+     "1644490272001",
+     "1644490272003"
+    ]
+   },
+   "metadata": {
+    "latency": 30
+   }
+  }
+ }
+}
