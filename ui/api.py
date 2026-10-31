@@ -40,9 +40,10 @@ SKILLS = {
     "budget": ("trader-budget", "size"),
     "scanner": ("trader-scanner", "scan"),
     "options": ("trader-options", "options"),
+    "strategy": ("trader-strategy", "strategy"),
 }
 # how long a live answer is reused, in seconds (free endpoints: be polite)
-TTL = {"quotes": 15, "nse": 120, "chart-1m": 30, "chart-5m": 60, "chart-1d": 900}
+TTL = {"quotes": 15, "nse": 120, "chart-1m": 30, "chart-5m": 60, "chart-1d": 900, "history": 900}
 MAX_SYMBOLS = 12
 HHMM_KEYS = ("no_entries_before", "no_entries_after", "flat_by")
 PCT_KEYS = ("risk_per_trade_pct", "max_position_pct", "cash_buffer_pct")
@@ -69,7 +70,8 @@ def skill_errors():
     """Every skill's own error class: a message for the user, not a crash."""
     out = []
     for name, cls in (("alerts", "AlertError"), ("entry", "EntryError"), ("risk", "RiskError"),
-                      ("broker", "TicketError"), ("budget", "SizeError"), ("scanner", "ScanError")):
+                      ("broker", "TicketError"), ("budget", "SizeError"), ("scanner", "ScanError"),
+                      ("options", "OptionsError"), ("strategy", "StrategyError")):
         out.append(getattr(skill(name), cls))
     return tuple(out)
 
@@ -987,28 +989,330 @@ def r_config_save(ctx, q, body):
             "errors": [], "warnings": warnings, "summary": _summary(doc)}
 
 
-# ---------------------------------------------------------------- routes: coming next
+# ---------------------------------------------------------------- routes: option chain
+
+OPTION_SYMBOLS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "RELIANCE", "HDFCBANK", "ICICIBANK",
+                  "INFY", "TCS", "SBIN"]
+MAX_PATHS = 20000
+
+
+def _naive_now(ctx):
+    return ctx.now_ist().replace(tzinfo=None, microsecond=0)
+
+
+def _option_symbol(text):
+    op = skill("options")
+    try:
+        return op._symbol(text or "NIFTY")
+    except op.OptionsError as e:
+        raise ApiError(400, str(e))
+
+
+def _offline_has(ctx, name):
+    return any(os.path.isfile(os.path.join(ctx.offline, n)) for n in (name, name + ".gz"))
+
+
+def option_chain(ctx, sym, want=None):
+    """trader-options' full analysis of one expiry (cached), with the expiry list. Offline: the saved files."""
+    op = skill("options")
+    now = _naive_now(ctx)
+
+    def load():
+        f = op.Fetcher(offline=ctx.offline)
+        info = op.fetch_contract_info(f, sym)
+        if not info["expiries"]:
+            raise ApiError(404, "NSE lists no option expiries for %s (not in F&O?)" % sym)
+        try:
+            lots = op.fetch_lots(f)
+        except op.OptionsError:
+            lots = {}
+        e = op.pick_expiry(info["expiries"], want, now)
+        chain = op.fetch_chain(f, sym, e)
+        ts = op.parse_nse_time(chain.get("timestamp"))
+        r, src = op.risk_free_rate(ctx.path("config.json"))
+        # an offline chain can be newer than the pinned clock: judge its age from its own time then
+        a = op.analyse(chain, op.lot_size(lots, sym, e), r, now=max(now, ts) if ts else now, rate_source=src)
+        a["smile"] = op.smile(a["rows"], a["forward"])
+        a["max_pain_curve"] = op.max_pain(a["rows"], a["lot_size"] or 1)["curve"]
+        a["buildup"] = op.oi_buildup(a["rows"])
+        table = op.expiry_table(info["expiries"], lots, sym, now)
+        for row in table:
+            row["available"] = (not ctx.offline) or _offline_has(ctx, "chain-%s-%s.json" % (sym, row["expiry_nse"]))
+        a["expiry_list"] = table
+        return a
+    return ctx.cached(("options", sym, str(want or "")), TTL["nse"], load)
+
+
+def _options_why(a):
+    T, r = a["t_years"], a["rate"]
+    em = a.get("expected_move") or {}
+    st_ = a.get("straddle") or {}
+    pc = (a.get("pcr") or {}).get("all") or {}
+    mp = a.get("max_pain_detail") or {}
+    w = a.get("walls") or {}
+    src = "trader-options analyse(), NSE option-chain-v3 at %s" % a["asof"]
+    as_of = a["asof"]
+    return {
+        "forward": why("F = K + e^(rT) x (call mid - put mid), the median over the strikes nearest the money with "
+                       "a tight two-sided quote (put-call parity)",
+                       {"strikes": a.get("forward_strikes"), "method": a.get("forward_method"), "spot": a["spot"],
+                        "forward": a["forward"], "forward - spot": a.get("basis"), "r": r, "T (years)": T},
+                       src, as_of, "Spot stops at 15:30 while options trade to 15:40: the forward is what the options "
+                                   "themselves imply, so every IV and Greek here uses it."),
+        "atm_iv": why("Black-76 implied volatility of the ATM call and put on the forward (a bracketed Newton solve), "
+                      "their average", {"ATM": a["atm"], "call IV": a.get("atm_iv_ce"), "put IV": a.get("atm_iv_pe")},
+                      src, as_of, "NSE's own IV column is not used: it differs between calls and puts."),
+        "pcr": why("PCR = total put OI / total call OI for this expiry (contracts on both sides)",
+                   {"put OI": pc.get("pe_oi"), "call OI": pc.get("ce_oi"), "PCR OI": a.get("pcr_oi"),
+                    "PCR volume": a.get("pcr_volume"), "near ATM": ((a.get("pcr") or {}).get("near_atm") or {}).get("oi")},
+                   src, as_of, "A crowd gauge, not a signal. Above about 1.2 more puts are open; below 0.8 more calls."),
+        "max_pain": why("the listed strike K* with the least sum over strikes of call OI x max(K* - K, 0) + put OI x "
+                        "max(K - K*, 0), x lot = rupees option buyers would be paid at expiry",
+                        {"max pain": mp.get("strike"), "pain (₹)": mp.get("pain"), "distance from forward": mp.get("distance"),
+                         "lot": a.get("lot_size")}, src, as_of, "A weak pull, strongest on expiry day."),
+        "walls": why("the out-of-the-money call strike (at or above the forward) and put strike (at or below) with the "
+                     "most open interest", {"call wall": w.get("call"), "put wall": w.get("put"),
+                                             "top calls": [x["strike"] for x in w.get("calls") or []],
+                                             "top puts": [x["strike"] for x in w.get("puts") or []]},
+                     src, as_of, "Sellers there lose if the price goes through: read as resistance and support, "
+                                 "not as a promise."),
+        "expected_move": why("one standard deviation to expiry: straddle x e^(rT) x 1.2533 (the straddle prices the "
+                             "average move, 0.80 of one SD); check: forward x IV x sqrt(T)",
+                             {"straddle": em.get("straddle"), "from straddle": em.get("from_straddle"),
+                              "from IV": em.get("from_iv"), "low": em.get("low"), "high": em.get("high"), "T (years)": T},
+                             src, as_of, "About 68% of the time the underlying ends inside it, if IV is right."),
+        "straddle": why("ATM call price + ATM put price (mid, or LTP when the quote is wide)",
+                        {"strike": st_.get("strike"), "call": st_.get("ce"), "put": st_.get("pe"),
+                         "₹ per lot": st_.get("rupees_per_lot")}, src, as_of),
+        "iv": why("Black-76 IV of this option's price on the forward, % a year; none when the price is at or below "
+                  "intrinsic, or the quote is too wide and it did not trade", {"forward": a["forward"], "T": T, "r": r},
+                  src, as_of),
+        "greeks": why("Black-76 on the forward, per unit: delta = dPrice/dF, gamma per point, theta ₹ per calendar day, "
+                      "vega ₹ per vol point", {"forward": a["forward"], "T": T, "r": r}, src, as_of,
+                      "Multiply by lot size and lots for a position. Unreliable in the last hours before expiry."),
+        "oi": why("open interest in CONTRACTS (lots); x lot size = units. Bars scale to the largest OI shown",
+                  {"lot": a.get("lot_size")}, src, as_of),
+        "oi_chg": why("change in open interest today, contracts. With the price change it classifies the build-up: "
+                      "price up + OI up = long build-up, down + up = short build-up (writing), down + down = long "
+                      "unwinding, up + down = short covering", {}, src, as_of),
+        "smile": why("IV of the out-of-the-money side at each strike: puts below the forward, calls above",
+                     {"points": len(a.get("smile") or []), "25-delta risk reversal": (a.get("skew") or {}).get(
+                         "risk_reversal")}, src, as_of, "Puts usually cost more IV than calls on Indian indices (skew)."),
+    }
+
 
 def r_options(ctx, q, body):
-    return {"available": False, "coming": "v0.2.0", "skill": "trader-options",
-            "title": "Option chain",
-            "will_show": ["NSE option chain by expiry, with lot sizes from NSE's daily file",
-                          "open interest and change in OI as bars per strike; call and put walls",
-                          "PCR by OI and by volume, max pain, expected move",
-                          "the IV smile: Black-76 implied volatility off the put-call-parity forward",
-                          "Greeks per strike, and IV rank from India VIX history"],
-            "reads": "trader/options.json (written by trader-options)"}
+    sym = _option_symbol(q.get("symbol"))
+    try:
+        n = int(q.get("strikes") or 15)
+    except ValueError:
+        raise ApiError(400, "strikes is a whole number (0 = every strike)")
+    a = option_chain(ctx, sym, q.get("expiry") or None)
+    op = skill("options")
+    out = {k: v for k, v in a.items() if k != "rows"}
+    out["rows"] = op.window_rows(a["rows"], a["atm"], max(0, min(n, 200)))
+    out["strikes_total"] = len(a["rows"])
+    out["available"] = True
+    out["symbols"] = OPTION_SYMBOLS
+    out["why"] = _options_why(a)
+    out["disclaimer"] = DISCLAIMER
+    return out
+
+
+# ---------------------------------------------------------------- routes: strategy builder
+
+def _num_param(body, key, lo=None, hi=None, integer=False):
+    v = (body or {}).get(key)
+    if v in (None, ""):
+        return None
+    if isinstance(v, bool) or not isinstance(v, (int, float, str)):
+        raise ApiError(400, "%s must be a number" % key)
+    try:
+        x = int(v) if integer else float(v)
+    except ValueError:
+        raise ApiError(400, "%s must be a number" % key)
+    if (lo is not None and x < lo) or (hi is not None and x > hi):
+        raise ApiError(400, "%s must be between %s and %s" % (key, lo, hi))
+    return x
+
+
+def strategy_inputs(ctx, body):
+    """Validate a strategy request and load what it needs: (doc args, legs, markets, near, name, params)."""
+    stg = skill("strategy")
+    if not isinstance(body, dict):
+        raise ApiError(400, "send a JSON object")
+    sym = _option_symbol(body.get("symbol"))
+    expiry = body.get("expiry") or None
+    far = body.get("far_expiry") or None
+    tmpl = body.get("template") or None
+    legs_text = body.get("legs") or None
+    if bool(tmpl) == bool(legs_text):
+        raise ApiError(400, "send either a template or legs")
+    if legs_text is not None and (not isinstance(legs_text, str) or len(legs_text) > 600):
+        raise ApiError(400, "legs is short text, like '-1 CE ATM+200, +1 CE ATM+300'")
+    params = {}
+    raw = body.get("params") or {}
+    if not isinstance(raw, dict):
+        raise ApiError(400, "params is an object")
+    for key, lo, hi, integer in (("strike", 1, 10 ** 7, False), ("wings", 0, 10 ** 6, False),
+                                 ("width", 0.01, 10 ** 6, False), ("delta", 0.01, 0.99, False),
+                                 ("skip", 0, 10 ** 6, False), ("ratio", 1, 10, True), ("lots", 1, 100, True)):
+        v = _num_param(raw, key, lo, hi, integer)
+        if v is not None:
+            params[key] = v
+    if raw.get("type") not in (None, ""):
+        if str(raw["type"]).upper() not in ("CE", "PE"):
+            raise ApiError(400, "type is CE or PE")
+        params["type"] = str(raw["type"]).upper()
+    first = option_chain(ctx, sym, expiry)
+    near = first["expiry"]
+    markets = {near: first}
+    if tmpl:
+        name = stg.template_name(tmpl)
+        if name == "calendar":
+            if not far:
+                later = [e for e in first["expiry_list"] if e["expiry"] > near and e["days"] >= 7 and e["available"]]
+                if not later:
+                    raise ApiError(400, "a calendar needs a second expiry (far_expiry)")
+                far = later[0]["expiry_nse"]
+            a2 = option_chain(ctx, sym, far)
+            if a2["expiry"] <= near:
+                raise ApiError(400, "far_expiry must be after the near expiry")
+            markets[a2["expiry"]] = a2
+        specs = stg.template_specs(name, params, first)
+    else:
+        name = "custom"
+        specs = stg.parse_legs(legs_text)
+        params = {"legs": legs_text}
+        for sp in specs:
+            if sp["expiry"] not in ("near", "far") and sp["expiry"] not in markets:
+                a2 = option_chain(ctx, sym, sp["expiry"])
+                markets[a2["expiry"]] = a2
+    fill = body.get("fill") or "mid"
+    if fill not in ("mid", "touch"):
+        raise ApiError(400, "fill is mid or touch")
+    legs = stg.resolve_legs(specs, markets, near, fill)
+    return legs, markets, near, name, params
+
+
+def _history(ctx, sym, asof):
+    stg = skill("strategy")
+    key = ("history", sym, asof)
+
+    def load():
+        try:
+            return stg.load_history(sym, [ctx.offline] if ctx.offline else None, skill("options").parse_nse_time(asof))
+        except stg.StrategyError:
+            return None          # the page shows the textbook figure and says the simulation had no data
+    return ctx.cached(key, TTL["history"], load)
+
+
+def strategy_doc(ctx, body):
+    stg = skill("strategy")
+    legs, markets, near, name, params = strategy_inputs(ctx, body)
+    iv_shift = _num_param(body, "iv_shift", -50, 50) or 0.0
+    seed = _num_param(body, "seed", 0, 2 ** 31, True)
+    paths = _num_param(body, "paths", 500, MAX_PATHS, True) or 5000
+    at = body.get("at") or None
+    if at is not None and (not isinstance(at, str) or len(at) > 20):
+        raise ApiError(400, "at is today, expiry or a date")
+    simulate = body.get("simulate", True) is not False
+    hist = _history(ctx, markets[near]["underlying"], markets[near]["asof"]) if simulate else None
+    doc = stg.evaluate(legs, markets, ctx.config(), name, params, at, iv_shift, hist,
+                       stg.DEFAULT_SEED if seed is None else seed, paths, None, _naive_now(ctx), simulate)
+    doc["generated_at"] = ist_text(ctx.now_ist())
+    doc["why"] = _strategy_why(doc)
+    doc["disclaimer"] = DISCLAIMER
+    return doc
+
+
+def _strategy_why(d):
+    e, m, p = d["expiry"], d["margin"], d["probability"]
+    src = "trader-strategy evaluate() on the trader-options chain of %s" % d["asof"]
+    t = p["textbook"]
+    s = p.get("simulated") or {}
+    legs = ["%s %d %s %s @ %s" % (l["side"], l["lots"], l["strike"] if l["strike"] else "FUT", l["option_type"] or "",
+                                  l["price"]) for l in d["legs"]]
+    return {
+        "net_premium": why("sum over option legs of premium x qty: received for a sell, paid for a buy",
+                           {"legs": legs, "received": d["net_premium"]["received"], "paid": d["net_premium"]["paid"],
+                            "crossing the spread": d["spread_cost"]}, src, d["asof"]),
+        "max_profit": why("the payoff's highest point at the near expiry, underlying from 0 up; unlimited when it "
+                          "keeps rising (a naked call bought)", {"at": e["max_profit_at"], "after charges":
+                                                                  e["max_profit_after_charges"], "exact": e["exact"]},
+                          src, d["asof"]),
+        "max_loss": why("the payoff's lowest point at the near expiry, underlying from 0 up; unlimited when it keeps "
+                        "falling (a naked call sold)", {"at": e["max_loss_at"], "after charges":
+                                                         e["max_loss_after_charges"], "exact": e["exact"]},
+                        src, d["asof"], None if e["exact"] else "Two expiries: the later leg is a Black-76 value."),
+        "breakevens": why("where the expiry payoff crosses 0, refined to 0.01 point; after charges every leg's round "
+                          "trip is taken off first (STT on exercise for in-the-money longs)",
+                          {"gross": e["breakevens"], "after charges": e["breakevens_after_charges"],
+                           "shift": [x["shift"] for x in e["breakeven_shift"]]}, src, d["asof"]),
+        "margin": why(m["explain"], {"method": m["method"], "amount": m["amount"], "error +/- %": m["error_pct"],
+                                     "scan risk": m["span_style"]["scan_risk"], "exposure": m["span_style"]["exposure"],
+                                     "premium paid": m["span_style"]["premium_paid"],
+                                     "price scan": m["span_style"]["assumptions"]["price_scan"],
+                                     "broker basket": m["broker_basket"]},
+                      m["span_style"]["assumptions"]["source"], d["asof"], m["broker_note"]),
+        "pop_textbook": why(t["method"] + ": PoP = share of outcomes with P&L after charges above 0",
+                            {"PoP gross": t["pop_gross"], "expected value": t["ev"], "5% tail": t["tail_5pct"],
+                             "worst 5% average": t["tail_5pct_avg"], "IV": t["sigma"]}, src, d["asof"],
+                            "A model: it assumes IV is right and moves are normal in log terms."),
+        "pop_simulated": why(s.get("method") or "not run", {"PoP gross": s.get("pop_gross"), "expected value": s.get("ev"),
+                                                           "5% tail": s.get("tail_5pct"), "realised vol": s.get(
+                                                               "realised_vol"), "sessions": s.get("sessions")},
+                             (s.get("history") or {}).get("source") or "no history", d["asof"],
+                             "History is not the future: a quiet year makes selling look safer than it is."),
+        "greeks": why("sum over legs of the leg's Black-76 Greek x qty, signed by side",
+                      {"delta (units)": d["greeks"]["delta"], "delta (lots)": d["greeks"]["delta_lots"],
+                       "gamma": d["greeks"]["gamma"], "theta ₹/day": d["greeks"]["theta"],
+                       "vega ₹/vol pt": d["greeks"]["vega"]}, src, d["asof"]),
+        "charges": why("round trip per leg at the dated 2026 F&O rates, held to expiry with the underlying at the "
+                       "forward", {"total": d["charges"]["at_forward_expiry"],
+                                   "per leg": [x["total"] for x in d["charges"]["at_forward_expiry_detail"]]},
+                       "trader-strategy round_trip_charges (the shared F&O table)", d["asof"], d["charges"]["note"]),
+    }
 
 
 def r_strategy(ctx, q, body):
-    return {"available": False, "coming": "v0.2.0", "skill": "trader-strategy",
-            "title": "Strategy builder",
-            "will_show": ["a legs editor: spreads, straddles, strangles, butterflies, condors, iron flies, ratios",
-                          "the payoff at expiry and today, gross and after charges",
-                          "breakevens, max profit and max loss, the STT-on-exercise warning",
-                          "position Greeks and a margin estimate with honest error bounds",
-                          "probability of profit: textbook and simulated"],
-            "reads": "the strategy file written by trader-strategy"}
+    stg = skill("strategy")
+    saved = ctx.read("strategy.json")
+    summary = None
+    if isinstance(saved, dict) and saved.get("schema") == stg.SCHEMA:
+        summary = {k: saved.get(k) for k in ("name", "underlying", "near_expiry", "generated_at", "net_premium")}
+        summary["legs"] = len(saved.get("legs") or [])
+    return {"available": True, "templates": stg.list_templates(), "symbols": OPTION_SYMBOLS, "default": "NIFTY",
+            "saved": summary, "max_paths": MAX_PATHS,
+            "legs_help": "[+|-]LOTS CE|PE|FUT STRIKE [@DD-Mon-YYYY] [=PRICE]; STRIKE is 23000, ATM, ATM+200, D25 "
+                         "(delta) or P50 (premium)", "disclaimer": DISCLAIMER}
+
+
+def r_strategy_price(ctx, q, body):
+    return strategy_doc(ctx, body)
+
+
+def r_strategy_draft(ctx, q, body):
+    """The legs as a PROPOSAL in trader/orders.json: nothing is placed. trader-risk checks each leg, then
+    the paper broker needs a typed yes for each one, as for any other order."""
+    stg = skill("strategy")
+    c = skill("broker").merged_config(ctx.config())
+    if not c.get("paper", True) or str(c.get("broker", "paper")).lower() != "paper":
+        raise ApiError(409, "the UI drafts orders for the paper account only (\"paper\": true, broker paper)")
+    product = str((body or {}).get("product") or "NRML").upper()
+    doc = strategy_doc(ctx, dict(body or {}, simulate=False))
+    doc.pop("why", None)
+    try:
+        written = stg.write_orders(ctx.path("orders.json"), doc, product, bool((body or {}).get("replace")))
+    except stg.StrategyError as e:
+        raise ApiError(409, str(e).replace(ctx.path("orders.json"), "trader/orders.json")
+                       .replace("--replace", "replace (tick 'Replace other proposals')"))
+    stg.write_json(ctx.path("strategy.json"), doc)
+    return {"ok": True, "paper": True, "orders": written["orders"], "path": ctx.path("orders.json"),
+            "strategy_path": ctx.path("strategy.json"), "tickets": tickets(ctx)["tickets"],
+            "next": "Proposals written, nothing placed. Next: Risk panel -> Run risk check, then type yes for each "
+                    "leg on the Portfolio page. Until trader-risk has F&O rules it blocks option legs unless your "
+                    "config allows F&O (\"allow_fno\": true)."}
 
 
 # ---------------------------------------------------------------- the table
@@ -1028,8 +1332,8 @@ ROUTES = [
     ("GET", "/api/orders", r_orders, "order tickets with their trader-risk status", False),
     ("GET", "/api/risk", r_risk, "your limits, the recorded verdicts and a fresh preview", False),
     ("GET", "/api/config", r_config, "trader/config.json, the effective settings and their meaning", False),
-    ("GET", "/api/options", r_options, "option chain (coming in v0.2)", False),
-    ("GET", "/api/strategy", r_strategy, "strategy builder (coming in v0.2)", False),
+    ("GET", "/api/options", r_options, "option chain with IV, Greeks, PCR, max pain, walls: ?symbol=&expiry=", False),
+    ("GET", "/api/strategy", r_strategy, "strategy templates, symbols and the saved trader/strategy.json", False),
     ("POST", "/api/risk/check", r_risk_check, "run trader-risk on trader/orders.json and record the verdicts", True),
     ("POST", "/api/prices/refresh", r_refresh_prices, "trader-alerts quote --holdings --write", True),
     ("POST", "/api/orders/confirm", r_confirm, "record your typed yes for ONE order (paper broker)", True),
@@ -1037,6 +1341,9 @@ ROUTES = [
     ("POST", "/api/orders/fill", r_fill, "simulate a paper fill (entry, stop or target)", True),
     ("POST", "/api/config/validate", r_config_validate, "check a config without saving it", True),
     ("POST", "/api/config", r_config_save, "validate and save trader/config.json (keeps a .bak)", True),
+    ("POST", "/api/strategy/price", r_strategy_price, "price a template or custom legs (trader-strategy evaluate)",
+     True),
+    ("POST", "/api/strategy/draft", r_strategy_draft, "write the legs as a paper PROPOSAL to trader/orders.json", True),
 ]
 _TABLE = {(m, p): (fn, w) for m, p, fn, _, w in ROUTES}
 STREAM_PATH = "/api/stream"
