@@ -40,11 +40,12 @@ config.json ▶│   budget   │ ───────────────�
 | `entry.json` | entry | exit |
 | `plan.json` | exit | timemachine, budget, alerts |
 | `timemachine.json` | timemachine | you |
-| `orders.json` | budget | risk, broker |
+| `orders.json` | budget, strategy (`--orders`) | risk, broker |
 | `prices.json` | alerts | budget, risk, broker |
 | `portfolio.json` | broker | budget, risk, insider |
 | `options.json` | options (`--write`) | strategy builder, UI (schema in `trader-options/SKILL.md`) |
 | `lab/<name>/` | lab (`run`, `forward`): spec, results, scorecard, equity, status, forward record, draft plans | you, UI; the draft plans go to budget (`size.py --plan`) |
+| `strategy.json` | strategy (`--write`, UI) | you, UI, MCP (schema in `trader-strategy/SKILL.md`) |
 
 Two front ends sit on top and reuse the skills rather than reimplementing
 them: the local web UI (`ui/serve.py`, [ui.md](ui.md)) and the MCP server
