@@ -11,6 +11,7 @@ import * as risk from './pages/risk.js';
 import * as settings from './pages/settings.js';
 import * as options from './pages/options.js';
 import * as strategy from './pages/strategy.js';
+import * as agents from './pages/agents.js';
 import * as about from './pages/about.js';
 
 const PAGES = {
@@ -21,11 +22,12 @@ const PAGES = {
   risk: ['risk', 'Risk panel', risk],
   options: ['options', 'Option chain', options],
   strategy: ['strategy', 'Strategy builder', strategy],
+  agents: ['agents', 'Agent team', agents],
   settings: ['settings', 'Settings', settings],
   about: ['about', 'About', about],
 };
 const GO = { d: '#/', c: '#/chart', s: '#/scanner', p: '#/portfolio', r: '#/risk', o: '#/options',
-  b: '#/strategy', e: '#/settings', a: '#/about' };
+  b: '#/strategy', t: '#/agents', e: '#/settings', a: '#/about' };
 
 export const bus = new EventTarget();
 export const live = { status: null, prices: null, alerts: null };

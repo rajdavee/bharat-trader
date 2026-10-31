@@ -474,7 +474,7 @@ class Server(object):
         if args is not None and not isinstance(args, dict):
             raise RpcError(INVALID_PARAMS, "arguments must be an object")
         try:
-            text = toolkit.render_prompt(p, args)
+            text = toolkit.render_prompt(p, args, self.kit)
         except ValueError as e:
             raise RpcError(INVALID_PARAMS, str(e))
         return {"description": p["description"], "messages": [{"role": "user", "content": {"type": "text",
