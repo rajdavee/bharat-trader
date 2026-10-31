@@ -16,6 +16,8 @@
     "strategy_price": {"offline": "../ui", "now": "2026-11-01 10:00"},
     "results_analyse": {"offline": "../trader-analyst", "now": "2026-10-29"},
     "insider_deals": {"offline": "../trader-insider", "now": "2026-10-29"},
-    "insider_disclosures": {"offline": "../trader-insider", "now": "2026-10-29"}
+    "insider_disclosures": {"offline": "../trader-insider", "now": "2026-10-29"},
+    "lab_run": {"offline": "../trader-lab", "now": "2026-10-23 16:00"},
+    "lab_forward": {"offline": "../trader-lab", "now": "2026-10-29 09:50"}
   }
 }

@@ -1,0 +1,25 @@
+{
+ "schema": "bharat-trader/lab-spec/1",
+ "name": "pdh-breakout",
+ "title": "Previous-day-high breakout, above VWAP",
+ "description": "Buy the first 5-minute close above yesterday's high between 09:30 and 13:00 IST while price is above the session VWAP. Stop 1.5 ATR(14, on 5-minute bars) under the entry, target 2R, flat by the safe flat-by.",
+ "kind": "equity",
+ "timeframe": "5m",
+ "product": "MIS",
+ "side": "long",
+ "universe": ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "SBIN", "BHARTIARTL", "ITC", "LT", "AXISBANK"],
+ "params": {"atr_mult": 1.5, "target_r": 2},
+ "entry": {"all": [
+  ["close", "crosses_above", "prev_high"],
+  ["close", ">", "vwap"],
+  {"time_between": ["09:30", "13:00"]}
+ ]},
+ "stop": {"atr": 14, "mult": "$atr_mult"},
+ "target": {"r": "$target_r"},
+ "exit": {"flat_by": "auto"},
+ "entries_per_symbol_per_day": 1,
+ "sizing": {"capital": 100000, "risk_per_trade_pct": 1, "max_trades_per_day": 3},
+ "grid": {"atr_mult": [1, 1.5, 2], "target_r": [1.5, 2, 3]},
+ "walk_forward": {"in_sample": 20, "out_of_sample": 10},
+ "seed": 16
+}

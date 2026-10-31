@@ -69,8 +69,11 @@ function results(d) {
       (e.exact ? '' : ' · approximate (two expiries)')),
     tile('Breakevens', why(e.breakevens.map((b) => num(b)).join(' / ') || 'none', w.breakevens, 'the breakevens'),
       'after charges ' + (e.breakevens_after_charges.map((b) => num(b)).join(' / ') || 'none')),
-    tile('Margin', why((m.method === 'span-style' ? '≈ ' : '') + inr(m.amount), w.margin, 'the margin'),
-      m.method === 'max-loss' ? 'exact max loss (defined risk)' : `SPAN-style ±${m.error_pct}%: ${inr(m.low)} – ${inr(m.high)}`),
+    tile(m.method === 'premium' ? 'Margin required' : `Margin required (estimate, ±${m.error_pct}%)`,
+      why((m.method === 'premium' ? '' : '≈ ') + inr(m.required), w.margin, 'the margin required'),
+      m.method === 'premium' ? 'premium paid up front (exact)' : `${inr(m.low)} – ${inr(m.high)} · what a broker would block`),
+    tile('Return on margin', m.return_on_margin === null ? '–' : num(m.return_on_margin) + '%',
+      'max profit at expiry / margin required'),
     tile('PoP textbook', why(num(t.pop) + '%', w.pop_textbook, 'the textbook probability'),
       `EV ${inr(t.ev)} · 5% tail ${inr(t.tail_5pct)}`),
     tile('PoP simulated', why(s ? num(s.pop) + '%' : '–', w.pop_simulated, 'the simulated probability'),
@@ -149,9 +152,11 @@ function marginCard(d) {
   const m = d.margin;
   const sp = m.span_style;
   return card('Margin', kv([
-    ['Method', m.method === 'max-loss' ? 'defined risk: the exact max loss' : `SPAN-style estimate, ±${m.error_pct}%`],
-    ['Amount', why(inr(m.amount), d.why.margin, 'the margin')],
+    ['Method', m.method === 'premium' ? 'bought options only: the premium paid up front' : `SPAN-style estimate, ±${m.error_pct}%`],
+    [m.label, why(inr(m.required), d.why.margin, 'the margin required')],
     ['Range', `${inr(m.low)} – ${inr(m.high)}`],
+    ['Max loss at expiry (not the margin)', m.max_loss_unlimited ? 'unlimited' : inr(m.max_loss)],
+    ['Return on margin', m.return_on_margin === null ? '–' : num(m.return_on_margin) + '% (max profit / margin required)'],
     ['SPAN-style detail', `scan risk ${inr(sp.scan_risk)} + exposure ${inr(sp.exposure)}` +
       (sp.expiry_day_elm ? ` + expiry-day ${inr(sp.expiry_day_elm)}` : '') + ` + premium paid ${inr(sp.premium_paid)} = ${inr(sp.total)} (±${sp.error_pct}%)`],
     ['Assumptions', `price scan ${num(sp.assumptions.price_scan)} (${num(sp.assumptions.scan_pct, 1)}%), vol scan ${num(sp.assumptions.vol_scan_points, 0)} pts, ELM ${num(sp.assumptions.elm_pct, 1)}%`],

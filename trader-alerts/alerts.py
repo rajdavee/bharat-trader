@@ -108,7 +108,7 @@ CALENDAR_YEARS = (2026,)
 DEFAULT_FLAT_BY = "15:10"
 
 
-# ---------------------------------------------------------------- dated market rules (same in entry, exit, alerts, risk, timemachine, scanner, broker)
+# ---------------------------------------------------------------- dated market rules (same in entry, exit, alerts, risk, timemachine, scanner, broker, lab)
 # Every row holds from its effective_from date (IST) until the next row starts.
 # Times are IST. Segments: "EQ" a cash-market stock with no derivatives, "EQ_FNO"
 # a cash-market stock in NSE's F&O list (the Closing Auction Session applies to

@@ -1,0 +1,25 @@
+{
+ "schema": "bharat-trader/lab-spec/1",
+ "name": "vwap-reclaim",
+ "title": "VWAP reclaim after a dip",
+ "description": "A stock that slipped under its session VWAP closes back above it between 10:00 and 14:00 IST, on a day it is still above the previous close. Stop a tick under the low of the last few bars, target 2R, flat by the safe flat-by.",
+ "kind": "equity",
+ "timeframe": "5m",
+ "product": "MIS",
+ "side": "long",
+ "universe": ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "SBIN", "BHARTIARTL", "ITC", "LT", "AXISBANK"],
+ "params": {"swing_bars": 6, "target_r": 2},
+ "entry": {"all": [
+  ["close", "crosses_above", "vwap"],
+  ["close", ">", "prev_close"],
+  {"time_between": ["10:00", "14:00"]}
+ ]},
+ "stop": {"price": {"lowest": "$swing_bars", "of": "low"}, "buffer_ticks": 1},
+ "target": {"r": "$target_r"},
+ "exit": {"flat_by": "auto"},
+ "entries_per_symbol_per_day": 1,
+ "sizing": {"capital": 100000, "risk_per_trade_pct": 1, "max_trades_per_day": 3},
+ "grid": {"swing_bars": [3, 6, 12], "target_r": [1.5, 2, 3]},
+ "walk_forward": {"in_sample": 20, "out_of_sample": 10},
+ "seed": 16
+}

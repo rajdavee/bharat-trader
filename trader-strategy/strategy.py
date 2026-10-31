@@ -1085,14 +1085,27 @@ def defined_risk(legs):
 # ---------------------------------------------------------------- margin
 
 def span_style(pos, kind, scan=None, asof=None):
-    """A SPAN-style estimate: the worst loss over 16 scenarios on the whole position (price moves of
-    0, +/-1/3, +/-2/3, +/-1 x the price scan, each with vol up and down by the vol scan; and +/-3 x the
-    scan at 30% weight), plus exposure (ELM) on short options and futures, plus premium paid up front."""
+    """What a broker would block: a SPAN-style estimate for the whole position.
+
+    With a short option or a future: scanning risk (the worst loss over 16 scenarios on the WHOLE
+    position, so bought wings cut it: price moves of 0, +/-1/3, +/-2/3, +/-1 x the price scan, each with
+    IV up and down by the vol scan, and +/-3 x the scan at 30% weight) + exposure (ELM) on the notional
+    of EVERY short option and future, hedged or not (exposure is per short leg; the hedge benefit comes
+    through SPAN only) + 2% more on index shorts on their expiry day + premium paid on bought options.
+    Only bought options: the premium paid, nothing else (no SPAN is collected on a long option)."""
     p = dict(SPAN_DEFAULTS[kind])
     p.update({k: v for k, v in (scan or {}).items() if v is not None})
     F = pos.ref
     ps = F * p["scan_pct"] / 100.0
     vs = p["vol_scan"]
+    paid = sum(l["price"] * l["qty"] for l in pos.legs if l["instrument"] == "OPT" and l["side"] == "BUY")
+    received = sum(l["price"] * l["qty"] for l in pos.legs if l["instrument"] == "OPT" and l["side"] == "SELL")
+    assumptions = {"price_scan": _r(ps, 2), "scan_pct": p["scan_pct"], "vol_scan_points": vs,
+                   "elm_pct": p["elm_pct"], "source": p["source"]}
+    if not any(l["instrument"] == "FUT" or l["side"] == "SELL" for l in pos.legs):
+        return {"method": "premium", "scan_risk": 0.0, "worst_scenario": None, "exposure": 0.0,
+                "expiry_day_elm": 0.0, "premium_paid": _r(paid, 2), "premium_received": 0.0, "total": _r(paid, 2),
+                "error_pct": 0, "low": _r(paid, 2), "high": _r(paid, 2), "assumptions": assumptions}
     base = pos.gross(F, 0.0)
     worst, at = 0.0, None
     for m in (0.0, 1 / 3.0, -1 / 3.0, 2 / 3.0, -2 / 3.0, 1.0, -1.0):
@@ -1105,53 +1118,55 @@ def span_style(pos, kind, scan=None, asof=None):
         if loss > worst:
             worst, at = loss, {"move": _r(m * ps, 2), "vol": 0.0, "weight": EXTREME_WEIGHT}
     exposure, extra = 0.0, 0.0
-    day = (asof or _dt.datetime.now()).date().isoformat() if asof else None
+    day = asof.date().isoformat() if asof else None
     for l in pos.legs:
         notional = l["forward"] * l["qty"]
         if l["instrument"] == "FUT" or l["side"] == "SELL":
             exposure += notional * p["elm_pct"] / 100.0
         if kind == "index" and l["instrument"] == "OPT" and l["side"] == "SELL" and day == l["expiry"]:
             extra += notional * EXPIRY_DAY_ELM_PCT / 100.0
-    paid = sum(l["price"] * l["qty"] for l in pos.legs if l["instrument"] == "OPT" and l["side"] == "BUY")
     total = worst + exposure + extra + paid
-    return {"scan_risk": _r(worst, 2), "worst_scenario": at, "exposure": _r(exposure, 2),
-            "expiry_day_elm": _r(extra, 2), "premium_paid": _r(paid, 2), "total": _r(total, 2),
-            "error_pct": p["error_pct"], "low": _r(total * (1 - p["error_pct"] / 100.0), 2),
-            "high": _r(total * (1 + p["error_pct"] / 100.0), 2),
-            "assumptions": {"price_scan": _r(ps, 2), "scan_pct": p["scan_pct"], "vol_scan_points": vs,
-                            "elm_pct": p["elm_pct"], "source": p["source"]}}
+    return {"method": "span-style", "scan_risk": _r(worst, 2), "worst_scenario": at, "exposure": _r(exposure, 2),
+            "expiry_day_elm": _r(extra, 2), "premium_paid": _r(paid, 2), "premium_received": _r(received, 2),
+            "total": _r(total, 2), "error_pct": p["error_pct"],
+            "low": _r(total * (1 - p["error_pct"] / 100.0), 2), "high": _r(total * (1 + p["error_pct"] / 100.0), 2),
+            "assumptions": assumptions}
 
 
-def margin_estimate(pos, kind, max_loss, scan=None, asof=None):
-    """The money this position needs. Defined risk: the exact max loss at expiry (the most it can
-    lose, which a broker blocks at least; premium paid is part of it). Otherwise: the SPAN-style
-    estimate with its error bound. Both figures are always returned; broker_basket stays None until
-    a broker adapter reports its own basket margin."""
+def margin_estimate(pos, kind, max_loss, scan=None, asof=None, max_profit=None):
+    """Margin required (the headline: what a broker would block, estimated) and, apart from it, the
+    exact max loss and the return on margin.
+
+    required     the SPAN-style estimate (span_style), +/- error_pct; only bought options: the premium
+    max_loss     the most the position can lose at expiry (positive rupees), exact for one expiry; None
+                 when unlimited. It is NOT the margin: a broker blocks SPAN + exposure, usually far more
+                 for a hedged credit spread
+    return_on_margin   max profit at expiry / required, in %, None when either is unlimited or missing
+    broker_basket stays None until a broker adapter reports its own basket margin."""
     span = span_style(pos, kind, scan, asof)
-    dr = defined_risk(pos.legs)
-    out = {"defined_risk": dr, "span_style": span, "broker_basket": None,
-           "broker_note": "no broker connected: check the broker's basket margin before any real order"}
-    if dr and max_loss is not None:
-        need = max(0.0, -max_loss)
-        out.update({"method": "max-loss", "amount": _r(need, 2), "error_pct": 0, "low": _r(need, 2),
-                    "high": _r(need, 2),
-                    "explain": "Defined risk: the most this can lose at expiry, exactly, from the strikes and "
-                               "premiums (before charges). Brokers block SPAN + exposure, which for a hedged "
-                               "spread is usually this or more (about %s here, +/-%d%%)." % (
-                                   inr(span["total"]), span["error_pct"])})
+    req = span["total"]
+    loss = _r(max(0.0, -max_loss), 2) if max_loss is not None else None
+    rom = _r(100.0 * max_profit / req, 2) if max_profit is not None and req and req > 0 else None
+    err = span["error_pct"]
+    if span["method"] == "premium":
+        label = "Margin required (premium paid up front, exact)"
+        explain = ("Only bought options: you pay the premium up front and no SPAN or exposure margin is "
+                   "blocked. The premium is also the most you can lose.")
     else:
-        out.update({"method": "span-style", "amount": span["total"], "error_pct": span["error_pct"],
-                    "low": span["low"], "high": span["high"],
-                    "explain": "Undefined risk: a SPAN-style estimate, +/-%d%%. Worst of 16 price and vol "
-                               "scenarios on the whole position (price scan %s%% of the forward, vol scan %s "
-                               "points), plus %s%% exposure on short options and futures%s, plus premium paid. "
-                               "Not the exchange's SPAN file: the real figure can differ, most on hedged or "
-                               "expiry-day positions." % (
-                                   span["error_pct"], fnum(span["assumptions"]["scan_pct"], 1),
-                                   fnum(span["assumptions"]["vol_scan_points"], 0),
-                                   fnum(span["assumptions"]["elm_pct"], 1),
-                                   " (and 2% more on index shorts expiring today)" if span["expiry_day_elm"] else "")})
-    return out
+        label = "Margin required (estimate, +/-%d%%)" % err
+        explain = ("A SPAN-style estimate of what a broker blocks, +/-%d%%: the worst of 16 price and IV "
+                   "scenarios on the whole position (price scan %s%% of the forward, IV scan %s points), so "
+                   "bought wings cut it; plus %s%% exposure on the notional of every short option and future, "
+                   "hedged or not%s; plus premium paid. Brokers differ on whether premium received offsets it. "
+                   "Not the exchange's SPAN file: check your broker's basket margin." % (
+                       err, fnum(span["assumptions"]["scan_pct"], 1), fnum(span["assumptions"]["vol_scan_points"], 0),
+                       fnum(span["assumptions"]["elm_pct"], 1),
+                       ", and 2% more on index shorts expiring today" if span["expiry_day_elm"] else ""))
+    return {"label": label, "required": req, "low": span["low"], "high": span["high"], "error_pct": err,
+            "method": span["method"], "explain": explain, "defined_risk": defined_risk(pos.legs),
+            "max_loss": loss, "max_loss_unlimited": max_loss is None,
+            "return_on_margin": rom, "span_style": span, "broker_basket": None,
+            "broker_note": "no broker connected: check the broker's basket margin before any real order"}
 
 
 # ---------------------------------------------------------------- probability
@@ -1335,7 +1350,8 @@ def evaluate(legs, markets, cfg=None, name="custom", params=None, at=None, iv_sh
     ext_net = extremes_after_charges(pos, lambda x: pos.net(x, tn), ext, xs)
     fwd = pos.ref
     ch_spot = pos.charges(fwd, tn)
-    margin = margin_estimate(pos, kind, ext["max_loss"], scan, asof)
+    margin = margin_estimate(pos, kind, None if ext["unlimited_loss"] else ext["max_loss"], scan, asof,
+                             None if ext["unlimited_profit"] else ext["max_profit"])
     prem = net_premium(legs)
     shift = []
     for i, b in enumerate(gross_be):
@@ -1685,14 +1701,18 @@ def render(doc):
         fnum(g["delta"]), fnum(g["delta_lots"], 3) if g["delta_lots"] is not None else "-",
         fnum(g["gamma"], 4), inr(g["theta"]), inr(g["vega"])))
     m = doc["margin"]
-    if m["method"] == "max-loss":
-        w("Margin: %s, the exact max loss (defined risk). Brokers block SPAN + exposure: about %s +/-%d%%." % (
-            inr(m["amount"]), inr(m["span_style"]["total"]), m["span_style"]["error_pct"]))
+    if m["method"] == "premium":
+        w("Margin required: %s, the premium paid up front (exact)." % inr(m["required"]))
     else:
-        w("Margin: about %s, SPAN-style estimate +/-%d%% (%s to %s): scan risk %s, exposure %s%s, premium paid %s." % (
-            inr(m["amount"]), m["error_pct"], inr(m["low"]), inr(m["high"]), inr(m["span_style"]["scan_risk"]),
+        w("Margin required (estimate, +/-%d%%): about %s (%s to %s): scan risk %s, exposure %s%s, premium paid %s." % (
+            m["error_pct"], inr(m["required"]), inr(m["low"]), inr(m["high"]), inr(m["span_style"]["scan_risk"]),
             inr(m["span_style"]["exposure"]), (", expiry-day ELM %s" % inr(m["span_style"]["expiry_day_elm"]))
             if m["span_style"]["expiry_day_elm"] else "", inr(m["span_style"]["premium_paid"])))
+    w("Max loss at expiry: %s%s%s" % (
+        "unlimited" if m["max_loss_unlimited"] else inr(m["max_loss"]), "" if m["method"] == "premium" else
+        " (not the margin)",
+        "; return on margin %s%% (max profit / margin required)" % fnum(m["return_on_margin"])
+        if m["return_on_margin"] is not None else ""))
     pr = doc["probability"]
     t = pr["textbook"]
     w("")

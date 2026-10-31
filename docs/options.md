@@ -75,8 +75,8 @@ What is exact and what is a model:
 | payoff at expiry, calendar | a model: the far leg is a Black-76 value at its IV, its forward moving in proportion |
 | "today" / at-a-date curve | a model: Black-76 per leg at its IV plus your `--iv-shift` |
 | charges | exact for the stated rates (verify your broker's sheet) |
-| defined-risk margin | exact max loss; brokers block at least this |
-| SPAN-style margin | an estimate with a stated error bound |
+| max loss at expiry | exact for one expiry; it is not the margin |
+| margin required | an estimate of what a broker blocks, with a stated error (exact for bought options only: the premium) |
 | probabilities, EV, tail | models, two of them, side by side |
 
 ### After charges
@@ -100,22 +100,39 @@ to take or give.
 
 ### Margin: method and limits
 
-**Defined risk** (every short option covered by a long of the same type,
-same or later expiry, no futures): the margin shown is the exact max loss at
-expiry. It is the money that can be lost, and the least a broker blocks. A
-broker's SPAN + exposure for a hedged spread is usually equal or higher; the
-SPAN-style figure is shown next to it.
+The headline is **margin required** (`margin.required`): what a broker would
+block for the position, estimated. The **max loss at expiry** is shown on its
+own and is never the margin; **return on margin** = max profit / margin
+required.
 
-**Undefined risk:** a SPAN-style estimate.
+**Bought options only:** the premium, paid up front (since 1 Feb 2025). No
+SPAN or exposure is blocked on a long option. Exact.
+
+**Anything with a short option or a future:** a SPAN-style estimate.
 
 1. Scanning risk: the worst loss over 16 scenarios on the whole position,
    valued with Black-76 at each leg's IV: price moves of 0, +/-1/3, +/-2/3 and
    +/-1 x the price scan, each with IV up and down by the vol scan, plus +/-3 x
-   the scan at 30% weight.
-2. Exposure (ELM): 2% of notional on short index options and index futures,
-   3.5% for stocks (NSE's ael file, normal rows); plus 2% on short index
-   options on their expiry day (SEBI, from 20 Nov 2024).
-3. Premium paid on long options (collected up front since 1 Feb 2025).
+   the scan at 30% weight. Because the position is valued as a whole, bought
+   wings cut it: a NIFTY iron condor's scan risk is about ₹4,100 against
+   about ₹1,22,000 for the same shorts naked.
+2. Exposure (ELM): 2% of notional on every short index option and index
+   future, 3.5% for stocks (NSE's ael file, normal rows), hedged or not. The
+   hedge benefit comes through SPAN only; exposure is charged on each short
+   leg. On expiry day, 2% more on short index options expiring that day
+   (SEBI, from 20 Nov 2024).
+3. Premium paid on bought options. Brokers differ on whether premium
+   received may offset the margin; the estimate does not offset it.
+
+For 1 lot (65) of NIFTY on the 30-Oct-2026 close: iron condor 22,700/22,800
+PE - 23,200/23,300 CE about ₹67,400 (scan ₹4,126 + exposure ₹59,858 +
+premium ₹3,426) against a max loss of ₹4,129; the same strangle naked about
+₹1,81,600; a 100-point bull put spread about ₹38,500 against a max loss of
+₹4,123. Published broker figures for the same structures at lot 75 (about
+₹40,000 to ₹60,000 for a NIFTY credit spread, ₹80,000 to ₹1,20,000 for an iron
+condor; plindia.com, alphahunttrading.com, 2025) scale to these at lot 65,
+and say the same thing: exposure on the short legs dominates a hedged
+position's margin.
 
 | | price scan | vol scan | error stated |
 | --- | --- | --- | --- |
@@ -128,7 +145,9 @@ for 1 lot of NIFTY on 30 Oct 2026: short 23000 CE 03-Nov ₹1,30,859 (ours
 condor 22700/22800 PE - 23300/23400 CE ₹4,367 (+8.4%); the 01-Dec straddle's
 total came within 10%. The tests keep these within bounds.
 
-Known gaps: no calendar-spread charge or short-option minimum from the SPAN
+Known gaps: exposure on hedged positions follows the per-short-leg rule
+above (practice, confirmed only against published broker figures, not an NSE
+circular); no calendar-spread charge or short-option minimum from the SPAN
 file, no "additional ELM" for stocks under surveillance, exposure on hedged
 spreads is the naive per-leg rule, and intraday the exchange's file moves.
 `--scan-pct`, `--vol-scan` and `--elm-pct` override the assumptions. The

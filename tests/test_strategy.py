@@ -359,15 +359,49 @@ class Charges(unittest.TestCase):
 
 
 class Margin(unittest.TestCase):
-    def test_defined_risk_is_the_exact_max_loss(self):
-        for t in ("iron-condor", "iron-fly", "bull-call-spread", "bear-call-spread", "call-butterfly", "long-strangle"):
-            d = build(t)
-            m = d["margin"]
-            self.assertTrue(m["defined_risk"], t)
-            self.assertEqual(m["method"], "max-loss", t)
-            self.assertEqual(m["amount"], round(-d["expiry"]["max_loss"], 2), t)
-            self.assertEqual(m["error_pct"], 0)
-            self.assertIsNone(m["broker_basket"])
+    def test_margin_required_is_what_a_broker_blocks_not_the_max_loss(self):
+        d = build("iron-condor", {"wings": 200, "width": 100})
+        m = d["margin"]
+        self.assertTrue(m["defined_risk"])
+        self.assertEqual(m["method"], "span-style")
+        self.assertEqual(m["label"], "Margin required (estimate, +/-15%)")
+        self.assertEqual(m["max_loss"], round(-d["expiry"]["max_loss"], 2))          # exact, its own field
+        self.assertEqual(m["max_loss"], 4129.12)
+        self.assertGreater(m["required"], m["max_loss"])                                # never read max loss as capital
+        s = m["span_style"]
+        self.assertAlmostEqual(m["required"], s["scan_risk"] + s["exposure"] + s["premium_paid"], 1)
+        # exposure is charged on both short legs' notional, hedged or not
+        self.assertAlmostEqual(s["exposure"], 2 * NIFTY["forward"] * 65 * 0.02, 0)
+        self.assertAlmostEqual(m["return_on_margin"], 100 * d["expiry"]["max_profit"] / m["required"], 2)
+        self.assertEqual(m["low"], round(m["required"] * 0.85, 2))
+        self.assertIsNone(m["broker_basket"])
+        self.assertNotIn("amount", m)
+        for t in ("iron-fly", "bull-call-spread", "bear-call-spread", "call-butterfly", "bull-put-spread"):
+            mm = build(t)["margin"]
+            self.assertEqual(mm["method"], "span-style", t)
+            self.assertGreater(mm["required"], mm["max_loss"], t)
+
+    def test_hedged_needs_less_than_naked(self):
+        ic = build("iron-condor", {"wings": 200, "width": 100})["margin"]
+        naked_doc = build("short-strangle", {"wings": 200})
+        naked = naked_doc["margin"]
+        self.assertEqual([l["strike"] for l in naked_doc["legs"]], [23200, 22800])
+        self.assertLess(ic["required"], naked["required"])
+        self.assertLess(ic["span_style"]["scan_risk"], naked["span_style"]["scan_risk"] / 10)
+        self.assertEqual(ic["span_style"]["exposure"], naked["span_style"]["exposure"])   # same shorts, same ELM
+        self.assertTrue(naked["max_loss_unlimited"])
+        spread = st.evaluate(legs_of("-1 PE 23000, +1 PE 22900"), MKT, CFG, simulate=False)["margin"]
+        put = st.evaluate(legs_of("-1 PE 23000"), MKT, CFG, simulate=False)["margin"]
+        self.assertLess(spread["required"], put["required"])
+
+    def test_bought_options_only_need_the_premium(self):
+        d = build("long-strangle")
+        m = d["margin"]
+        self.assertEqual(m["method"], "premium")
+        self.assertEqual(m["error_pct"], 0)
+        self.assertEqual(m["required"], -d["net_premium"]["amount"])
+        self.assertEqual(m["max_loss"], m["required"])
+        self.assertIsNone(m["return_on_margin"])                                        # unlimited profit
 
     def test_span_style_against_nse_span_file(self):
         cases = [("-1 CE 23000", MKT, 130859), ("-1 CE 23000, -1 PE 23000", MKT, 124079),
@@ -383,7 +417,7 @@ class Margin(unittest.TestCase):
         self.assertEqual(m["method"], "span-style")
         self.assertEqual(m["error_pct"], 15)
         ref = 97186 + 2 * 29969
-        self.assertLess(abs(m["amount"] - ref) / ref, m["error_pct"] / 100.0)
+        self.assertLess(abs(m["required"] - ref) / ref, m["error_pct"] / 100.0)
         self.assertLessEqual(m["low"], ref)
         self.assertGreaterEqual(m["high"], ref)
         self.assertIn("SPAN-style", m["explain"])
@@ -513,7 +547,8 @@ class Commands(unittest.TestCase):
         self.assertEqual(code, 0, err)
         for bit in ("iron-condor on NIFTY, expiry 03-Nov-2026", "SELL 1 lot 22,800 PE", "BUY  1 lot 23,300 CE",
                     "Net premium: ₹", "received (credit)", "Breakevens at expiry: 22,", "after charges",
-                    "Margin: ₹", "the exact max loss", "textbook (lognormal at IV 12.10%)", "simulated (bootstrap",
+                    "Margin required (estimate, +/-15%): about ₹67,408.76",
+                    "Max loss at expiry: ₹4,129.12 (not the margin); return on margin", "textbook (lognormal at IV 12.10%)", "simulated (bootstrap",
                     "STT on exercise", "Nothing was placed"):
             self.assertIn(bit, out)
 
@@ -578,7 +613,8 @@ class Commands(unittest.TestCase):
                            cwd=self.dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.assertEqual(p.returncode, 0, p.stderr.decode("utf-8", "replace"))
         d = json.loads(p.stdout.decode("utf-8"))
-        self.assertEqual(d["margin"]["method"], "max-loss")
+        self.assertEqual(d["margin"]["method"], "span-style")
+        self.assertTrue(d["margin"]["defined_risk"])
         # without trader-options next to it and no file, it says what to do
         p = subprocess.run([sys.executable, os.path.join(alone, "strategy.py"), "build", "iron-fly", "NIFTY",
                             "--no-sim", "--now", NOW], cwd=self.dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

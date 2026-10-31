@@ -1,0 +1,23 @@
+{
+ "schema": "bharat-trader/lab-spec/1",
+ "name": "rsi2-nifty50",
+ "title": "RSI(2) mean reversion on NIFTY 50 names",
+ "description": "Swing, delivery (CNC). Buy at the next open when a stock above its 200-day average closes with a 2-day RSI under 10. Sell at the next open after a close above its 5-day average, or after 10 sessions. A 3 ATR(14) protective stop, because every order in this pack has one.",
+ "kind": "equity",
+ "timeframe": "1d",
+ "product": "CNC",
+ "side": "long",
+ "universe": ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "SBIN", "BHARTIARTL", "ITC", "LT", "AXISBANK"],
+ "params": {"rsi_entry": 10, "trend_days": 200, "stop_atr": 3},
+ "entry": {"all": [
+  ["close", ">", {"sma": "$trend_days"}],
+  [{"rsi": 2}, "<", "$rsi_entry"]
+ ]},
+ "stop": {"atr": 14, "mult": "$stop_atr"},
+ "exit": {"when": ["close", ">", {"sma": 5}], "max_bars": 10},
+ "sizing": {"capital": 100000, "risk_per_trade_pct": 1, "max_trades_per_day": 3},
+ "grid": {"rsi_entry": [5, 10, 15], "stop_atr": [2, 3, 4]},
+ "walk_forward": {"in_sample": 120, "out_of_sample": 40},
+ "seed": 16,
+ "references": ["Larry Connors and Cesar Alvarez, Short Term Trading Strategies That Work (2008)"]
+}

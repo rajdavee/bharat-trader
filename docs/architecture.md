@@ -27,6 +27,7 @@ config.json ▶│   budget   │ ───────────────�
                                                    prices.json ◀──── alerts ◀──┘ (stop, target, flat-by)
 
   on a schedule:  news · analyst (quarterly results) · insider (bulk/block deals, SEBI PIT)
+  research:       lab (backtest, walk-forward, gates) ──▶ lab/<name>/forward/<date>/plan-*.json ──▶ budget
 ```
 
 ## Files in `trader/`
@@ -43,6 +44,7 @@ config.json ▶│   budget   │ ───────────────�
 | `prices.json` | alerts | budget, risk, broker |
 | `portfolio.json` | broker | budget, risk, insider |
 | `options.json` | options (`--write`) | strategy builder, UI (schema in `trader-options/SKILL.md`) |
+| `lab/<name>/` | lab (`run`, `forward`): spec, results, scorecard, equity, status, forward record, draft plans | you, UI; the draft plans go to budget (`size.py --plan`) |
 | `strategy.json` | strategy (`--write`, UI) | you, UI, MCP (schema in `trader-strategy/SKILL.md`) |
 
 Two front ends sit on top and reuse the skills rather than reimplementing
