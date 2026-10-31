@@ -122,7 +122,10 @@ The opening range is the first `--or-minutes` (15) of the 09:15 session: the
    first; PARTIAL says how many were skipped.
 
 A chart is usable only when every 5-minute bar from 09:15 to the cutoff is
-there; a missing bar means a halt, a circuit or a thin stock. Null closes are
+there; a missing bar means a halt, a circuit or a thin stock. Spark thins its
+line: a close that lies exactly on the straight line between its neighbours
+is left out, so stage 1 puts it back on that line (between two bars of the
+same session); stage 2 uses the full chart, where no bar is filled in. Null closes are
 dropped, a bar off the 5-minute grid (the live tick, like 10:49:45) is
 dropped, and a bar counts only once it is complete. Before 09:35, on a
 weekend or NSE holiday, after the 15:30 close, or after `no_entries_after`

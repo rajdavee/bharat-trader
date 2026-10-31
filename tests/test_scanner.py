@@ -11,6 +11,11 @@ spark-3mo-batch1-2026-10-29.json  the first spark request, byte for byte as Yaho
 index-spark-2026-10-29.json     spark range=5d interval=1d for ^NSEI, ^NSEBANK, ^INDIAVIX.
 wall5m-2026-10-29.json.gz       {SYMBOL: v8 chart, range=5d interval=5m} cut to Oct 28 and Oct 29.
 spark-5m-2026-10-29.json.gz     spark range=1d interval=5m for the same symbols (closes only).
+
+Fetched 2026-11-01 (Sunday) for issue #23:
+spark-5d-5m-2026-10-30.json.gz  one spark request, range=5d interval=5m, 12 symbols (10 F&O, plus
+                                ZENSARTECH and KPRMILL), byte for byte as Yahoo sent it: 26 to 30 Oct.
+wall5m-5d-2026-10-30.json.gz    {SYMBOL: v8 chart, range=5d interval=5m} for the same 12, cut to 30 Oct.
 """
 
 import datetime
@@ -38,6 +43,8 @@ BATCH1 = os.path.join(SDIR, "spark-3mo-batch1-2026-10-29.json")
 INDEX = os.path.join(SDIR, "index-spark-2026-10-29.json")
 WALL = os.path.join(SDIR, "wall5m-2026-10-29.json.gz")
 SPARK5 = os.path.join(SDIR, "spark-5m-2026-10-29.json.gz")
+SPARK5D = os.path.join(SDIR, "spark-5d-5m-2026-10-30.json.gz")
+WALL30 = os.path.join(SDIR, "wall5m-5d-2026-10-30.json.gz")
 DT = datetime.datetime
 D = datetime.date
 CR = 10000000
@@ -448,6 +455,40 @@ class Orb(unittest.TestCase):
         hits, counts, failed = scan.scan_orb(spark, ["RELIANCE"], day, cut, 15, 50, 0, broken)
         self.assertEqual(hits, [])
         self.assertIn("429", failed["RELIANCE"])
+
+    def test_spark_thinned_line_on_5d_data(self):
+        # issue #23: spark leaves out a close that lies on the line between its neighbours
+        # (RELIANCE 30 Oct 14:05: 1154.00 between 1154.00 and 1154.00; ITC 26 Oct 09:50: 257.40
+        # between 255.90 and 258.90). Before the fix 4 of 12 charts were usable by 14:30.
+        spark, _ = scan.load_offline(SPARK5D)
+        wall, _ = scan.load_offline(WALL30)
+        fno = {"RELIANCE", "TCS", "INFY", "SBIN", "ITC", "HDFCBANK", "ICICIBANK", "LT", "AXISBANK", "BHARTIARTL"}
+        cfg = {"_fno": fno}
+        self.assertEqual(sorted(spark), sorted(wall))
+        self.assertNotIn(ts("2026-10-30 14:05"), spark["RELIANCE"]["t"])
+        day, cut = scan.orb_window(scan.parse_now("2026-10-30 14:30"), None, 15, datetime.time(14, 45), cfg=cfg)
+        self.assertEqual((day, cut), (D(2026, 10, 30), DT(2026, 10, 30, 14, 30)))   # one day out of five
+        filled = 0
+        for sym in sorted(spark):
+            seg = scan.segment_of(sym, fno)
+            bars = scan.session_bars(spark[sym], day, cut, cfg, seg)
+            self.assertTrue(scan.usable(bars, day, cut, 3, cfg, seg), sym)
+            real = {b["start"]: b["c"] for b in scan.session_bars(wall[sym], day, cut, cfg, seg)}
+            self.assertEqual(len(real), 63)                  # v8 has every bar 09:15 to 14:25
+            for b in bars:
+                filled += bool(b.get("filled"))
+                self.assertAlmostEqual(b["c"], real[b["start"]], delta=real[b["start"]] * 1e-6)
+        self.assertEqual(filled, 15)                     # 15 slots spark left out by 14:30
+        hits, counts, failed = scan.scan_orb(spark, sorted(spark), day, cut, 15, 50, 0, lambda s: wall[s], cfg=cfg)
+        self.assertEqual((counts["fetched"], counts["unusable"], counts["scanned"]), (12, 0, 12))
+        self.assertEqual(failed, {})
+        alone, _, _ = scan.scan_orb(wall, sorted(wall), day, cut, 15, 50, 0, cfg=cfg)
+        self.assertEqual(hits, alone)                        # stage 1 lost no breakout
+        # a v8 chart (real highs and lows) is never filled: a missing bar there stays missing
+        gap = dict(wall["RELIANCE"])
+        k = gap["t"].index(ts("2026-10-30 11:00"))
+        gap = {key: (v[:k] + v[k + 1:] if isinstance(v, list) else v) for key, v in gap.items()}
+        self.assertFalse(scan.usable(scan.session_bars(gap, day, cut, cfg, "EQ_FNO"), day, cut, 3, cfg, "EQ_FNO"))
 
     def test_live_tick_missing_bar_and_turnover_floor(self):
         s = bars_series("2026-10-29", [100, 101, 100.5, 101.5, 101.8, 102])
