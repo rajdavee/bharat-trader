@@ -1,0 +1,4 @@
+{
+  "now": "2026-10-29 14:30",
+  "note": "Offline demo and test data: real Yahoo and NSE answers of Thu 29 Oct 2026, taken after the close (BANK NIFTY and INDIA VIX quotes are from Fri 30 Oct 2026). The clock is pinned to 14:30 IST so the paper flow can be tried inside the entry window; the quotes themselves carry their own 15:29 time."
+}
