@@ -38,6 +38,7 @@ ever placed without your yes.
 | `trader-insider` | NSE bulk and block deals and SEBI insider-trading (PIT) disclosures, flagged when they touch stocks you hold or watch. |
 | `trader-options` | NSE option chain with our own Black-76 IV and Greeks off the put-call-parity forward: PCR, max pain, call/put walls, OI build-up, straddle and expected move, IV smile and IV rank from India VIX. |
 | `trader-lab` | Strategy Lab: backtests a JSON strategy bar by bar after Indian charges, then walk-forward, parameter neighbourhood, Monte Carlo, deflated Sharpe and overfitting odds. Pre-registered gates: REJECT, WATCH (paper forward test) or PROMOTE. Six library strategies, no promises. |
+| `trader-strategy` | Strategy builder on the real chain: spreads, straddles, strangles, condors, flies, butterflies, ratios, calendars, custom legs. Payoff at expiry and today, gross and after 2026 F&O charges, breakevens, Greeks, margin with its method and error, probability of profit textbook vs simulated. |
 | `trader-doctor` | Self-test of every data source (NSE APIs and archives, Yahoo): ok, slow, changed, down or blocked, since when, which tools it breaks and the fallback in use. Holiday-aware freshness in IST. |
 
 ## Install
@@ -78,6 +79,7 @@ python3 trader-options/options.py chain NIFTY          # option chain, IV, Greek
 python3 trader-options/options.py iv NIFTY             # IV smile, skew, IV rank from India VIX
 python3 trader-lab/lab.py run orb15-vwap               # backtest + robustness + gates, after charges
 python3 trader-lab/lab.py report orb15-vwap            # the scorecard, and what it does NOT prove
+python3 trader-strategy/strategy.py build iron-condor NIFTY --wings 200 --width 100   # payoff, margin, PoP
 python3 trader-doctor/doctor.py                        # is every NSE and Yahoo source answering? (exit 1 if not)
 ```
 
@@ -94,7 +96,7 @@ See [docs/ui.md](docs/ui.md).
 ## Use it from your AI assistant (MCP)
 
 `mcp/server.py` is a standard-library [MCP](https://modelcontextprotocol.io/)
-server: connect any MCP-compatible AI assistant and it can call 24 tools
+server: connect any MCP-compatible AI assistant and it can call 26 tools
 (market status, scans, news, entry and exit plans, the time machine, sizing,
 risk, the paper broker, option chains, results, insider deals, the strategy lab, the
 data self-test) and 5 prompts
@@ -137,7 +139,8 @@ With an agent, just ask: *"scan NSE for breakouts"*, *"any news on Reliance?"*,
 
 See [docs/architecture.md](docs/architecture.md) for how the skills hand off
 through `trader/`, [docs/configuration.md](docs/configuration.md) for every
-setting and the charges model, [docs/ui.md](docs/ui.md) for the local web UI, and [docs/mcp.md](docs/mcp.md)
+setting and the charges model, [docs/options.md](docs/options.md) for the option chain, Greeks, strategies and the margin
+method, [docs/ui.md](docs/ui.md) for the local web UI, and [docs/mcp.md](docs/mcp.md)
 for the MCP server.
 
 ## Tests

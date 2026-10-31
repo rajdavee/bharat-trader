@@ -236,7 +236,7 @@ textarea { font-family: var(--mono); width: 100%; resize: vertical; }
 .tbl .num { text-align: right; font-family: var(--mono); }
 .tbl tbody tr:hover { background: var(--panel-2); }
 .filter { width: 100%; max-width: 320px; margin-bottom: 10px; }
-ul.rings, ul.rules, ul.log, ul.legs, ul.soon, ul.verdicts { margin: 0; padding-left: 18px; }
+ul.rings, ul.rules, ul.log, ul.legs, ul.verdicts { margin: 0; padding-left: 18px; }
 ul.rings li { color: var(--warn); margin-bottom: 4px; }
 ul.rules li, ul.log li { margin-bottom: 4px; }
 ul.verdicts { list-style: none; padding: 0; }
@@ -291,6 +291,53 @@ a#tv-attr-logo { position: absolute; left: 10px; bottom: 10px; height: 19px; wid
 .sticky-actions { position: sticky; bottom: 0; background: var(--panel); padding: 10px 0; border-top: 1px solid var(--border); }
 textarea.raw { min-height: 280px; }
 
+/* option chain */
+.tbl.chain { font-size: 12.5px; }
+.tbl.chain td, .tbl.chain th { padding: 4px 8px; }
+.tbl.chain .side-head { text-align: center; color: var(--text); letter-spacing: 0.06em; }
+.tbl.chain td.itm { background: color-mix(in srgb, var(--warn) 9%, transparent); }
+.tbl.chain tr.atm td, .tbl.chain tr.atm th { border-top: 1px solid var(--accent); border-bottom: 1px solid var(--accent); }
+.tbl.chain th.strike { text-align: center; font-weight: 650; color: var(--text); background: var(--panel-2); white-space: nowrap; }
+.tbl.chain .marks { display: block; font: 10px var(--sans); color: var(--warn); font-weight: 500; }
+.tbl.chain .strong { font-weight: 600; }
+.oi-cell { min-width: 110px; }
+.oi-wrap { position: relative; display: block; }
+.oi-bar { position: absolute; top: 1px; bottom: 1px; border-radius: 2px; opacity: 0.22; }
+.oi-bar.ce { right: 0; background: var(--down); }
+.oi-bar.pe { left: 0; background: var(--up); }
+.oi-n { position: relative; }
+.chain-wrap { max-height: 70vh; overflow: auto; }
+.chain-wrap thead th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+.chain-wrap thead tr:nth-child(2) th { top: 26px; }
+
+/* small canvas charts */
+.plot-box { position: relative; height: 260px; }
+.plot-box.tall { height: min(52vh, 440px); min-height: 280px; }
+canvas.plot { width: 100%; height: 100%; display: block; }
+canvas.plot:focus-visible { outline: 2px solid var(--focus); }
+.legend-list { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 8px; padding: 0; font-size: 12.5px; color: var(--muted); }
+.swatch { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--accent); vertical-align: middle; margin-right: 6px; }
+.swatch.dashed { border-top-style: dashed; }
+.swatch.accent { border-top-color: var(--accent); }
+.swatch.warn { border-top-color: var(--warn); }
+.swatch.ema2 { border-top-color: var(--ema2); }
+.swatch.band { height: 10px; border: 0; background: var(--band-fill); outline: 1px solid var(--band); }
+
+/* strategy builder */
+.strategy-form { display: grid; gap: 10px; }
+.form-row, .params { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
+.fld { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--muted); }
+.fld[hidden] { display: none; }
+.fld-label { white-space: nowrap; }
+.num-in { width: 120px; font-family: var(--mono); }
+.legs-text { display: grid; gap: 4px; }
+.legs-text[hidden], .params[hidden] { display: none; }
+.legs-text textarea { min-width: min(640px, 100%); }
+.range { display: inline-flex; gap: 8px; align-items: center; }
+.range output { min-width: 84px; color: var(--text); }
+.tile.up .tile-price { color: var(--up); }
+.legs-edit select, .legs-edit input { max-width: 150px; }
+
 /* why popover and help */
 .popover {
   position: absolute; z-index: 40; background: var(--panel); color: var(--text); border: 1px solid var(--border);
@@ -325,6 +372,8 @@ textarea.raw { min-height: 280px; }
   .field { grid-template-columns: minmax(0, 1fr); }
   .field p { grid-column: 1; }
   .chart-box { height: 56vh; }
+  .num-in { width: 96px; }
+  .plot-box.tall { height: 46vh; }
   .kv { grid-template-columns: minmax(96px, max-content) 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {

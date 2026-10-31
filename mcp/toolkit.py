@@ -887,9 +887,56 @@ def t_lab_forward(kit, a, call):
         notes + ["The forward record is the lab's simulated fills on bars the backtest never saw. Nothing was placed."]
 
 
-# HOOK: trader-strategy (issue #7) is not on main yet. When trader-strategy/strategy.py lands, add
-# strategy_build and strategy_price here, calling its own functions (legs -> payoff after charges,
-# breakevens, Greeks, margin estimate), and append them in build_tools() below.
+# ---------------------------------------------------------------- tools: trader-strategy
+
+_STRATEGY_CTX = {}
+STRATEGY_COMMON = ("expiry", "fill", "at", "iv_shift", "seed", "paths", "simulate")
+
+
+def _strategy_ctx(kit, tool):
+    """The UI's context (one loader, one cache), pointed at this tool's offline folder and clock."""
+    if not kit.offline:
+        return kit.ctx
+    key = (id(kit), tool)
+    if key not in _STRATEGY_CTX:
+        folder = kit.offline.path(tool, "ui")
+        _STRATEGY_CTX[key] = api.Context(kit.workdir, offline=folder, now=kit.now_text(tool))
+    return _STRATEGY_CTX[key]
+
+
+def _strategy(kit, tool, body, a):
+    body["symbol"] = _sym(a)
+    for k in STRATEGY_COMMON:
+        if a.get(k) is not None:
+            body[k] = a[k]
+    doc = api.strategy_doc(_strategy_ctx(kit, tool), body)
+    doc.pop("why", None)
+    doc.pop("orders", None)               # proposals are written only by the CLI or the UI, then the paper flow
+    if not a.get("include_curve"):
+        c = doc.get("curve") or {}
+        doc["curve"] = {k: c.get(k) for k in ("horizon", "iv_shift", "breakevens_at", "spot", "forward",
+                                               "expected_move")}
+    notes = ["Max profit and loss, breakevens and charges at expiry are exact for one expiry; the today curve, a "
+             "calendar's far leg, the SPAN-style margin and both probabilities are models.",
+             "To paper-trade it, the user writes a proposal with the CLI (strategy.py ... --orders) or the local UI "
+             "(Send to paper); then risk_check and paper_order_confirm, one leg at a time with their typed yes. "
+             "Until trader-risk has F&O rules it blocks option legs unless the config allows F&O."]
+    return doc, notes
+
+
+def t_strategy_build(kit, a, call):
+    params = {k: a[k] for k in ("strike", "wings", "width", "delta", "skip", "ratio", "lots", "type")
+              if a.get(k) is not None}
+    body = {"template": a.get("template"), "params": params}
+    if a.get("far_expiry"):
+        body["far_expiry"] = a["far_expiry"]
+    return _strategy(kit, "strategy_build", body, a)
+
+
+def t_strategy_price(kit, a, call):
+    return _strategy(kit, "strategy_price", {"legs": a.get("legs")}, a)
+
+
 def t_doctor(kit, a, call):
     """trader-doctor's self-test, read only: the history in trader/doctor.json is read, not updated."""
     argv = ["--json", "--no-write", "--history", kit.p("doctor.json")]
@@ -1120,6 +1167,56 @@ def build_tools():
                   data=obj({"forward": ANY_OBJ, "drafted": {}, "next_step": S("string")},
                            ["forward", "next_step"], extra=True),
                   annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False}))
+    common = {
+        "symbol": S("string", "NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, NIFTYNXT50 or an F&O stock",
+                    pattern=SYMBOL_RE.pattern, maxLength=24),
+        "expiry": S("string", "the near expiry, DD-Mon-YYYY (default: the nearest)", pattern=r"^\d{2}-[A-Za-z]{3}-\d{4}$"),
+        "fill": S("string", "mid: the chain's price (default); touch: buy at the ask, sell at the bid",
+                  enum=["mid", "touch"]),
+        "at": S("string", "horizon of the 'today' curve and the probabilities: today, expiry (default) or YYYY-MM-DD",
+                pattern=r"^(today|expiry|\d{4}-\d{2}-\d{2})$"),
+        "iv_shift": S("number", "vol points added to every leg's IV (default 0)", minimum=-50, maximum=50),
+        "seed": S("integer", "simulation seed (default 7): the same inputs give the same answer", minimum=0),
+        "paths": S("integer", "simulated paths (default 5000)", minimum=500, maximum=20000),
+        "simulate": S("boolean", "run the bootstrap simulation (default true)"),
+        "include_curve": S("boolean", "include the payoff curve arrays (about 240 points each)"),
+    }
+    result = obj({"schema": {"const": "bharat-trader/strategy/1"}, "name": S("string"), "underlying": S("string"),
+                  "legs": ANY_LIST, "net_premium": ANY_OBJ, "expiry": ANY_OBJ, "greeks": ANY_OBJ,
+                  "margin": ANY_OBJ, "probability": ANY_OBJ, "charges": ANY_OBJ, "warnings": ANY_LIST},
+                 ["schema", "name", "underlying", "legs", "expiry", "margin", "probability"], extra=True)
+    names = [t["name"] for t in api.skill("strategy").list_templates()]
+    build_props = dict(common)
+    build_props.update({
+        "template": S("string", "the strategy template", enum=names),
+        "far_expiry": S("string", "calendar only: the far expiry, DD-Mon-YYYY", pattern=r"^\d{2}-[A-Za-z]{3}-\d{4}$"),
+        "strike": S("number", "centre or long strike (default ATM)", exclusiveMinimum=0),
+        "wings": S("number", "points from ATM to the short strikes (default the 1-SD expected move)", minimum=0),
+        "width": S("number", "points from a short strike to its bought wing (default 2 strikes)", exclusiveMinimum=0),
+        "delta": S("number", "pick the short strikes by delta instead of wings, e.g. 0.16", exclusiveMinimum=0,
+                   exclusiveMaximum=1),
+        "skip": S("number", "extra points on one butterfly wing (broken wing)", minimum=0),
+        "ratio": S("integer", "short options per long in a ratio spread (default 2)", minimum=1, maximum=10),
+        "lots": S("integer", "lots per leg (default 1)", minimum=1, maximum=100),
+        "type": S("string", "calendar only: CE or PE", enum=["CE", "PE"]),
+    })
+    T.append(tool("strategy_build", "Build an option strategy",
+                  "An option strategy from a template on the real NSE chain (spreads, straddles, strangles, iron "
+                  "condor, iron fly, butterflies, ratios, covered call, protective put, calendar): payoff at expiry "
+                  "and today, breakevens, max profit and loss (unlimited flagged), net premium and Greeks, the same "
+                  "after 2026 F&O charges with the STT-on-exercise warning, margin required (what a broker would "
+                  "block: a SPAN-style estimate with its error; the premium for bought options only) next to the "
+                  "exact max loss and the return on margin, probability of profit textbook vs simulated with "
+                  "expected value and 5% tail loss. Read only: it proposes nothing.", t_strategy_build,
+                  build_props, ["template", "symbol"], data=result))
+    price_props = dict(common)
+    price_props["legs"] = S("string", "[+|-]LOTS CE|PE|FUT STRIKE [@DD-Mon-YYYY] [=PRICE], comma separated; STRIKE "
+                                      "is 23000, ATM, ATM+200, D25 (delta 0.25) or P50 (premium 50)",
+                            minLength=3, maxLength=600)
+    T.append(tool("strategy_price", "Price custom option legs",
+                  "Your own option legs (up to 12, strikes by number, offset from ATM, delta or premium, other "
+                  "expiries allowed) with every number strategy_build gives. Read only: it proposes nothing.",
+                  t_strategy_price, price_props, ["symbol", "legs"], data=result))
     T.append(tool("doctor", "Data sources self-test",
                   "Probe every free data source the tools read (NSE equity list, market status, holidays, "
                   "announcements, board meetings, results, bulk/block deals, PIT, option chain and contract info, "

@@ -13,7 +13,9 @@ trader/                  a working folder built by the skills themselves on thos
                          alerts.py quote --write, size.py --write, alerts.py add --from-plan, check.py.
 """
 
+import contextlib
 import hashlib
+import io
 import http.client
 import importlib.util
 import json
@@ -355,10 +357,9 @@ class Routes(unittest.TestCase):
         self.assertIn("Trading capital", meanings["capital"])
         self.assertNotIn("`", meanings["product"])
         self.assertIn("option pricing", meanings["risk_free_rate"])     # trader-options' key
-        for p in ("/api/options", "/api/strategy"):
-            _, d = self.s.get(p)
-            self.assertFalse(d["available"])
-            self.assertTrue(d["will_show"])
+        _, d = self.s.get("/api/strategy")
+        self.assertTrue(d["available"])
+        self.assertEqual(len(d["templates"]), 17)
 
     def test_unknown_route_and_wrong_method(self):
         self.assertEqual(self.s.get("/api/nope")[0], 404)
@@ -367,7 +368,8 @@ class Routes(unittest.TestCase):
 
     def test_static_types(self):
         want = {"/": "text/html", "/static/js/app.js": "text/javascript", "/static/css/app.css": "text/css",
-                "/static/js/pages/chart.js": "text/javascript",
+                "/static/js/pages/chart.js": "text/javascript", "/static/js/pages/options.js": "text/javascript",
+                "/static/js/pages/strategy.js": "text/javascript", "/static/js/plot.js": "text/javascript",
                 "/static/vendor/lightweight-charts.standalone.production.js": "text/javascript",
                 "/static/vendor/NOTICE": "text/plain", "/static/vendor/LICENSE": "text/plain"}
         for path, ctype in want.items():
@@ -395,6 +397,134 @@ class Routes(unittest.TestCase):
             self.assertIn(ev, text)
         data = re.search(r"event: status\ndata: (.*)\n", text).group(1)
         self.assertTrue(json.loads(data)["open"])
+
+
+class OptionsAndStrategy(unittest.TestCase):
+    """The option chain and strategy builder pages' routes, on the real NSE chains of Fri 30-Oct-2026."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.s = Running()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.s.close()
+
+    def test_option_chain_is_trader_options_analysis(self):
+        status, d = self.s.get("/api/options?symbol=NIFTY&strikes=5")
+        self.assertEqual(status, 200, d)
+        self.assertEqual((d["underlying"], d["expiry"], d["lot_size"], d["atm"]), ("NIFTY", "2026-11-03", 65, 23000))
+        self.assertEqual(len(d["rows"]), 11)
+        self.assertEqual(d["strikes_total"], 104)
+        self.assertEqual((d["max_pain"], d["walls"]["call"], d["walls"]["put"]), (23000, 23500, 22000))
+        self.assertAlmostEqual(d["pcr_oi"], 1.6238, 4)
+        self.assertEqual(d["atm_iv"], 12.1)
+        self.assertTrue(d["smile"])
+        self.assertTrue(d["max_pain_curve"])
+        for k in ("forward", "atm_iv", "pcr", "max_pain", "walls", "expected_move", "iv", "greeks", "oi", "oi_chg"):
+            self.assertIn("formula", d["why"][k], k)
+        avail = {e["expiry_nse"]: e["available"] for e in d["expiry_list"]}
+        self.assertTrue(avail["01-Dec-2026"])
+        self.assertFalse(avail["09-Nov-2026"])          # not saved offline: the page greys it out
+        _, dec = self.s.get("/api/options?symbol=NIFTY&expiry=01-Dec-2026&strikes=0")
+        self.assertEqual(dec["expiry"], "2026-12-01")
+        self.assertEqual(len(dec["rows"]), dec["strikes_total"])
+        _, rel = self.s.get("/api/options?symbol=RELIANCE")
+        self.assertEqual((rel["expiry"], rel["lot_size"]), ("2026-11-23", 500))
+        self.assertEqual(self.s.get("/api/options?symbol=NIFTY&expiry=04-Nov-2026")[0], 422)
+        self.assertEqual(self.s.get("/api/options?symbol=not!a!symbol")[0], 400)
+
+    def test_price_a_template(self):
+        status, d = self.s.post("/api/strategy/price", {"symbol": "NIFTY", "template": "iron-condor",
+                                                        "params": {"wings": 200, "width": 100}, "paths": 1000})
+        self.assertEqual(status, 200, d)
+        self.assertEqual(d["schema"], "bharat-trader/strategy/1")
+        self.assertEqual(d["margin"]["required"], 67408.76)
+        self.assertEqual(d["margin"]["max_loss"], 4129.12)
+        self.assertGreater(d["margin"]["required"], d["margin"]["max_loss"])
+        self.assertEqual(d["expiry"]["breakevens"], [22763.53, 23236.47])
+        self.assertEqual(d["probability"]["simulated"]["paths"], 1000)
+        self.assertIn("formula", d["why"]["margin"])
+        self.assertEqual(len(d["curve"]["x"]), len(d["curve"]["expiry_net"]))
+        # the same request through the CLI gives the same numbers: one implementation
+        st = load("trader-strategy", "strategy")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            st.main(["build", "iron-condor", "NIFTY", "--wings", "200", "--width", "100", "--json", "--no-sim",
+                     "--offline", UIFIX, "--now", "2026-11-01 10:00"])
+        cli = json.loads(out.getvalue())
+        self.assertEqual(cli["expiry"], d["expiry"])
+        self.assertEqual(cli["margin"], d["margin"])
+
+    def test_calendar_custom_legs_and_horizon(self):
+        _, d = self.s.post("/api/strategy/price", {"symbol": "NIFTY", "template": "calendar", "simulate": False})
+        self.assertEqual(d["expiries"], ["2026-11-03", "2026-12-01"])
+        _, d = self.s.post("/api/strategy/price", {"symbol": "NIFTY", "legs": "+1 CE 23000, +1 PE 23000",
+                                                   "at": "today", "iv_shift": 2, "simulate": False})
+        self.assertEqual(d["name"], "custom")
+        self.assertEqual(d["curve"]["horizon"], "now")
+        self.assertTrue(d["expiry"]["unlimited_profit"])
+
+    def test_bad_strategy_requests(self):
+        for body, code in (({"symbol": "NIFTY"}, 400), ({"symbol": "NIFTY", "template": "iron-condor", "legs": "+1 CE"}, 400),
+                           ({"symbol": "NIFTY", "template": "moon"}, 422),
+                           ({"symbol": "NIFTY", "legs": "-1 CE 23010"}, 422),
+                           ({"symbol": "NIFTY", "template": "iron-condor", "params": {"lots": 0}}, 400),
+                           ({"symbol": "NIFTY", "template": "iron-condor", "paths": 10 ** 6}, 400),
+                           ({"symbol": "NIFTY", "template": "iron-condor", "fill": "best"}, 400)):
+            status, d = self.s.post("/api/strategy/price", body)
+            self.assertEqual(status, code, (body, d))
+            self.assertTrue(d["error"])
+        self.assertEqual(self.s.post("/api/strategy/price", {"symbol": "NIFTY", "template": "iron-fly"}, token=False)[0],
+                         403)
+
+
+class StrategyDraft(unittest.TestCase):
+    """Send to paper: a proposal in trader/orders.json, then trader-risk and a typed yes. Never live."""
+
+    def setUp(self):
+        self.s = Running()
+
+    def tearDown(self):
+        self.s.close()
+
+    def test_draft_is_a_proposal_that_risk_still_checks(self):
+        body = {"symbol": "NIFTY", "template": "iron-fly", "params": {"width": 100}}
+        status, d = self.s.post("/api/strategy/draft", body)
+        self.assertEqual(status, 409)                       # trader-budget's RELIANCE proposal is there
+        self.assertIn("replace", d["error"])
+        status, d = self.s.post("/api/strategy/draft", dict(body, replace=True))
+        self.assertEqual(status, 200, d)
+        self.assertTrue(d["paper"])
+        self.assertEqual([o["exchange"] for o in d["orders"]], ["NFO"] * 4)
+        self.assertTrue(all(o["tradingsymbol"] is None and o["product"] == "NRML" for o in d["orders"]))
+        with open(os.path.join(self.s.dir, "trader", "orders.json"), encoding="utf-8") as fh:
+            doc = json.load(fh)
+        self.assertEqual((doc["created_by"], doc["status"], doc["paper"]), ("trader-strategy", "proposed", True))
+        with open(os.path.join(self.s.dir, "trader", "strategy.json"), encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["name"], "iron-fly")
+        self.assertTrue(all(not t["ready"] for t in d["tickets"]))
+        # trader-risk decides: F&O is off in this config, so every leg is blocked and none can be confirmed
+        status, res = self.s.post("/api/risk/check", {})
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(res["result"]["pass"], 0)
+        status, res = self.s.post("/api/orders/confirm", {"index": 1, "yes_text": "yes"})
+        self.assertFalse(res["ok"])
+        with open(os.path.join(self.s.dir, "trader", "state", "broker.json"), encoding="utf-8") as fh:
+            broker = json.load(fh)
+        self.assertFalse([r for r in broker.get("orders", []) if r.get("status") == "placed"
+                          and (r.get("order") or {}).get("exchange") == "NFO"])
+
+    def test_draft_refuses_a_non_paper_config(self):
+        path = os.path.join(self.s.dir, "trader", "config.json")
+        with open(path, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        cfg["paper"] = False
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh)
+        status, d = self.s.post("/api/strategy/draft", {"symbol": "NIFTY", "template": "iron-fly", "replace": True})
+        self.assertEqual(status, 409)
+        self.assertIn("paper", d["error"])
 
 
 class PaperFlow(unittest.TestCase):

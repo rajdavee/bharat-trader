@@ -9,7 +9,8 @@ import * as scanner from './pages/scanner.js';
 import * as portfolio from './pages/portfolio.js';
 import * as risk from './pages/risk.js';
 import * as settings from './pages/settings.js';
-import * as soon from './pages/soon.js';
+import * as options from './pages/options.js';
+import * as strategy from './pages/strategy.js';
 import * as about from './pages/about.js';
 
 const PAGES = {
@@ -18,8 +19,8 @@ const PAGES = {
   scanner: ['scanner', 'Scanner and watchlist', scanner],
   portfolio: ['portfolio', 'Paper portfolio and orders', portfolio],
   risk: ['risk', 'Risk panel', risk],
-  options: ['options', 'Option chain', soon.page('options')],
-  strategy: ['strategy', 'Strategy builder', soon.page('strategy')],
+  options: ['options', 'Option chain', options],
+  strategy: ['strategy', 'Strategy builder', strategy],
   settings: ['settings', 'Settings', settings],
   about: ['about', 'About', about],
 };

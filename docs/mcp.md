@@ -30,7 +30,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 24 tools and 5 prompts from
+4. Restart the client. It should list 26 tools and 5 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -104,6 +104,8 @@ message.
 | `lab_run` | **Strategy lab: run a backtest.** Backtest a strategy spec bar by bar on NSE bars after Indian charges and slippage, with no look-ahead; then walk-forward out of sample, the parameter neighbourhood, Monte Carlo, the deflated Sharpe ratio, the probability of backtest overfitting, regimes and 1.5x/2x costs. Pre-registered gates give REJECT, WATCH (paper forward test next) or PROMOTE. Writes trader/lab/<name>/. Sends progress and stops at max_seconds. Expect most strategies to be rejected. | `strategy`, `symbols`?, `seed`?, `max_seconds`? | writes trader/ (replaces a file, keeps a .bak); network |
 | `lab_report` | **Strategy lab: scorecard.** The plain-words scorecard of a lab run: the verdict, every gate, the robustness checks and what the run does NOT prove. Read only. | `strategy`, `include_trades`? | read-only |
 | `lab_forward` | **Strategy lab: paper forward test.** Run a WATCH or PROMOTE strategy on the latest bars: settle its signals since the backtest into the rolling forward record (a decayed PROMOTE is demoted) and list today's fresh signals as draft plans. draft: SYMBOL makes that plan trader/plan.json (keeps a .bak) and runs paper_order_draft (trader-budget sizes it, trader-risk checks it). Places nothing: a paper order still needs the user's own yes through paper_order_confirm. | `strategy`, `draft`? | writes trader/ (replaces a file, keeps a .bak); network |
+| `strategy_build` | **Build an option strategy.** An option strategy from a template on the real NSE chain (spreads, straddles, strangles, iron condor, iron fly, butterflies, ratios, covered call, protective put, calendar): payoff at expiry and today, breakevens, max profit and loss (unlimited flagged), net premium and Greeks, the same after 2026 F&O charges with the STT-on-exercise warning, margin required (what a broker would block: a SPAN-style estimate with its error; the premium for bought options only) next to the exact max loss and the return on margin, probability of profit textbook vs simulated with expected value and 5% tail loss. Read only: it proposes nothing. | `symbol`, `expiry`?, `fill`?, `at`?, `iv_shift`?, `seed`?, `paths`?, `simulate`?, `include_curve`?, `template`, `far_expiry`?, `strike`?, `wings`?, `width`?, `delta`?, `skip`?, `ratio`?, `lots`?, `type`? | read-only; network |
+| `strategy_price` | **Price custom option legs.** Your own option legs (up to 12, strikes by number, offset from ATM, delta or premium, other expiries allowed) with every number strategy_build gives. Read only: it proposes nothing. | `symbol`, `expiry`?, `fill`?, `at`?, `iv_shift`?, `seed`?, `paths`?, `simulate`?, `include_curve`?, `legs` | read-only; network |
 | `doctor` | **Data sources self-test.** Probe every free data source the tools read (NSE equity list, market status, holidays, announcements, board meetings, results, bulk/block deals, PIT, option chain and contract info, lot sizes, F&O list, India VIX history; Yahoo chart, spark and headlines), one polite request each (about 30 s): ok, slow, changed, down or blocked, since when, the tools affected and the fallback in use. Freshness follows the NSE calendar in IST. Read only. | `only`? | read-only; network |
 <!-- tools:end -->
 
@@ -111,10 +113,15 @@ message.
 `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`
 ("network": it can reach Yahoo or NSE when not offline).
 
-The `trader-strategy` tools (`strategy_build`, `strategy_price`) are not on
-main yet; `mcp/toolkit.py` has a marked hook. `doctor` runs trader-doctor's
-self-test read only: it reads `trader/doctor.json` for "since" but does not
-update it (the command line and the UI do).
+`strategy_build` and `strategy_price` are read only: they price a position
+and propose nothing. Their `margin.required` is an estimate of what a broker
+would block (SPAN-style, with `error_pct`); `margin.max_loss` is the exact
+max loss at expiry and is not the margin. To paper-trade a strategy the user writes a proposal
+with `strategy.py ... --orders` or the local UI's "Send to paper", then the
+same flow below: `risk_check`, and `paper_order_confirm` for each leg with
+the user's own typed yes. `doctor` runs trader-doctor's self-test read only:
+it reads `trader/doctor.json` for "since" but does not update it (the
+command line and the UI do).
 
 ### The paper order flow
 
