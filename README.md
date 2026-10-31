@@ -101,7 +101,7 @@ See [docs/ui.md](docs/ui.md).
 ## Use it from your AI assistant (MCP)
 
 `mcp/server.py` is a standard-library [MCP](https://modelcontextprotocol.io/)
-server: connect any MCP-compatible AI assistant and it can call 31 tools
+server: connect any MCP-compatible AI assistant and it can call 32 tools
 (market status, scans, news, entry and exit plans, the time machine, sizing,
 risk, the paper broker, option chains, results, insider deals, the strategy lab,
 the data self-test, your broker's holdings and positions, read only, and the
