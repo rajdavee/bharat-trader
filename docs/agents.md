@@ -147,5 +147,6 @@ then ask your assistant for the `persona_intraday_trader` prompt.
 - The risk officer's extra breakers (two losses in a row for a persona, the
   revenge flag) are judgement on top of trader-risk's own BLOCKs, read from
   the scorecard.
-- Option structures are drafted and checked; filling short option legs on
-  paper needs paper broker v2 (issue #8).
+- Option structures are drafted, checked and filled on paper as one basket
+  (one ticket, one yes, every leg or none); `ticket.py mtm` marks them and
+  `ticket.py settle` settles them at expiry. See [options.md](options.md).

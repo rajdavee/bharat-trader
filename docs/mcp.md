@@ -4,7 +4,11 @@
 server, so any MCP-compatible AI assistant (desktop and IDE assistants, chat
 apps that support MCP) can call the bharat-trader tools for you: market
 status, scans, news, entry and exit plans, the time machine, sizing, risk
-checks, the paper broker, option chains, results and insider deals.
+checks and scenarios, the paper broker (shares and F&O), option chains and
+strategies, the Strategy Lab, results, insider deals, the data self-test,
+your broker's holdings and positions (read only) and the agent personas.
+New to the project? [getting-started.md](getting-started.md) has the
+whole tour.
 
 Python standard library only. Nothing to install beyond the repo.
 

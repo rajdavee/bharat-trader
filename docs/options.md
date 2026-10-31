@@ -151,8 +151,9 @@ circular); no calendar-spread charge or short-option minimum from the SPAN
 file, no "additional ELM" for stocks under surveillance, exposure on hedged
 spreads is the naive per-leg rule, and intraday the exchange's file moves.
 `--scan-pct`, `--vol-scan` and `--elm-pct` override the assumptions. The
-broker's basket margin (`broker_basket`) stays empty until a broker adapter
-reports it; check it before any real order.
+broker's basket margin (`broker_basket`) stays empty for now: the Upstox,
+Kite and Dhan adapters can read it, and wiring it in next to this estimate
+is [planned](roadmap.md). Check it in your broker's app before any real order.
 
 ### Probability of profit, two ways
 
@@ -179,10 +180,10 @@ makes selling look safer than it is.
 lots, lot size, qty, a LIMIT at the priced premium on the 0.05 tick (rounded
 up for a buy, down for a sell), and `tradingsymbol: null` for the broker
 adapter to fill. It refuses to overwrite someone else's proposals without
-`--replace`. Then the usual chain: trader-risk checks every leg, and the
-paper broker shows the legs as one basket ticket and needs the user's typed
-yes to it. Until trader-risk has F&O rules it blocks option legs unless the
-config allows F&O.
+`--replace`. Then the usual chain: trader-risk checks the legs as ONE
+basket (it blocks every F&O leg unless the config sets `"allow_fno": true`),
+and the paper broker shows the legs as one basket ticket and needs the
+user's typed yes to it.
 
 ## Paper F&O: the basket, margin, MTM and expiry
 
