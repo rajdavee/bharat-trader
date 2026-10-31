@@ -2358,8 +2358,18 @@ def resolve_spec(arg, out="trader/lab"):
     raise LabError("no strategy %r: not a file, not in %s, not in the library (%s)" % (arg, out, ", ".join(sorted(lib))))
 
 
+def seen_by(bars, timeframe, now):
+    """The bars complete at `now` (IST): a saved file replayed with --now sees no later bar."""
+    if now is None:
+        return bars
+    day, m = now.date().isoformat(), now.hour * 60 + now.minute
+    if timeframe == "5m":
+        return [b for b in bars if b["date"] < day or (b["date"] == day and minutes_of(b["time"]) + 5 <= m)]
+    return [b for b in bars if b["date"] < day or (b["date"] == day and m >= CLOSE_MIN)]
+
+
 def load_data(spec, data_dir=None, cache_dir=None, fetch=True, now=None):
-    """({symbol: Series}, {"nifty", "vix"}, notes) for a compiled spec."""
+    """({symbol: Series}, {"nifty", "vix"}, notes) for a compiled spec, as seen at `now`."""
     data, notes = {}, []
     for sym in spec["universe"]:
         try:
@@ -2367,12 +2377,14 @@ def load_data(spec, data_dir=None, cache_dir=None, fetch=True, now=None):
         except LabError as e:
             notes.append("%s: %s" % (sym, e))
             continue
+        bars = seen_by(bars, spec["timeframe"], now)
         if bars:
             data[sym] = Series(sym, spec["timeframe"], bars)
     ctx = {}
     for key, sym in (("nifty", "^NSEI"), ("vix", "^INDIAVIX")):
         try:
             bars, _ = load_bars(sym, "1d", data_dir, cache_dir, fetch, now)
+            bars = seen_by(bars, "1d", now)
             ctx[key] = Series(sym, "1d", bars) if bars else None
         except LabError as e:
             ctx[key] = None

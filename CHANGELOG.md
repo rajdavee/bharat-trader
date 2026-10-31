@@ -12,11 +12,14 @@ All notable changes are documented here. The format follows
   (logs to stderr only) and optional streamable HTTP on 127.0.0.1 (Host and
   Origin checks). MCP revision 2026-07-28 (per-request `_meta`,
   `server/discover`, multi round-trip elicitation, `resultType`, cache hints)
-  plus the handshake-based 2025-11-25, 2025-06-18 and 2025-03-26. 19 tools
+  plus the handshake-based 2025-11-25, 2025-06-18 and 2025-03-26. 23 tools
   over the skills' own functions and commands (market status, daily and ORB
   scans, news, entry check, exit plan, time machine, sizing, risk check,
   paper tickets, draft and confirm, portfolio, option chain and summary,
-  results, bulk/block deals, PIT disclosures, config) with input and output
+  results, bulk/block deals, PIT disclosures, config, and the strategy lab:
+  `lab_list`, `lab_run` with progress and a time budget, `lab_report`,
+  `lab_forward`, which drafts paper tickets only through `paper_order_draft`)
+  with input and output
   schemas, structured results and annotations; `trader/*.json` as resources;
   5 prompts. No live-order tool: `paper_order_confirm` needs the exact
   risk-PASS fingerprint and the user's typed yes (elicitation when the client

@@ -92,6 +92,19 @@ class Data(unittest.TestCase):
         finally:
             shutil.rmtree(tmp)
 
+    def test_a_pinned_clock_sees_only_complete_bars(self):
+        five = lab.load_bars("RELIANCE", "5m", DIR, now=NOW)[0]
+        seen = lab.seen_by(five, "5m", lab.ist_now("2026-10-29 09:50"))
+        self.assertEqual((seen[-1]["date"], seen[-1]["time"]), ("2026-10-29", "09:45"))
+        day = lab.load_bars("RELIANCE", "1d", DIR, now=NOW)[0]
+        self.assertEqual(lab.seen_by(day, "1d", lab.ist_now("2026-10-29 15:00"))[-1]["date"], "2026-10-28")
+        self.assertEqual(lab.seen_by(day, "1d", lab.ist_now("2026-10-29 15:45"))[-1]["date"], "2026-10-29")
+        spec = lab.validate_spec(spec_doc("rsi2-nifty50", universe=["TCS"]))
+        data, ctx, notes = lab.load_data(spec, DIR, now=lab.ist_now("2026-10-23 16:00"))
+        self.assertEqual(data["TCS"].date[-1], "2026-10-23")
+        self.assertEqual(ctx["vix"].date[-1], "2026-10-23")
+        self.assertEqual(notes, [])
+
     def test_known_opening_range(self):
         # trader-budget's real example: RELIANCE 2026-10-29, opening range 09:15-09:30 = 1156.20 to 1170.50
         s = series("RELIANCE")

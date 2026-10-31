@@ -25,7 +25,7 @@ FP = "9ba8b90f83f96546"        # tests/fixtures/ui/trader/orders.json ticket 1, 
 TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit_plan", "timemachine_run",
          "size_trade", "risk_check", "paper_orders_show", "paper_order_draft", "paper_order_confirm",
          "portfolio_status", "options_chain", "options_summary", "results_analyse", "insider_deals",
-         "insider_disclosures", "config_get"]
+         "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "lab_forward"]
 # one offline call per tool, on the real saved answers in tests/fixtures (see tests/fixtures/mcp/offline.json)
 CALLS = [
     ("market_status", {}),
@@ -46,6 +46,10 @@ CALLS = [
     ("insider_deals", {}),
     ("insider_disclosures", {"days": 4}),
     ("config_get", {}),
+    ("lab_list", {}),
+    ("lab_run", {"strategy": "rsi2-nifty50"}),
+    ("lab_report", {"strategy": "rsi2-nifty50"}),
+    ("lab_forward", {"strategy": "rsi2-nifty50"}),
     ("paper_order_draft", {}),
     ("paper_order_confirm", {"index": 1, "risk_fingerprint": FP, "yes_text": "yes 42 RELIANCE"}),
 ]
@@ -451,7 +455,7 @@ class Tools(ServerCase):
                 if not cursor:
                     break
             self.assertEqual(names, TOOLS)
-            self.assertEqual(pages, 4)
+            self.assertEqual(pages, 5)
             r = c2.request("prompts/list", {"cursor": json.dumps({"k": "tools", "o": 5})})
             self.assertEqual(r["error"]["code"], -32602)
         finally:
@@ -486,6 +490,123 @@ class Tools(ServerCase):
         for k in changed:
             self.assertTrue(k.startswith("trader" + os.sep), k)
         self.assertEqual(tree(FIX), fix_before, "the fixtures must never change")
+
+
+# ---------------------------------------------------------------- the strategy lab
+
+WATCH_SPEC = {
+    "name": "t-watch", "title": "a test spec with lenient gates", "timeframe": "5m", "product": "MIS",
+    "universe": ["RELIANCE"], "params": {"stop_pct": 0.5},
+    "entry": {"all": [["close", ">", 0], {"time_between": ["09:50", "09:50"]}]},
+    "stop": {"pct": "$stop_pct"}, "target": {"r": 2}, "grid": {"stop_pct": [0.5, 0.75]},
+    "walk_forward": {"in_sample": 10, "out_of_sample": 5},
+    "gates": {"min_oos_trades": 0, "min_oos_expectancy_r": -100, "min_oos_profit_factor": 0, "max_drawdown_pct": 100,
+              "min_dsr": 0, "max_pbo": 1.01, "min_neighbourhood_positive": 0, "min_forward_trades": 100,
+              "demote_drawdown_mult": 1000}}
+
+
+class Lab(ServerCase):
+    def data(self, name, args):
+        r = self.result(self.c.call(name, args))
+        self.assertFalse(r["isError"], r["content"][0]["text"][:400])
+        return r["structuredContent"]["data"]
+
+    def test_run_with_progress_then_report_and_list(self):
+        others = []
+        r = self.c.request("tools/call", {"name": "lab_run", "arguments": {"strategy": "rsi2-nifty50"},
+                                          "_meta": meta(progressToken="lab-1")}, others=others)
+        d = self.result(r)["structuredContent"]["data"]
+        prog = [m["params"]["progress"] for m in others if m.get("method") == "notifications/progress"]
+        self.assertGreater(len(prog), 5)                        # one per grid point, between start and done
+        self.assertEqual(prog, sorted(prog))
+        self.assertEqual(len(set(prog)), len(prog))
+        self.assertEqual(d["verdict"], "REJECT")              # the honest answer on the saved bars
+        self.assertEqual(d["results"]["data"]["to"], "2026-10-23")   # the pinned clock: no later bar seen
+        self.assertIn("What this does NOT prove", d["scorecard"])
+        self.assertNotIn("trades", d["results"])
+        folder = os.path.join(self.c.workdir, "trader", "lab", "rsi2-nifty50")
+        for f in ("spec.json", "results.json", "scorecard.md", "equity.csv", "status.json"):
+            self.assertTrue(os.path.exists(os.path.join(folder, f)), f)
+        rep = self.data("lab_report", {"strategy": "rsi2-nifty50", "include_trades": True})
+        self.assertEqual(rep["verdict"], "REJECT")
+        self.assertEqual(rep["scorecard"], d["scorecard"])
+        self.assertTrue(rep["oos_trades"])
+        ls = self.data("lab_list", {})
+        self.assertGreaterEqual(len(ls["library"]), 6)
+        self.assertEqual([x["name"] for x in ls["runs"]], ["rsi2-nifty50"])
+        fw = self.data("lab_forward", {"strategy": "rsi2-nifty50"})
+        self.assertEqual(fw["forward"]["plans"], [])          # REJECT: no paper plans
+        self.assertIsNone(fw["drafted"])
+
+    def test_forward_drafts_only_through_paper_order_draft(self):
+        d = os.path.join(self.c.workdir, "trader", "lab", "t-watch")
+        os.makedirs(d)
+        with open(os.path.join(d, "spec.json"), "w", encoding="utf-8") as fh:
+            json.dump(WATCH_SPEC, fh)
+        run = self.data("lab_run", {"strategy": "t-watch"})
+        self.assertEqual(run["verdict"], "WATCH", run["verdict_why"])
+        before = len(broker_records(self.c.workdir))
+        fw = self.data("lab_forward", {"strategy": "t-watch"})
+        self.assertGreater(fw["forward"]["settled"], 0)        # 26 to 28 Oct: bars the backtest never saw
+        self.assertEqual([p["symbol"] for p in fw["forward"]["plans"]], ["RELIANCE"])
+        self.assertIn("draft", fw["next_step"])
+        self.assertIsNone(fw["drafted"])
+        self.assertFalse(os.path.exists(os.path.join(self.c.workdir, "trader", "plan.json.bak")))
+        dr = self.data("lab_forward", {"strategy": "t-watch", "draft": "RELIANCE"})
+        self.assertTrue(dr["drafted"]["tickets"])
+        self.assertIn("risk", dr["drafted"])
+        with open(os.path.join(self.c.workdir, "trader", "plan.json"), encoding="utf-8") as fh:
+            plan = json.load(fh)
+        self.assertEqual((plan["setup"], plan["symbol"], plan["date"]), ("lab:t-watch", "RELIANCE", "2026-10-29"))
+        with open(os.path.join(self.c.workdir, "trader", "orders.json"), encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["orders"][0]["symbol"], "RELIANCE")
+        self.assertEqual(len(broker_records(self.c.workdir)), before)     # drafted, never placed
+        r = self.result(self.c.call("lab_forward", {"strategy": "t-watch", "draft": "TCS"}))
+        self.assertTrue(r["isError"])
+
+    def test_lab_errors(self):
+        r = self.result(self.c.call("lab_run", {"strategy": "../../etc"}))
+        self.assertTrue(r["isError"])
+        self.assertIn("invalid arguments", r["content"][0]["text"])
+        r = self.result(self.c.call("lab_report", {"strategy": "orb15-vwap"}))
+        self.assertTrue(r["isError"])
+        self.assertIn("lab_run", r["content"][0]["text"])
+        r = self.result(self.c.call("lab_forward", {"strategy": "orb15-vwap"}))
+        self.assertTrue(r["isError"])
+        self.assertIn("run it first", r["content"][0]["text"])
+        r = self.result(self.c.call("lab_run", {"strategy": "no-such-thing"}))
+        self.assertTrue(r["isError"])
+
+
+class LabBudget(unittest.TestCase):
+    def test_lab_run_stops_at_its_time_budget(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("bt_mcp_toolkit_budget", os.path.join(ROOT, "mcp", "toolkit.py"))
+        tk = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tk)
+        wd = workdir_copy()
+        real = tk.time
+
+        class Clock(object):
+            t = 0.0
+
+            def monotonic(self):
+                Clock.t += 4.0                                  # every check is 4 seconds later
+                return Clock.t
+
+            def __getattr__(self, name):
+                return getattr(real, name)
+
+        try:
+            kit = tk.Kit(wd, offline=BUNDLE)
+            tk.time = Clock()
+            with self.assertRaises(tk.ToolError) as cm:
+                kit.call("lab_run", {"strategy": "rsi2-nifty50", "max_seconds": 5})
+            self.assertIn("max_seconds", str(cm.exception))
+            self.assertFalse(os.path.exists(os.path.join(wd, "trader", "lab", "rsi2-nifty50", "results.json")))
+        finally:
+            tk.time = real
+            shutil.rmtree(wd, ignore_errors=True)
 
 
 # ---------------------------------------------------------------- resources and prompts
@@ -537,6 +658,12 @@ class Prompts(ServerCase):
             self.assertIn("not financial advice", text)
             self.assertIn("never promise", text.lower())
             self.assertRegex(text, r"\b(market_status|scan_daily|entry_check|options_summary|portfolio_status)\b")
+        lab = self.result(self.c.request("prompts/get", {"name": "research_strategy", "arguments":
+                                                         {"idea": "opening range breakouts", "symbol": "sbin"}}))
+        text = lab["messages"][0]["content"]["text"]
+        for tool in ("lab_list", "lab_run", "lab_report", "lab_forward"):
+            self.assertIn(tool, text)
+        self.assertIn("symbols SBIN", text)
         r = self.result(self.c.request("prompts/get", {"name": "intraday_plan", "arguments": {"symbol": "reliance"}}))
         self.assertIn("RELIANCE", r["messages"][0]["content"]["text"])
         self.assertIn("typed yes", r["messages"][0]["content"]["text"])

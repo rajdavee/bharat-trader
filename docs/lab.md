@@ -192,3 +192,13 @@ Everything is a pure function that the UI and an MCP server can call:
 `evaluate_gates(...)`, `decide(...)`, `run_lab(doc, data, context)`,
 `scorecard(results)`, `forward(doc, data, out)`, `compare_rows(out, names)`.
 Nothing writes a file except `save_run` and `forward(..., write=True)`.
+
+The MCP server (`mcp/server.py`, see [mcp.md](mcp.md)) exposes the lab as
+`lab_list`, `lab_run` (progress notifications, cancellation, a `max_seconds`
+budget), `lab_report` and `lab_forward`, all calling these functions. A
+forward signal becomes a paper ticket only through `lab_forward` with
+`draft: SYMBOL`, which hands the plan to `paper_order_draft`: trader-budget
+sizes it, trader-risk checks it, and the user's own typed yes is still
+needed. `--now` (and the MCP server's pinned offline clock) also hides bars
+that were not complete at that time, so a saved file replays as it was seen
+then.

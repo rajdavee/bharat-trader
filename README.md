@@ -92,9 +92,9 @@ See [docs/ui.md](docs/ui.md).
 ## Use it from your AI assistant (MCP)
 
 `mcp/server.py` is a standard-library [MCP](https://modelcontextprotocol.io/)
-server: connect any MCP-compatible AI assistant and it can call 19 tools
+server: connect any MCP-compatible AI assistant and it can call 23 tools
 (market status, scans, news, entry and exit plans, the time machine, sizing,
-risk, the paper broker, option chains, results, insider deals) and 5 prompts
+risk, the paper broker, option chains, results, insider deals, the strategy lab) and 5 prompts
 (morning briefing, intraday plan, options income scan, weekly review,
 research a strategy). Add it to your client's configuration:
 

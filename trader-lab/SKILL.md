@@ -46,7 +46,7 @@ python3 "<skill dir>/lab.py" forward orb15-vwap            # paper forward test:
 ```
 
 `--json` on run, report, compare and forward prints the numbers for a UI or
-another tool. `--now "2026-10-30 15:40"` pins the clock (IST). `--out DIR`
+another tool. `--now "2026-10-30 15:40"` pins the clock (IST); bars not complete by then are not seen. `--out DIR`
 moves the lab folder (default `trader/lab`).
 
 ## What it reads and writes
@@ -172,6 +172,10 @@ alert with trader-alerts.
 Not in this version. A spec with `"kind": "options"` goes to `OPTIONS_HOOK`,
 which trader-strategy will register (docs/lab.md describes the contract);
 until then it is refused.
+
+From an AI assistant, the MCP server (`mcp/server.py`) offers the same as
+`lab_list`, `lab_run`, `lab_report` and `lab_forward`; `lab_forward` with
+`draft: SYMBOL` hands a plan to `paper_order_draft` and nothing else.
 
 ## How to talk about results
 
