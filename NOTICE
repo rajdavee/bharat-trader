@@ -4,3 +4,13 @@ Copyright (c) 2026 Raj Dave and bharat-trader contributors
 Market data is fetched at runtime from public sources (NSE India, Yahoo
 Finance). This project is not affiliated with, endorsed by, or sponsored by
 NSE, BSE, SEBI, Yahoo, or any broker. All trademarks belong to their owners.
+
+Third-party software
+
+The local web UI (ui/) bundles, unmodified, in ui/static/vendor/:
+
+  TradingView Lightweight Charts™ 5.2.1
+  Copyright (c) 2025 TradingView, Inc. https://www.tradingview.com/
+  Licensed under the Apache License, Version 2.0 (ui/static/vendor/LICENSE).
+  Its NOTICE file is ui/static/vendor/NOTICE. The chart's TradingView logo
+  (attribution link) is kept on.
