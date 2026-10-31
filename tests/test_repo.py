@@ -1,5 +1,6 @@
 """Repo-wide rules: layout, skill metadata, safety text, and copies that must stay in sync."""
 
+import ast
 import json
 import os
 import re
@@ -12,6 +13,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _load import ROOT, load  # noqa: E402
 
 SELF = os.path.abspath(__file__)
+# the standard library modules a helper module may import (Python 3.8 has no sys.stdlib_module_names)
+STDLIB = set(getattr(sys, "stdlib_module_names", ())) | {
+    "abc", "argparse", "ast", "base64", "binascii", "calendar", "collections", "contextlib", "copy", "csv",
+    "dataclasses", "datetime", "decimal", "email", "enum", "functools", "getpass", "glob", "gzip", "hashlib",
+    "hmac", "html", "http", "importlib", "io", "ipaddress", "itertools", "json", "logging", "math", "os",
+    "pathlib", "random", "re", "secrets", "shlex", "shutil", "socket", "ssl", "statistics", "string", "struct",
+    "sys", "tempfile", "textwrap", "threading", "time", "typing", "unicodedata", "urllib", "uuid", "webbrowser",
+    "zipfile", "zlib"}
 
 SKILLS = ["trader-scanner", "trader-news", "trader-entry", "trader-exit", "trader-timemachine",
           "trader-risk", "trader-budget", "trader-broker", "trader-alerts", "trader-analyst",
@@ -85,11 +94,50 @@ class Layout(unittest.TestCase):
         root.discard(".DS_Store")
         self.assertEqual(root, ROOT_FILES)
 
-    def test_each_skill_has_one_script_and_a_test(self):
+    def test_each_skill_has_one_entry_script_and_a_test(self):
         for s in SKILLS:
             py = [f for f in os.listdir(os.path.join(ROOT, s)) if f.endswith(".py")]
-            self.assertEqual(len(py), 1, s)
+            self.assertEqual(len(py), 1, "%s: exactly one entry script at the top of the folder" % s)
+            _, text = frontmatter(os.path.join(ROOT, s, "SKILL.md"))
+            self.assertIn(py[0], text, "%s: SKILL.md names its entry script" % s)
             self.assertTrue(os.path.isfile(os.path.join(ROOT, "tests", "test_%s.py" % s[7:])), s)
+
+    def test_helper_modules_stay_inside_their_skill(self):
+        """A skill may keep helper modules in a subfolder (a package its entry script loads by path), as long as
+        the folder still works copied alone: standard library and its own modules only."""
+        found = 0
+        for s in SKILLS:
+            folder = os.path.join(ROOT, s)
+            for sub in sorted(os.listdir(folder)):
+                pkg = os.path.join(folder, sub)
+                if not os.path.isdir(pkg) or sub == "__pycache__":
+                    continue
+                mods = [f for f in os.listdir(pkg) if f.endswith(".py")]
+                if not mods:
+                    continue
+                found += 1
+                self.assertIn("__init__.py", mods, pkg)
+                self.assertFalse([d for d in os.listdir(pkg) if os.path.isdir(os.path.join(pkg, d))
+                                  and d != "__pycache__"], "%s: one level of helpers only" % pkg)
+                _, doc = frontmatter(os.path.join(folder, "SKILL.md"))
+                self.assertIn(sub + "/", doc, "%s: SKILL.md mentions its helper folder" % s)
+                entry = [f for f in os.listdir(folder) if f.endswith(".py")][0]
+                self.assertIn('"%s"' % sub, read(os.path.join(folder, entry)), "%s loads %s by path" % (entry, sub))
+                for m in mods:
+                    path = os.path.join(pkg, m)
+                    tree = ast.parse(read(path), path)
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Import):
+                            for a in node.names:
+                                self.assertIn(a.name.split(".")[0], STDLIB, "%s imports %s" % (path, a.name))
+                        elif isinstance(node, ast.ImportFrom) and not node.level:
+                            self.assertIn((node.module or "").split(".")[0], STDLIB,
+                                          "%s imports %s" % (path, node.module))
+                    text = read(path)
+                    self.assertNotIn("sys.path", text, path)
+                    for other in SKILLS:
+                        self.assertNotIn(other + "/", text.replace(s + "/", ""), "%s reaches into %s" % (path, other))
+        self.assertGreaterEqual(found, 1)
 
 
 class SkillDocs(unittest.TestCase):
@@ -133,10 +181,13 @@ class Hygiene(unittest.TestCase):
                          r"america/new_york|\bUSD\b|max_\w*_usd", re.I)
         hits = []
         for s in SKILLS:
-            for f in os.listdir(os.path.join(ROOT, s)):
-                p = os.path.join(ROOT, s, f)
-                if os.path.isfile(p) and bad.search(read(p)):
-                    hits.append("%s/%s: %s" % (s, f, sorted(set(m.lower() for m in bad.findall(read(p))))))
+            for base, dirs, files in os.walk(os.path.join(ROOT, s)):
+                dirs[:] = [d for d in dirs if d != "__pycache__"]
+                for f in files:
+                    p = os.path.join(base, f)
+                    if not f.endswith(".pyc") and bad.search(read(p)):
+                        hits.append("%s: %s" % (os.path.relpath(p, ROOT),
+                                                sorted(set(m.lower() for m in bad.findall(read(p))))))
         self.assertEqual(hits, [])
 
     def test_no_secrets_in_tree(self):

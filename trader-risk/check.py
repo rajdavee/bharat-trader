@@ -62,9 +62,9 @@ What blocks an entry (on top):
               max_daily_drawdown_pct of capital; cooling-off: cooloff_after_stop_min minutes
               after a stop filled; revenge: re-entering a symbol within revenge_window_min of a
               loss (blocks, or a warning with "revenge_trade": "warn")
-  rate        max_orders_per_second orders already went in the last second (default 3,
+  rate        order_rate_per_sec orders already went in the last second (default 3,
               never above 9: SEBI registers algos above 10 a second)
-  api         a live broker ("paper": false): MARKET / SL-M need market_protection, else LIMIT
+  api         a live broker with no market protection (Dhan): MARKET / SL-M blocked, use LIMIT / SL
 
 F&O ("allow_fno": true). The legs of one basket (orders.json "basket": true, or a shared
 basket_id) are checked as ONE position and pass or block together:
@@ -162,7 +162,7 @@ DEFAULTS = {
     "cooloff_after_stop_min": 15,
     "revenge_window_min": 15,
     "revenge_trade": "block",
-    "max_orders_per_second": 3,
+    "order_rate_per_sec": 3,
     # F&O (trader-risk only; with "allow_fno": true). null = the default in fno_limits(), 0 = off
     "allow_naked_short": False,
     "defined_risk_counts_as_stop": True,
@@ -1664,16 +1664,17 @@ def stop_rule_loss(legs, orders, rule, cfg, on):
 
 SEBI_ORDER_RATE = 10        # orders a second per exchange per client, above which an algo must be registered
 ORDER_RATE_HARD_CAP = 9     # this pack never goes above it, whatever the config says
+PROTECTED_BROKERS = ("kite", "upstox")   # adapters that send MARKET / SL-M with the broker's automatic protection
 
 
 def order_rate(c):
-    """(orders a second this pack allows, warning or None): the config's max_orders_per_second (3), never
+    """(orders a second this pack allows, warning or None): the config's order_rate_per_sec (3), never
     above ORDER_RATE_HARD_CAP (below SEBI's 10 a second)."""
-    want = _f(c.get("max_orders_per_second"))
+    want = _f(c.get("order_rate_per_sec"))
     if want is None or want <= 0:
-        return 3, None if want is None else "max_orders_per_second must be above 0: using 3"
+        return 3, None if want is None else "order_rate_per_sec must be above 0: using 3"
     if want > ORDER_RATE_HARD_CAP:
-        return ORDER_RATE_HARD_CAP, ("max_orders_per_second %s is over the hard cap of %d (SEBI registers algos "
+        return ORDER_RATE_HARD_CAP, ("order_rate_per_sec %s is over the hard cap of %d (SEBI registers algos "
                                      "above %d a second): using %d" % (_num(want), ORDER_RATE_HARD_CAP,
                                                                         SEBI_ORDER_RATE, ORDER_RATE_HARD_CAP))
     return int(want), None
@@ -2017,20 +2018,24 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                                         "below SEBI's %d): wait %.1f s" % (per_second, per_second, SEBI_ORDER_RATE,
                                                                             rate_wait))
 
+    broker_name = str(c.get("broker") or "paper").strip().lower()
+    broker_name = {"zerodha": "kite"}.get(broker_name, broker_name)
+    protected = broker_name in PROTECTED_BROKERS
+
     def api_rule(o, label):
-        """A live broker takes LIMIT orders, or MARKET / SL-M with market protection (SEBI's API rules)."""
-        if not live_broker:
+        """Through a live broker's API (SEBI's rules) a MARKET or SL-M order must carry market protection:
+        Kite and Upstox add the broker's automatic protection, any other broker takes LIMIT and SL only."""
+        if not live_broker or protected:
             return []
         out = []
         otype = str(o.get("order_type") or "MARKET").upper()
-        prot = _f(o.get("market_protection"))
-        if otype in ("MARKET", "SL-M") and not (prot and prot > 0):
-            out.append("api: a %s order through a live broker API needs market protection (\"market_protection\": "
-                       "a percent above 0) or a LIMIT price (%s)" % (otype, label))
+        if otype in ("MARKET", "SL-M"):
+            out.append("api: a %s order through %s's API has no market protection here: use a LIMIT order (%s)"
+                       % (otype, broker_name, label))
         sl = o.get("stop_loss") if isinstance(o.get("stop_loss"), dict) else None
-        if sl and str(sl.get("order_type", "")).upper() == "SL-M" and not (_f(sl.get("market_protection")) or prot):
-            out.append("api: the SL-M stop_loss needs market protection through a live broker API, or use an SL stop "
-                       "with a limit price (%s)" % label)
+        if sl and str(sl.get("order_type", "")).upper() == "SL-M":
+            out.append("api: the SL-M stop_loss has no market protection through %s's API: use an SL stop with a "
+                       "limit price (%s)" % (broker_name, label))
         return out
 
     def fresh(sym):

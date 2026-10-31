@@ -1,0 +1,21 @@
+{
+ "doc_derived": true,
+ "source": "https://dhanhq.co/docs/v2/funds/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/v2/margincalculator"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "totalMargin": 2800.0,
+   "spanMargin": 1200.0,
+   "exposureMargin": 1003.0,
+   "availableBalance": 10500.0,
+   "variableMargin": 1000.0,
+   "insufficientBalance": 0.0,
+   "brokerage": 20.0,
+   "leverage": "4.00"
+  }
+ }
+}

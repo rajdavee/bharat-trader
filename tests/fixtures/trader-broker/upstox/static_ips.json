@@ -1,0 +1,20 @@
+{
+ "doc_derived": true,
+ "source": "https://upstox.com/developer/api-documentation/get-app-static-ips (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/v2/user/ip"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": "success",
+   "data": {
+    "primary_ip": "122.181.101.247",
+    "secondary_ip": "128.1.1.2",
+    "primary_ip_updated_at": "2026-04-03 17:17:50",
+    "secondary_ip_updated_at": "2026-04-03 17:17:50"
+   }
+  }
+ }
+}

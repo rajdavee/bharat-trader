@@ -1,0 +1,34 @@
+{
+ "doc_derived": true,
+ "source": "https://dhanhq.co/docs/v2/orders/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/v2/trades"
+ },
+ "response": {
+  "status": 200,
+  "body": [
+   {
+    "dhanClientId": "1000000009",
+    "orderId": "112111182045",
+    "exchangeOrderId": "15112111182045",
+    "exchangeTradeId": "15112111182045",
+    "transactionType": "BUY",
+    "exchangeSegment": "NSE_EQ",
+    "productType": "INTRADAY",
+    "orderType": "LIMIT",
+    "tradingSymbol": "TCS",
+    "securityId": "11536",
+    "tradedQuantity": 40,
+    "tradedPrice": 3345.8,
+    "createTime": "2021-03-10 11:20:06",
+    "updateTime": "2021-11-25 17:35:12",
+    "exchangeTime": "2021-11-25 17:35:12",
+    "drvExpiryDate": null,
+    "drvOptionType": null,
+    "drvStrikePrice": 0.0
+   }
+  ]
+ },
+ "repairs": "the docs' example is not valid JSON: missing comma added"
+}

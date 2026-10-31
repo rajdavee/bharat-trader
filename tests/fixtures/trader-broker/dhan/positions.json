@@ -1,0 +1,44 @@
+{
+ "doc_derived": true,
+ "source": "https://dhanhq.co/docs/v2/portfolio/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/v2/positions"
+ },
+ "response": {
+  "status": 200,
+  "body": [
+   {
+    "dhanClientId": "1000000009",
+    "tradingSymbol": "TCS",
+    "securityId": "11536",
+    "positionType": "LONG",
+    "exchangeSegment": "NSE_EQ",
+    "productType": "CNC",
+    "buyAvg": 3345.8,
+    "buyQty": 40,
+    "costPrice": 3215.0,
+    "sellAvg": 0.0,
+    "sellQty": 0,
+    "netQty": 40,
+    "realizedProfit": 0.0,
+    "unrealizedProfit": 6122.0,
+    "rbiReferenceRate": 1.0,
+    "multiplier": 1,
+    "carryForwardBuyQty": 0,
+    "carryForwardSellQty": 0,
+    "carryForwardBuyValue": 0.0,
+    "carryForwardSellValue": 0.0,
+    "dayBuyQty": 40,
+    "daySellQty": 0,
+    "dayBuyValue": 133832.0,
+    "daySellValue": 0.0,
+    "drvExpiryDate": "0001-01-01",
+    "drvOptionType": null,
+    "drvStrikePrice": 0.0,
+    "crossCurrency": false
+   }
+  ]
+ },
+ "repairs": "the docs' example is not valid JSON: full stop after a number -> comma"
+}

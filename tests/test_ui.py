@@ -726,6 +726,131 @@ class Pieces(unittest.TestCase):
             self.assertTrue(about)
 
 
+class BrokerRoutes(unittest.TestCase):
+    """The live broker on the Portfolio and Settings pages: status and holdings/positions, read only, against the
+    local stub broker of tests/test_broker_adapters.py (doc-derived fixtures)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import test_broker_adapters as tba
+        cls.tba = tba
+        cls.stub = tba.Stub()
+        for b in tba.BROKERS:
+            cls.stub.load(b)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.stub.close()
+
+    def setUp(self):
+        self.dir = workdir()
+        self.ctx = api.Context(self.dir, now="2026-10-29 10:00")
+        self.kw = api.skill("broker").ADAPTER_KW
+        self.kw.clear()
+        for b in self.tba.BROKERS:
+            self.kw[b] = {"hosts": self.stub.hosts(b), "env": dict(self.tba.ENV)}
+        self.stub.hits[:] = []
+
+    def tearDown(self):
+        self.kw.clear()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def get(self, path, q=None):
+        return api.dispatch(self.ctx, "GET", path, q or {})
+
+    def set_cfg(self, **over):
+        p = os.path.join(self.dir, "trader", "config.json")
+        with open(p, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        cfg.update(over)
+        with open(p, "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh)
+        return cfg
+
+    def test_status_names_variables_never_values(self):
+        status, st = self.get("/api/broker")
+        self.assertEqual(status, 200)
+        self.assertEqual((st["mode"], st["broker"]), ("paper", "paper"))
+        rows = {r["broker"]: r for r in st["brokers"]}
+        self.assertEqual(sorted(rows), ["dhan", "kite", "upstox"])
+        self.assertTrue(rows["kite"]["credentials"]["BT_KITE_ACCESS_TOKEN"])
+        self.assertFalse(rows["upstox"]["credentials"]["BT_UPSTOX_REDIRECT"])
+        self.assertEqual(rows["kite"]["token_cutoff"], "06:00")
+        self.assertTrue(rows["dhan"]["capabilities"]["sandbox"])
+        self.assertIn("never sends an order", st["rule"])
+        text = json.dumps(st)
+        for secret in self.tba.TOKENS:
+            self.assertNotIn(secret, text)
+        self.assertEqual(self.stub.hits, [])                 # no network for the status
+
+    def test_holdings_and_positions_read_only(self):
+        status, h = self.get("/api/broker/holdings")
+        self.assertEqual(status, 200)
+        self.assertFalse(h["connected"])                     # the config broker is paper
+        self.assertIn("?broker=", h["note"])
+        status, h = self.get("/api/broker/holdings", {"broker": "kite"})
+        self.assertEqual(status, 200, h)
+        self.assertTrue(h["connected"] and h["read_only"])
+        self.assertEqual([r["symbol"] for r in h["rows"]], ["ASHOKLEY", "BHEL", "SBIN"])
+        self.assertEqual(h["pnl"], 97.35)
+        self.set_cfg(broker="upstox", paper=False, live_enabled={"upstox": True})
+        status, p = self.get("/api/broker/positions")
+        self.assertEqual((status, p["broker"], p["rows"][0]["product"]), (200, "upstox", "NRML"))
+        self.assertEqual(self.get("/api/broker/positions", {"broker": "angel"})[0], 400)
+        self.assertEqual([x for x in self.stub.hits if x["method"] != "GET"], [])
+
+    def test_no_token_and_broker_errors_in_plain_words(self):
+        self.kw["dhan"]["env"] = {}
+        status, h = self.get("/api/broker/holdings", {"broker": "dhan"})
+        self.assertEqual(status, 200)
+        self.assertFalse(h["connected"])
+        self.assertIn("ticket.py login dhan", h["note"])
+        self.stub.add("GET", "/upstox/v2/portfolio/long-term-holdings", 401, jload_fix("upstox", "error_token"))
+        self.ctx.forget("broker")
+        status, body = self.get("/api/broker/holdings", {"broker": "upstox"})
+        self.stub.load("upstox")
+        self.assertEqual(status, 502)
+        self.assertIn("UDAPI100050", body["error"])
+        self.assertNotIn("uptok66", body["error"])
+
+    def test_offline_never_calls_a_broker(self):
+        ctx = api.Context(self.dir, offline=UIFIX)
+        status, h = api.dispatch(ctx, "GET", "/api/broker/holdings", {"broker": "kite"})
+        self.assertEqual((status, h["connected"]), (200, False))
+        self.assertEqual(self.stub.hits, [])
+
+    def test_going_live_is_never_done_from_the_ui(self):
+        cfg = self.set_cfg()
+        live = dict(cfg, broker="kite", paper=False, live_enabled={"kite": True}, static_ip="203.0.113.7")
+        status, res = api.dispatch(self.ctx, "POST", "/api/config/validate", {}, {"config": live})
+        self.assertTrue(res["ok"], res)
+        self.assertTrue(any("LIVE with kite" in w for w in res["warnings"]))
+        status, res = api.dispatch(self.ctx, "POST", "/api/config", {}, {"config": live})
+        self.assertFalse(res["saved"])
+        self.assertIn("cannot be changed from this page", res["errors"][0])
+        for bad, word in (({"live_enabled": {"kite": "yes"}}, "live_enabled"),
+                          ({"live_enabled": {"angel": True}}, "not a broker"),
+                          ({"static_ip": "my home"}, "not an IP address"),
+                          ({"order_rate_per_sec": 12}, "at most 9"),
+                          ({"broker": "kite"}, "the paper broker only works"),
+                          ({"broker": "angel", "paper": False}, "the brokers are")):
+            _, res = api.dispatch(self.ctx, "POST", "/api/config/validate", {}, {"config": dict(cfg, **bad)})
+            self.assertIn(word, " ".join(res["errors"]), bad)
+        # a live config on disk: the UI's confirm refuses, the tickets say LIVE
+        self.set_cfg(broker="kite", paper=False, live_enabled={"kite": True})
+        status, body = api.dispatch(self.ctx, "POST", "/api/orders/confirm", {}, {"index": 1, "yes_text": "yes"})
+        self.assertEqual(status, 422)
+        self.assertIn("paper account only", body["error"])
+        _, o = self.get("/api/orders")
+        self.assertEqual((o["tickets"][0]["paper"], o["tickets"][0]["broker"]), (False, "kite"))
+        self.assertEqual(self.stub.hits, [])
+
+
+def jload_fix(broker, case):
+    with open(os.path.join(FIX, "trader-broker", broker, case + ".json"), encoding="utf-8") as fh:
+        return json.load(fh)["response"]["body"]
+
+
 class StaticFiles(unittest.TestCase):
     def files(self):
         for base, _, names in os.walk(STATIC):

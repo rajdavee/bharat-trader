@@ -1,0 +1,20 @@
+{
+ "doc_derived": true,
+ "source": "https://dhanhq.co/docs/v2/authentication/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/v2/profile"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "dhanClientId": "1100003626",
+   "tokenValidity": "30/03/2025 15:37",
+   "activeSegment": "Equity, Derivative, Currency, Commodity",
+   "ddpi": "Active",
+   "mtf": "Active",
+   "dataPlan": "Active",
+   "dataValidity": "2024-12-05 09:37:52.0"
+  }
+ }
+}

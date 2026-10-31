@@ -1,0 +1,17 @@
+{
+ "doc_derived": true,
+ "source": "https://dhanhq.co/docs/v2/portfolio/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/v2/holdings"
+ },
+ "response": {
+  "status": 401,
+  "body": {
+   "errorType": "Invalid Authentication",
+   "errorCode": "DH-901",
+   "errorMessage": "Client ID or user generated access token is invalid or expired"
+  }
+ },
+ "note": "the HTTP status is not stated in the docs"
+}

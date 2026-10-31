@@ -711,12 +711,12 @@ class Kill(unittest.TestCase):
 class Rate(unittest.TestCase):
     def test_configured_rate_and_the_hard_cap(self):
         self.assertEqual(check.order_rate({}), (3, None))
-        self.assertEqual(check.order_rate({"max_orders_per_second": 5})[0], 5)
-        n, warn = check.order_rate({"max_orders_per_second": 50})
+        self.assertEqual(check.order_rate({"order_rate_per_sec": 5})[0], 5)
+        n, warn = check.order_rate({"order_rate_per_sec": 50})
         self.assertEqual(n, 9)
         self.assertLess(n, check.SEBI_ORDER_RATE)
         self.assertIn("hard cap", warn)
-        self.assertEqual(check.order_rate({"max_orders_per_second": 0})[0], 3)
+        self.assertEqual(check.order_rate({"order_rate_per_sec": 0})[0], 3)
 
     def test_sliding_one_second_window(self):
         t0 = check.parse_now("2026-11-02 10:00:00")
@@ -741,7 +741,7 @@ class Rate(unittest.TestCase):
             log = os.path.join(d, "rate.json")
             cfgp = os.path.join(d, "config.json")
             with open(cfgp, "w") as fh:
-                json.dump({"max_orders_per_second": 2}, fh)
+                json.dump({"order_rate_per_sec": 2}, fh)
             out = io.StringIO()
             with redirect_stdout(out):
                 codes = [check.main(["rate-gate", "--config", cfgp, "--log", log, "--record"]) for _ in range(3)]
@@ -751,24 +751,26 @@ class Rate(unittest.TestCase):
                 self.assertLessEqual(len(json.load(fh)["sent"]), 3)
 
     def test_live_broker_needs_limit_or_protected_orders(self):
-        live = {"paper": False, "broker": "kite"}
         o = cash_order()
         o["order_type"] = "MARKET"
         o.pop("price")
-        r = check.check([o], dict(CASH_CFG, **live), {"cash": 100000}, {"RELIANCE": 1174.3}, None, None,
-                        check.parse_now("2026-11-02 11:00"), None, {})["results"][0]
+
+        def live(order, broker):
+            return check.check([order], dict(CASH_CFG, paper=False, broker=broker), {"cash": 100000},
+                               {"RELIANCE": 1174.3}, None, None, check.parse_now("2026-11-02 11:00"), None,
+                               {})["results"][0]
+        # Kite and Upstox send MARKET and SL-M with the broker's automatic market protection
+        for b in ("kite", "zerodha", "upstox"):
+            self.assertNotIn("api", tags(live(o, b)), b)
+        # Dhan's adapter has no protection setting: LIMIT and SL only
+        r = live(o, "dhan")
         self.assertIn("api", tags(r))
-        o["market_protection"] = 2
-        r = check.check([o], dict(CASH_CFG, **live), {"cash": 100000}, {"RELIANCE": 1174.3}, None, None,
-                        check.parse_now("2026-11-02 11:00"), None, {})["results"][0]
-        self.assertNotIn("api", tags(r))
-        # a LIMIT entry still needs its SL-M stop protected, or an SL stop with a limit price
-        self.assertIn("api", tags(cash([cash_order()], c=live)["results"][0]))
+        self.assertIn("use a LIMIT order", " ".join(r["reasons"]))
+        self.assertIn("SL-M stop_loss", " ".join(r["reasons"]))
         lim = cash_order()
         lim["stop_loss"] = {"order_type": "SL", "trigger_price": 1163.3, "price": 1162.0}
-        self.assertNotIn("api", tags(cash([lim], c=live)["results"][0]))
+        self.assertNotIn("api", tags(live(lim, "dhan")))
         # paper never asks
-        o.pop("market_protection")
         self.assertNotIn("api", tags(cash([o])["results"][0]))
 
 

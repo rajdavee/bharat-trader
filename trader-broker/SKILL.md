@@ -1,30 +1,35 @@
 ---
 name: trader-broker
 description: >-
-  Order Executor for NSE trades, PAPER trading in v0.1, never without your
-  typed yes. Shows each proposed order as a plain ticket (BUY 42 RELIANCE on
+  Order Executor for NSE trades: PAPER trading by default, never without your
+  typed yes, plus read-only access to your real Upstox, Zerodha Kite or Dhan
+  account. Shows each proposed order as a plain ticket (BUY 42 RELIANCE on
   NSE, MIS, LIMIT, then an SL-M stop-loss and a LIMIT target, the order value
   and the loss at the stop with STT and other charges) plus the exact
   broker-neutral order JSON. An order is READY only if trader-risk passed
   that exact order today. Records your yes word for word, places it on the
-  paper account, simulates fills (at your price or the fresh quote) with
-  charges, keeps trader/portfolio.json and a trades log, cancels the other
-  leg when the stop or target fills, and builds the SELL tickets that close
-  every MIS position by your flat-by time (15:10 IST), before the broker's
-  auto square-off. Use when the user says "place the order", "buy it",
-  "execute", "paper trade", "confirm", "I got filled", "square off", "close
-  my position", "flatten", "get me out", "exit all intraday", "what do I
-  hold", "my P&L today", or after /trader-risk passes.
-argument-hint: "[show | confirm --index N --yes-text \"...\" | fill | flatten | status]"
+  paper account, simulates fills with charges, keeps trader/portfolio.json
+  and a trades log, cancels the other leg when the stop or target fills, and
+  builds the SELL tickets that close every MIS position by your flat-by time
+  (15:10 IST). Reads your broker's holdings, positions, funds and order book;
+  logs you in through a local browser callback (the daily token stays in your
+  shell); checks your static IP against SEBI's rules. Use when the user says
+  "place the order", "buy it", "execute", "paper trade", "confirm", "I got
+  filled", "square off", "close my position", "flatten", "get me out", "exit
+  all intraday", "what do I hold", "my P&L today", "my Zerodha holdings",
+  "Upstox positions", "Dhan funds", "login to Kite", "connect my broker",
+  "static IP check", "is my broker ready", or after /trader-risk passes.
+argument-hint: "[show | confirm --index N --yes-text \"...\" | fill | flatten | status | holdings | positions | preflight]"
 ---
 
 # trader-broker
 
 The Order Executor is the only skill in this pack that can lead to an order,
-so it is the strictest. In v0.1 the only broker is **paper**: no real money,
-no real orders, and there is no code here that talks to a real broker. An
-order is placed (on paper) only after two separate gates, every time, for
-every order:
+so it is the strictest. The default broker is **paper**: no real money, no
+real orders. It can also read your real Upstox, Zerodha Kite or Dhan account
+(holdings, positions, funds, orders), and send a live order only when every
+gate in "Live brokers" below is open. An order is placed (on paper) only
+after two separate gates, every time, for every order:
 
 1. **trader-risk passed this exact order today** (matched by fingerprint).
 2. **The user typed an explicit yes for this one order** in the chat, and
@@ -47,6 +52,20 @@ python3 "<skill dir>/ticket.py" status                                # cash, po
 
 `--now "2026-10-29 09:41"` pins the clock (IST).
 
+Your real broker account, read only (any IP; nothing is sent):
+
+```bash
+python3 "<skill dir>/ticket.py" holdings --broker kite                # delivery holdings at Zerodha
+python3 "<skill dir>/ticket.py" positions --broker upstox             # today's positions at Upstox
+python3 "<skill dir>/ticket.py" funds --broker dhan                   # available and used funds
+python3 "<skill dir>/ticket.py" orders --broker kite                  # today's order book and trades
+python3 "<skill dir>/ticket.py" accounts --broker upstox              # profile, funds, token, what the API can do
+python3 "<skill dir>/ticket.py" instruments --broker kite --symbol "NIFTY 2026-11-23 25000 CE" --exchange NFO
+```
+
+`--json` on any of them prints the broker-neutral shapes. Without
+`--broker`, the config's `"broker"` is used.
+
 ## What it reads and writes
 
 | file | what |
@@ -58,6 +77,7 @@ python3 "<skill dir>/ticket.py" status                                # cash, po
 | `trader/state/trades.json` | every paper fill: side, qty, price, value, charges and their parts, realised result on a sell |
 | `trader/prices.json` | the fresh price `fill` uses when no `--price` is given (under 15 minutes old) |
 | `trader/plan.json` | the flat-by time for `flatten` |
+| `trader/state/preflight.json` | `preflight`'s result per broker: public IP, static IP, checks, a one-way tag of the token (never the token) |
 
 ## Steps: the entry
 
@@ -130,7 +150,8 @@ Every ticket carries the same order JSON, whatever the broker:
  "validity": "DAY"}
 ```
 
-`order_type` is MARKET (price null), LIMIT, SL or SL-M; `product` MIS or CNC;
+`order_type` is MARKET (price null), LIMIT, SL or SL-M; `product` MIS or CNC
+(NRML for F&O at a live broker);
 `validity` DAY or IOC. Prices arrive already on the tick: trader-budget
 rounds them with `tick_size` `"auto"` (by NSE price band; RELIANCE above
 ₹1,000 is on ₹0.10 steps) and trader-risk blocks anything off it. A number in
@@ -138,31 +159,58 @@ the config (`"tick_size": 0.05`) overrides the band. `stop_loss` and `target` ar
 placed only after the entry fills. `why` and `plan` in `trader/orders.json`
 are notes for the user and the checks, never part of the order.
 
-## Broker adapters (coming)
+## Live brokers: Upstox, Zerodha Kite, Dhan
 
-Later versions will add adapters for Indian brokers (for example Zerodha,
-Upstox, Dhan). None is in v0.1, and setting `"broker"` to anything but
-`"paper"`, or `"paper"` to false, makes `confirm` refuse. An adapter is a
-small module that maps the neutral order above and nothing more:
+The adapters live in `adapters/` next to `ticket.py` (`base.py` is the
+contract; `upstox.py`, `kite.py`, `dhan.py` map each broker's API, standard
+library only). Setup per broker, plans and costs: `docs/brokers.md` in the
+repo.
 
-| method | does |
-| --- | --- |
-| `place(order) -> broker_order_id` | the entry only, after the user's recorded yes for that fingerprint |
-| `place_legs(order, entry_fill) -> (stop_id, target_id)` | the SL-M stop and the LIMIT target once the entry fills, as an OCO / GTT OCO where the broker has one, else two orders the adapter cancels against each other |
-| `status(broker_order_id) -> {"status", "filled_qty", "avg_price"}` | open, filled, rejected or cancelled |
-| `cancel(broker_order_id)` | cancels one order |
-| `positions() -> {SYM: {"qty", "avg_price", "product"}}` | what is held, for `flatten` and `status` |
-| `funds() -> {"cash"}` | available cash |
+**Credentials.** Only from environment variables the user sets in their own
+shell: `BT_UPSTOX_API_KEY`, `BT_UPSTOX_API_SECRET`, `BT_UPSTOX_REDIRECT`;
+`BT_KITE_API_KEY`, `BT_KITE_API_SECRET`, `BT_KITE_REDIRECT`;
+`BT_DHAN_CLIENT_ID` and `BT_DHAN_ACCESS_TOKEN` (or `BT_DHAN_API_KEY`,
+`BT_DHAN_API_SECRET`, `BT_DHAN_REDIRECT`). Never ask for them in the chat.
 
-Rules for any adapter: it never places an order without a `placed` record
-holding the user's verbatim yes for that exact fingerprint; it maps fields
-one to one and refuses what it cannot map (never "rounds" an order into
-something else); keys and tokens stay in environment variables, never in
-the chat or in `trader/`; it is paper or sandbox by default.
+**Daily login.** SEBI's rules mean a 2FA login once every trading day.
+`ticket.py login <broker>` (the user runs it) opens the broker's login page,
+waits for ONE callback on `127.0.0.1` (the redirect URL registered with the
+broker, e.g. `http://127.0.0.1:8765/kite`), checks the `state` value,
+exchanges the code and prints two `export BT_<BROKER>_...` lines for the
+user's shell (`eval "$(python3 ticket.py login kite)"`). The token is never
+written to disk, the repo or `trader/`, and is scrubbed from every message.
+
+**Preflight.** `ticket.py preflight <broker>`: the public IP (two echo
+services must agree) against the config's `"static_ip"` and, for Upstox and
+Dhan, the IPs the broker has on record; the token's freshness (Kite stops at
+06:00 IST, Upstox at 03:30 IST, Dhan 24 hours after login); one harmless
+call (your profile). It says in plain words what passed and why it matters.
+
+**A live order** needs every gate, checked again at the moment of sending:
+
+1. the config's `"broker"` is that broker, and
+2. `"paper": false`, and
+3. `"live_enabled": {"<broker>": true}`, and
+4. trader-risk PASS for this exact order today (fingerprint), and
+5. the user's typed yes for this exact order, recorded by `ticket.py
+   confirm` (with a live config, confirm only records the yes), and
+6. `ticket.py preflight <broker>` passed today with the token in use now.
+
+Then `ticket.py place --index N` (the user runs it in their own terminal)
+sends the entry, rate limited to `"order_rate_per_sec"` (default 3, never
+above 9: SEBI's line for algo registration is 10). One yes, one order: a
+second `place` of the same order is refused. MARKET and SL-M go out only with
+the broker's market protection (Kite, Upstox); Dhan takes LIMIT and SL only.
+After the entry fills, `place --index N --leg stop` (or `--leg target`)
+sends one exit leg; only one exit leg works at the broker at a time in this
+version (`cancel --index N --leg stop` first). Reads are retried; an order
+call never is: if the line drops, it says so and asks you to check
+`ticket.py orders` for the order's tag (`bt...`).
 
 ## What it never does
 
-- Never places an order without both gates, and never two orders on one yes.
+- Never places an order without both gates (on paper) or all six (live), and never two orders on one yes.
+- Never runs `ticket.py login` or `ticket.py place` itself: the user runs them, in their own terminal.
 - Never places orders from a scheduled or background task: nobody is there to say yes.
 - Never asks for, reads, stores or repeats API keys, passwords or OTPs.
 - Never switches `"paper"` to false or `"broker"` away from paper. The user does that themselves.

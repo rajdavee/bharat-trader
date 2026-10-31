@@ -1,0 +1,21 @@
+{
+ "doc_derived": true,
+ "source": "https://dhanhq.co/docs/v2/funds/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/v2/margincalculator/multi"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "total_margin": "150000.00",
+   "span_margin": "50000.00",
+   "exposure_margin": "30000.00",
+   "equity_margin": "70000.00",
+   "fo_margin": "0.00",
+   "commodity_margin": "0.00",
+   "currency": "INR",
+   "hedge_benefit": ""
+  }
+ }
+}

@@ -40,7 +40,10 @@ trader-risk locks new entries on a bad day. Exits are never blocked. `0` (or
 | `cooloff_after_stop_min` | 15 | Minutes with no new entry after a stop fills. |
 | `revenge_window_min` | 15 | Minutes after a loss on a symbol in which a new entry in it is a revenge trade. |
 | `revenge_trade` | `"block"` | `"block"` the revenge trade, or `"warn"` only. |
-| `max_orders_per_second` | 3 | Orders a second to the broker. Never above 9, whatever you set: SEBI requires an algo to be registered above 10 a second. |
+
+trader-risk also holds new entries to `order_rate_per_sec` (below, under
+Market and broker: 3 a second, never above 9), counting the orders placed in
+the last second, the same cap the broker adapters' rate limiter uses.
 
 The kill switch (`check.py kill`) is not a config key: it is on for the rest
 of the day in `trader/state/kill.json`, and only `check.py unkill` with the
@@ -117,8 +120,11 @@ For each stock and day the tools work out:
 | `exchange` | `"NSE"` | Only NSE in v0.1. |
 | `product` | `"MIS"` | `MIS` intraday or `CNC` delivery. Changes STT and stamp duty. |
 | `tick_size` | `"auto"` | NSE tick by price band (see [data sources](data-sources.md#tick-sizes)); a number overrides. Stops round down. |
-| `broker` | `"paper"` | Only the paper broker in v0.1. |
-| `paper` | true | Keep it true until a live adapter exists and you have tested on paper. |
+| `broker` | `"paper"` | `paper`, or a live broker: `upstox`, `kite` (`zerodha` works too) or `dhan`. A live broker needs `paper` false. See [brokers](brokers.md). |
+| `paper` | true | Keep it true until you have tested on paper. false (with a live `broker`) makes `confirm` only record your yes; `ticket.py place` sends the order after every gate. |
+| `live_enabled` | `{}` | Per broker, e.g. `{"upstox": true}`: the last switch for live orders at that broker. Missing or false: no live order there, whatever else is set. |
+| `static_ip` | `""` | The static IP you registered with your broker (SEBI: API orders only from it): one IP, a list, or `{"kite": "..."}` per broker. `ticket.py preflight` compares it with this machine's public IP. |
+| `order_rate_per_sec` | 3 | Most live orders a second this tool sends; never above 9 (more than 10 a second needs exchange algo registration). |
 | `blocked` | `[]` | Symbols you never trade. |
 | `allow_short` | false | Intraday short selling. |
 | `allow_fno` | false | Futures and options on NFO, checked by the F&O risk rules above. |

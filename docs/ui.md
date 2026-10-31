@@ -28,9 +28,9 @@ Ctrl-C stops the server cleanly.
 | Dashboard | NSE open or closed (and nseindia.com's own answer), NIFTY 50, BANK NIFTY, INDIA VIX, today's paper P&L, the trade plan, alert rules and what would ring now, the last risk check, the watchlist | trader-alerts `market_status`, `nse_status`, `get_quotes`, `evaluate`; trader-broker |
 | Chart | Candles and volume at 1m, 5m or 1d; EMA 9 and 21; session VWAP; the opening-range band; the plan's entry, stop and target; trader-entry's breakout status | Yahoo bars through trader-scanner's `yahoo_get`, parsed and evaluated by trader-entry; `trader/plan.json` |
 | Scanner | `trader/watchlist.json` with setups, RSI, turnover, and delayed quotes for the 10 most traded hits | trader-scanner; trader-alerts quotes |
-| Portfolio | Paper cash, positions marked to a delayed price, P&L if closed now after charges, working stop/target legs, order tickets, fills and the decisions log | trader-broker `load_portfolio`, `apply_fill`, `side_charges`, `ticket_json` |
+| Portfolio | Paper cash, positions marked to a delayed price, P&L if closed now after charges, working stop/target legs, order tickets, fills and the decisions log; and, on a click, your real broker's holdings and positions (read only) | trader-broker `load_portfolio`, `apply_fill`, `side_charges`, `ticket_json`; the broker adapters' `holdings`, `positions` |
 | Risk | The kill switch (on, with optional flatten; lifted only with the typed word `unkill`), the circuit-breakers, the F&O book's Greeks gauges against your limits and its scenario heatmap (spot +/-1/2/3 sigma x IV +/-5/10 vol, after charges), your limits, the verdicts trader-risk recorded, and a fresh preview (not recorded) | trader-risk `check`, `scenarios`, `kill`, `unkill` |
-| Settings | Every `trader/config.json` key with its meaning from [configuration.md](configuration.md); validate and save | the skills' own parsers (see below) |
+| Settings | The broker connection (which `BT_*` variables are set, never their values; token; `live_enabled`; the last preflight), then every `trader/config.json` key with its meaning from [configuration.md](configuration.md); validate and save | the skills' own parsers (see below); trader-broker's adapters |
 | Option chain | The chain by expiry with ITM shading, OI bars, OI change, volume, our IV, a Greeks toggle; spot and forward, ATM IV, expected move, straddle, PCR, max pain, call and put walls; the IV smile and the max-pain curve; today's OI build-up | trader-options `fetch_*`, `analyse`, `smile`, `max_pain`, `oi_buildup`, `expiry_table` |
 | Strategy | Template picker or custom legs, a legs editor, the payoff chart (expiry and a chosen date, gross and after charges, spot, forward, breakevens, the 1-SD band), net Greeks, margin with its method and error, PoP textbook vs simulated with EV and 5% tail, IV-shift scenarios, charges, and Send to paper (a proposal) | trader-strategy `template_specs`, `parse_legs`, `resolve_legs`, `evaluate`, `write_orders` |
 
@@ -71,6 +71,8 @@ free endpoints again.
 | GET | `/api/portfolio`, `/api/orders`, `/api/risk`, `/api/config` | account, tickets, verdicts, settings |
 | GET | `/api/options?symbol=&expiry=&strikes=` | trader-options' analysis of one expiry, the expiry list, why panels |
 | GET | `/api/strategy` | the templates, symbols and the saved `trader/strategy.json` |
+| GET | `/api/broker` | the live broker connection, no network: variables set (names only), capabilities, plans, last preflight |
+| GET | `/api/broker/holdings?broker=`, `/api/broker/positions?broker=` | read only, from the broker's API (cached 30 s; never called offline) |
 | GET | `/api/doctor` | the last data self-test from `trader/doctor.json` (the header's Data badge) |
 | GET | `/api/stream` | Server-Sent Events: `status`, `prices`, `alerts` |
 | POST | `/api/risk/check` | `check.py`: record verdicts in `trader/state/risk.json` |
@@ -102,9 +104,12 @@ while NSE is open, every 2 minutes when it is closed.
 The only order writes are the paper broker's own commands. `confirm` runs
 `ticket.py confirm`, which refuses anything trader-risk did not PASS today for
 that exact order, refuses "ok", "sure", "yes to all" or a yes naming another
-stock or amount, and records your words verbatim. The settings page cannot turn
-`paper` off or change `broker`: the validator rejects it, exactly as
-`ticket.py` would.
+stock or amount, and records your words verbatim. With a live config
+(`"paper": false`) the UI's confirm refuses: a live yes is typed in your own
+terminal and the order is sent only by `ticket.py place` (see
+[brokers](brokers.md)). The settings page cannot change `paper`, `broker` or
+`live_enabled`: going live is your own edit of the file. The broker routes
+only read.
 
 ## Settings validation
 
@@ -113,7 +118,8 @@ false and list types against the defaults; percentages 0 to 100; IST times with
 trader-risk's parser; `extra_holidays` and `special_sessions` with
 trader-alerts' calendar; blocked symbols with trader-risk's ticker rule;
 charge rates as numbers; `no_entries_before` before `no_entries_after`; and
-the paper-only rule from trader-broker. Keys no tool reads are kept, with a
+trader-broker's broker and paper rules (a live config gets a warning);
+`live_enabled`, `static_ip` and `order_rate_per_sec` (at most 9). Keys no tool reads are kept, with a
 warning. The plain-words summary comes from trader-budget.
 
 ## Security

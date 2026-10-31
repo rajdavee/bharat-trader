@@ -104,8 +104,8 @@ batch that is fine order by order but breaks a limit together is caught.
 | breaker | (entries) `max_consecutive_losses` (3) losing trades in a row today, or a realised loss today of `max_daily_drawdown_pct` (3%) of capital: locked until tomorrow |
 | cooling-off | (entries) a stop filled less than `cooloff_after_stop_min` (15) minutes ago |
 | revenge | (entries) re-entering a symbol within `revenge_window_min` (15) minutes of a loss on it; `"revenge_trade": "warn"` makes it a warning |
-| rate | (entries) `max_orders_per_second` (3) orders already went in the last second; never above 9, whatever the config says |
-| api | (entries) with a live broker (`"paper": false`): a MARKET or SL-M order (or SL-M stop leg) without `market_protection`; use LIMIT, or SL with a limit price |
+| rate | (entries) `order_rate_per_sec` (3) orders already went in the last second; never above 9, whatever the config says |
+| api | (entries) with a live broker (`"paper": false`) whose adapter has no market protection (Dhan): a MARKET or SL-M order, or an SL-M stop leg; use LIMIT, or SL with a limit price. Kite and Upstox send MARKET / SL-M with the broker's automatic protection |
 
 How the numbers work:
 
@@ -216,12 +216,13 @@ only: an exit always passes, with the lock as a warning.
 - **Revenge trade**: a new entry in a symbol that lost less than
   `revenge_window_min` minutes ago.
 - **Trades a day**: `max_trades_per_day` (a basket counts once).
-- **Order rate**: `max_orders_per_second` (default 3), never above 9, so this
+- **Order rate**: `order_rate_per_sec` (default 3), never above 9, so this
   pack stays under SEBI's 10 orders a second per exchange (above it an algo
   must be registered). `check.py rate-gate` answers "may one more go now?"
   for a broker adapter, from `trader/state/rate.json`.
-- **Live broker API rules**: with a live broker, MARKET and SL-M orders need
-  `market_protection` (a percent); LIMIT and SL orders are fine.
+- **Live broker API rules**: SEBI wants market protection on every API
+  MARKET order. Kite and Upstox add the broker's automatic protection; with
+  Dhan, use LIMIT orders and SL stops.
 
 **Kill switch.** `check.py kill --reason "..."` blocks every new entry for
 the rest of the day (kill.json) and revokes any entry PASS already recorded

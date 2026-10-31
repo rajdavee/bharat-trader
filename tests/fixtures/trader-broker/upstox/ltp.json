@@ -1,0 +1,23 @@
+{
+ "doc_derived": true,
+ "source": "https://upstox.com/developer/api-documentation/ltp-v3 (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/v3/market-quote/ltp"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": "success",
+   "data": {
+    "NSE_FO:NIFTY2543021600PE": {
+     "last_price": 303.9,
+     "instrument_token": "NSE_FO|51834",
+     "ltq": 75,
+     "volume": 170325,
+     "cp": 29.0
+    }
+   }
+  }
+ }
+}

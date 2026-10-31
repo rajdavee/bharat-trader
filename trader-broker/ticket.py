@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Order tickets, your yes and the PAPER broker for trader-broker. Standard library only.
+"""Order tickets, your yes, the PAPER broker and live broker accounts for trader-broker. Stdlib only.
 
-v0.1 has one broker: paper. Nothing here talks to a real broker or places a
-real order. It does its work around the one moment that matters, your yes:
+Paper is the default and the only broker that fills here. Live brokers (Upstox, Zerodha Kite,
+Dhan; adapters/ next to this file) are read-only unless every gate is open. Around the one
+moment that matters, your yes:
 
   show      each proposed order as a plain-language ticket plus the exact
             broker-neutral order JSON. An order is READY only if trader-risk
             passed THIS exact order today (matched by fingerprint) and nobody
             has decided on it yet.
-  confirm   records your explicit yes for ONE order, your words verbatim,
-            and places it on the paper account. It refuses "yes to all",
+  confirm   records your explicit yes for ONE order, your words verbatim. On
+            paper it places the order on the paper account; with a live broker
+            it only records the yes (place sends it). It refuses "yes to all",
             "sure", "ok", a yes that names another stock or amount, and any
             order that is not READY.
   decline   records a no.
@@ -25,12 +27,24 @@ real order. It does its work around the one moment that matters, your yes:
             and your yes.
   status    cash, positions, open legs, today's orders, trades and limits.
 
+  accounts, funds, holdings, positions, orders, instruments
+            read your real broker account (any IP; nothing is sent).
+  login     a one-shot 127.0.0.1 browser login; prints export lines for your
+            shell (the token is never written to disk).
+  preflight public IP vs your static IP, token freshness, one harmless call.
+  place     sends ONE order to the live broker, only when all gates are open:
+            config broker is that broker, "paper": false, live_enabled for
+            it, trader-risk PASS for this exact order today, your recorded
+            yes for it, and today's preflight with the token in use.
+  cancel    cancels one live order this tool sent today.
+
     python3 ticket.py show
     python3 ticket.py confirm --index 1 --yes-text "yes"
     python3 ticket.py fill --index 1 --price 1174.30          # the entry
     python3 ticket.py fill --index 1 --leg target              # at the target price
     python3 ticket.py flatten
     python3 ticket.py status
+    python3 ticket.py holdings --broker upstox                 # read only
 
 Decisions go to trader/state/broker.json (append only). Times are IST;
 --now "2026-10-29 09:41" pins the clock.
@@ -84,6 +98,9 @@ DEFAULTS = {
     "tick_size": "auto",
     "broker": "paper",
     "paper": True,
+    "live_enabled": {},
+    "static_ip": "",
+    "order_rate_per_sec": 3,
     "blocked": [],
     "allow_short": False,
     "allow_fno": False,
@@ -775,8 +792,8 @@ def records(state, fp=None, today=None, status=None):
 
 
 def decision(state, fp, today):
-    """The decision recorded today for this fingerprint (placed or declined), or None."""
-    found = records(state, fp, today, ("placed", "declined"))
+    """The decision recorded today for this fingerprint (placed, approved for a live broker, or declined)."""
+    found = records(state, fp, today, ("placed", "declined", "approved"))
     return found[-1] if found else None
 
 
@@ -800,6 +817,9 @@ def status_of(order, risk, state, today):
     if rv.get("verdict") != "PASS":
         return False, "BLOCKED by trader-risk: " + "; ".join(rv.get("reasons", [])), rv
     rec = decision(state, fp, today)
+    if rec and rec.get("status") == "approved":
+        return False, "YES RECORDED for %s at %s: send it with ticket.py place --index %s" % (
+            rec.get("broker"), rec.get("at"), rec.get("index")), rv
     if rec:
         return False, "DONE: %s at %s" % (rec.get("status"), rec.get("at")), rv
     return True, "READY: trader-risk PASS, waiting for your yes", rv
@@ -811,18 +831,74 @@ def kind_of(order, rv):
     return "entry" if str(order.get("side", "")).upper() == "BUY" else "exit"
 
 
-def paper_only(cfg):
+LIVE_BROKERS = ("upstox", "kite", "dhan")
+BROKER_ALIASES = {"zerodha": "kite"}
+
+
+def broker_name(name):
+    n = str(name or "paper").strip().lower()
+    return BROKER_ALIASES.get(n, n)
+
+
+def mode_of(cfg):
+    """("paper", None) or ("live", broker). A config that is neither is an error, in plain words."""
     c = merged_config(cfg)
-    if str(c.get("broker") or "paper").lower() != "paper" or not c.get("paper", True):
-        raise TicketError("this version ships only the paper broker (\"broker\": \"paper\", \"paper\": true). "
-                          "Live broker adapters are not built yet; nothing was sent")
+    b = broker_name(c.get("broker"))
+    paper = c.get("paper", True)
+    if b == "paper":
+        if paper is not True:
+            raise TicketError("\"paper\" is false but \"broker\" is \"paper\": name the live broker (%s) or set "
+                              "\"paper\": true; nothing was sent" % ", ".join(LIVE_BROKERS))
+        return "paper", None
+    if b not in LIVE_BROKERS:
+        raise TicketError("\"broker\" is %r: the brokers are paper, %s; nothing was sent"
+                          % (c.get("broker"), ", ".join(LIVE_BROKERS)))
+    if paper is not False:
+        raise TicketError("\"broker\" is \"%s\" but \"paper\" is true: the paper broker only works with "
+                          "\"broker\": \"paper\". Set \"broker\" back to \"paper\", or go live yourself (paper "
+                          "false and live_enabled, see docs/brokers.md); nothing was sent" % b)
+    return "live", b
+
+
+def config_mode_errors(cfg):
+    """The errors mode_of would raise, as a list (for the settings page)."""
+    try:
+        mode_of(cfg)
+    except TicketError as e:
+        return [str(e)]
+    return []
+
+
+def paper_only(cfg, what="a paper fill"):
+    """Paper-only commands refuse a live config (a live fill comes from the broker; a live order is sent
+    only by ticket.py place, in your own terminal)."""
+    mode, b = mode_of(cfg)
+    if mode != "paper":
+        raise TicketError("the config is live with %s (\"paper\": false): %s works on the paper account only. "
+                          "Live orders go out only with ticket.py confirm and then ticket.py place, in your own "
+                          "terminal; live fills show in ticket.py orders. Nothing was sent" % (b, what))
 
 
 # ---------------------------------------------------------------- rendering
 
+def account_words(cfg):
+    """"PAPER account (no real money)" or "LIVE at Upstox (real money)"; a bad config says so."""
+    try:
+        mode, b = mode_of(cfg)
+    except TicketError:
+        return "PAPER account (no real money)", None
+    if mode == "paper":
+        return "PAPER account (no real money)", None
+    return "LIVE at %s (real money)" % BROKER_TITLES.get(b, b), b
+
+
+BROKER_TITLES = {"upstox": "Upstox", "kite": "Zerodha Kite", "dhan": "Dhan"}
+
+
 def render(order, idx, total, cfg, risk, state, today):
     ready, label, rv = status_of(order, risk, state, today)
-    lines = ["ORDER %d of %d, PAPER account (no real money)" % (idx, total)]
+    acct, live = account_words(cfg)
+    lines = ["ORDER %d of %d, %s" % (idx, total, acct)]
     for part in plain_parts(order, cfg):
         lines.append("  " + part)
     if order.get("why"):
@@ -833,7 +909,10 @@ def render(order, idx, total, cfg, risk, state, today):
     lines.append("  The broker-neutral order:")
     for l in json.dumps(neutral(order), indent=2, ensure_ascii=False).splitlines():
         lines.append("    " + l)
-    if ready:
+    if ready and live:
+        lines.append("  Reply \"yes\" to approve this one order for your %s account (real money), or \"no\" to skip "
+                     "it. Your yes is recorded; the order goes out only with ticket.py place." % BROKER_TITLES[live])
+    elif ready:
         lines.append("  Reply \"yes\" to place this one order on the paper account, or \"no\" to skip it.")
     return "\n".join(lines), ready
 
@@ -842,7 +921,8 @@ def ticket_json(order, idx, cfg, risk, state, today):
     ready, label, rv = status_of(order, risk, state, today)
     gross, ch, total = loss_at_stop(order, cfg)
     return {"index": idx, "ready": ready, "status": label, "plain": plain(order, cfg),
-            "fingerprint": fingerprint(order), "paper": True, "broker": "paper", "order": neutral(order),
+            "fingerprint": fingerprint(order), "paper": not account_words(cfg)[1],
+            "broker": account_words(cfg)[1] or "paper", "order": neutral(order),
             "why": order.get("why", ""), "loss_at_stop": gross, "charges": ch, "max_loss": total,
             "stop": stop_of(order), "target": target_of(order)}
 
@@ -994,7 +1074,7 @@ def cmd_show(a):
 
 def cmd_confirm(a):
     orders, cfg, risk, state, today, now = _load(a)
-    paper_only(cfg)
+    mode, live = mode_of(cfg)
     order = _pick(orders, a.index)
     ready, label, rv = status_of(order, risk, state, today)
     if not ready:
@@ -1012,6 +1092,16 @@ def cmd_confirm(a):
            "has_legs": bool(order.get("stop_loss") or order.get("target")),
            "plain": plain(order, cfg), "status": "placed", "yes_text": a.yes_text, "broker": "paper",
            "paper": True, "paper_order_id": "PAPER-%s-%d" % (today.replace("-", ""), n), "order": neutral(order)}
+    if mode == "live":
+        rec.update(status="approved", broker=live, paper=False)
+        rec.pop("paper_order_id")
+        state.setdefault("orders", []).append(rec)
+        write_json(a.state, state)
+        print("Recorded your yes for order %d, word for word: \"%s\"." % (a.index, a.yes_text))
+        print("Nothing is sent yet. This is a LIVE %s order (real money): %s." % (BROKER_TITLES[live], plain(order, cfg)))
+        print("To send it, run in your own terminal: python3 ticket.py place --index %d (it checks every gate first: "
+              "live_enabled, today's trader-risk PASS, this yes, and today's preflight)." % a.index)
+        return 0
     state.setdefault("orders", []).append(rec)
     write_json(a.state, state)
     print("Recorded your yes for order %d, word for word: \"%s\"." % (a.index, a.yes_text))
@@ -1262,6 +1352,416 @@ def cmd_status(a):
     return 0
 
 
+# ---------------------------------------------------------------- live brokers (adapters/, read side and the gated order)
+
+ADAPTER_KW = {}          # tests point the adapters at a local stub: {"hosts": {...}, "env": {...}}
+IP_OPENER = None         # tests replace the public-IP lookup
+
+
+def adapters():
+    """The adapters/ folder next to this script, loaded by path (it travels with the skill)."""
+    import importlib.util
+    name = "bt_trader_broker_adapters"
+    if name in sys.modules:
+        return sys.modules[name]
+    d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adapters")
+    spec = importlib.util.spec_from_file_location(name, os.path.join(d, "__init__.py"), submodule_search_locations=[d])
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def get_adapter(name, cfg=None, sandbox=False):
+    kw = dict(ADAPTER_KW.get(broker_name(name), ADAPTER_KW.get("*", {})))
+    return adapters().make(broker_name(name), cfg=cfg or {}, sandbox=sandbox, **kw)
+
+
+def which_broker(a, cfg):
+    b = broker_name(getattr(a, "broker", None) or merged_config(cfg).get("broker"))
+    if b == "paper":
+        raise TicketError("which broker? Say --broker %s (the config broker is paper; reading a real account is "
+                          "fine, it places nothing)" % "|".join(LIVE_BROKERS))
+    if b not in LIVE_BROKERS:
+        raise TicketError("the brokers are %s, not %r" % (", ".join(LIVE_BROKERS), b))
+    return b
+
+
+def last_cutoff(now, hhmm):
+    h, m = [int(x) for x in hhmm.split(":")]
+    cut = datetime.datetime.combine(now.date(), datetime.time(h, m), IST)
+    return cut if now >= cut else cut - datetime.timedelta(days=1)
+
+
+def token_freshness(ad, now, profile=None):
+    """(ok, words). Uses the broker's daily cutoff and BT_<BROKER>_TOKEN_DATE (set by ticket.py login)."""
+    if not ad.token():
+        return False, "no access token: run python3 ticket.py login %s and paste the export lines" % ad.name
+    valid = (profile or {}).get("token_valid_until")
+    if valid:
+        until = parse_time(valid)
+        if until and until <= now:
+            return False, "the token expired at %s" % until.strftime("%Y-%m-%d %H:%M")
+        if until:
+            return True, "the token is good until %s IST (the broker says so)" % until.strftime("%Y-%m-%d %H:%M")
+    made = parse_time(ad.env_get("token_date"))
+    if ad.token_cutoff:
+        cut = last_cutoff(now, ad.token_cutoff)
+        if made is None:
+            return True, ("token age unknown (%s is not set); %s tokens stop at %s IST every day"
+                          % (ad.env_names["token_date"], ad.title, ad.token_cutoff))
+        if made < cut:
+            return False, ("the token is from %s, before today's %s IST cutoff: log in again"
+                           % (made.strftime("%Y-%m-%d %H:%M"), ad.token_cutoff))
+        return True, "the token is from %s; it works until %s IST" % (made.strftime("%Y-%m-%d %H:%M"),
+                                                                       ad.token_cutoff)
+    if made and (now - made).total_seconds() > 24 * 3600:
+        return False, "the token is from %s, more than 24 hours ago: log in again" % made.strftime("%Y-%m-%d %H:%M")
+    return True, "the token works for 24 hours from login" + (" (made %s)" % made.strftime("%H:%M") if made else "")
+
+
+def _broker_call(fn, *args):
+    base = adapters().base
+    try:
+        return fn(*args)
+    except base.BrokerError as e:
+        raise TicketError(e.message)
+
+
+def _print_json(broker, now, data, extra=None):
+    out = {"broker": broker, "as_of": ist_iso(now), "read_only": True, "data": data}
+    out.update(extra or {})
+    print(json.dumps(out, indent=2, ensure_ascii=False))
+
+
+def cmd_accounts(a):
+    cfg = read_json(a.config, "config", required=False) or {}
+    now, today = _clock(a)
+    b = which_broker(a, cfg)
+    ad = get_adapter(b, cfg)
+    prof = _broker_call(ad.profile)
+    funds = _broker_call(ad.funds)
+    fresh = token_freshness(ad, now, prof)
+    if a.json:
+        _print_json(b, now, {"profile": prof, "funds": funds, "capabilities": ad.caps(),
+                             "token": {"ok": fresh[0], "words": fresh[1]}})
+        return 0
+    print("%s account %s (read only)" % (ad.title, prof.get("user_id") or "?"))
+    print("Available %s, used %s%s." % (inr(funds["available"] or 0), inr(funds["used"] or 0),
+                                         (", collateral %s" % inr(funds["collateral"])) if funds.get("collateral")
+                                         else ""))
+    print("Token: %s." % fresh[1])
+    print("Can do here: %s." % ", ".join(k.replace("_", " ") for k, v in sorted(ad.caps().items()) if v))
+    print("Plans: %s" % ad.plans)
+    return 0
+
+
+def cmd_funds(a):
+    cfg = read_json(a.config, "config", required=False) or {}
+    now, today = _clock(a)
+    b = which_broker(a, cfg)
+    ad = get_adapter(b, cfg)
+    f = _broker_call(ad.funds)
+    if a.json:
+        _print_json(b, now, f)
+        return 0
+    print("%s funds at %s IST: available %s, used %s%s." % (
+        ad.title, now.strftime("%H:%M"), inr(f["available"] or 0), inr(f["used"] or 0),
+        (", collateral %s" % inr(f["collateral"])) if f.get("collateral") else ""))
+    return 0
+
+
+def cmd_holdings(a):
+    cfg = read_json(a.config, "config", required=False) or {}
+    now, today = _clock(a)
+    b = which_broker(a, cfg)
+    ad = get_adapter(b, cfg)
+    rows = _broker_call(ad.holdings)
+    if a.json:
+        _print_json(b, now, rows)
+        return 0
+    print("%s holdings (delivery), %d stock%s:" % (ad.title, len(rows), "" if len(rows) == 1 else "s"))
+    for h in rows:
+        print("  %s %d shares at %s average%s%s" % (h["symbol"], h["qty"], _p(h["avg_price"] or 0),
+                                                   (", last %s" % _p(h["last_price"])) if h.get("last_price") else "",
+                                                   (", P&L %s" % inr(h["pnl"])) if h.get("pnl") is not None else ""))
+    print("Read only: nothing was sent to %s." % ad.title)
+    return 0
+
+
+def cmd_positions(a):
+    cfg = read_json(a.config, "config", required=False) or {}
+    now, today = _clock(a)
+    b = which_broker(a, cfg)
+    ad = get_adapter(b, cfg)
+    rows = _broker_call(ad.positions)
+    if a.json:
+        _print_json(b, now, rows)
+        return 0
+    open_ = [p for p in rows if p["qty"]]
+    print("%s positions: %d open, %d closed today." % (ad.title, len(open_), len(rows) - len(open_)))
+    for p in rows:
+        print("  %s %s %d (%s) at %s, P&L %s" % (p["symbol"], p["exchange"], p["qty"], p["product"],
+                                                 _p(p["avg_price"] or 0), inr(p["pnl"] or 0)))
+    print("Read only: nothing was sent to %s." % ad.title)
+    return 0
+
+
+def cmd_orders(a):
+    cfg = read_json(a.config, "config", required=False) or {}
+    now, today = _clock(a)
+    b = which_broker(a, cfg)
+    ad = get_adapter(b, cfg)
+    rows = _broker_call(ad.orders)
+    trades = _broker_call(ad.trades)
+    if a.json:
+        _print_json(b, now, {"orders": rows, "trades": trades})
+        return 0
+    print("%s orders today: %d; trades: %d." % (ad.title, len(rows), len(trades)))
+    for o in rows:
+        print("  %s %s %d %s %s, %s%s (%s)%s" % (
+            o["broker_order_id"], o["side"], o["qty"], o["symbol"], o["order_type"], o["status"],
+            (" %d filled at %s" % (o["filled_qty"], _p(o["avg_price"]))) if o["filled_qty"] else "",
+            o["product"], (" tag " + o["tag"]) if o.get("tag") else ""))
+    print("Read only: nothing was sent to %s." % ad.title)
+    return 0
+
+
+def cmd_login(a):
+    cfg = read_json(a.config, "config", required=False) or {}
+    b = which_broker(a, cfg)
+    ad = get_adapter(b, cfg)
+    au = adapters().auth
+    state = au.new_state()
+    try:
+        url, want, state_param = ad.login_start(state)
+        port, path = au.parse_redirect(ad.redirect())
+    except adapters().base.BrokerError as e:
+        raise TicketError(e.message)
+
+    def ready(local):
+        print("Waiting for %s's login to come back to %s (one time, %d seconds)." % (ad.title, local, a.timeout),
+              file=sys.stderr)
+        if a.no_browser:
+            print("Open this in your browser and log in:\n  %s" % url, file=sys.stderr)
+        else:
+            import webbrowser
+            print("Opening %s's login page in your browser (2FA there)." % ad.title, file=sys.stderr)
+            if not webbrowser.open(url):
+                print("Could not open a browser. Open this yourself:\n  %s" % url, file=sys.stderr)
+
+    try:
+        params = au.wait_for_callback(port, path, want, state if state_param else None, state_param or "state",
+                                      timeout=a.timeout, on_ready=ready)
+        token = ad.login_finish(params)
+    except adapters().base.BrokerError as e:
+        raise TicketError(e.message)
+    now, _ = _clock(a)
+    var = ad.env_names["access_token"]
+    print("export %s=%s" % (var, shell_quote(token)))
+    print("export %s=%s" % (ad.env_names["token_date"], ist_iso(now)))
+    print("Logged in to %s. The lines above are for your shell only (eval \"$(python3 ticket.py login %s)\"): the "
+          "token is not saved anywhere by this tool. It stops working %s." % (
+              ad.title, b, ("at %s IST tomorrow" % ad.token_cutoff) if ad.token_cutoff else "24 hours from now"),
+          file=sys.stderr)
+    return 0
+
+
+def shell_quote(s):
+    import shlex
+    return shlex.quote(s)
+
+
+def cmd_preflight(a):
+    cfg = read_json(a.config, "config", required=False) or {}
+    now, today = _clock(a)
+    b = which_broker(a, cfg)
+    ad = get_adapter(b, cfg)
+    au, base = adapters().auth, adapters().base
+    checks = []
+
+    def add(name, ok, words):
+        checks.append({"check": name, "ok": bool(ok), "words": words})
+
+    creds = ad.credentials_status()
+    tok = ad.token()
+    add("credentials", bool(tok), "%s is %s" % (ad.env_names["access_token"], "set" if tok else "not set"))
+    prof = None
+    try:
+        prof = ad.profile() if tok else None
+        add("login", bool(prof), "a harmless call (your profile) worked: account %s" % prof["user_id"] if prof
+            else "skipped: no token")
+    except base.BrokerError as e:
+        add("login", False, "the profile call failed: %s" % e.message)
+    ok, words = token_freshness(ad, now, prof)
+    add("token", ok, words)
+    ip, notes = au.public_ip(opener=IP_OPENER) if not a.ip else (a.ip, [("--ip", a.ip)])
+    add("public_ip", bool(ip), ("your public IP is %s (%s)" % (ip, ", ".join(n[0].split("//")[-1] for n in notes
+                                                                              if n[1] == ip)))
+        if ip else "two IP echo services did not agree on your public IP: %s" % "; ".join(
+            "%s: %s" % n for n in notes))
+    mine = au.static_ips(cfg, b)
+    theirs = None
+    if prof:
+        try:
+            theirs = ad.registered_ips()
+        except base.BrokerError as e:
+            theirs = None
+            add("broker_ips", False, "could not read the IPs %s has on record: %s" % (ad.title, e.message))
+    allowed = set(theirs or []) or set(mine)
+    if theirs and mine and not set(mine) & set(theirs):
+        add("static_ip", False, "your config static_ip %s is not what %s has on record (%s)" % (
+            ", ".join(mine), ad.title, ", ".join(theirs)))
+    elif not allowed:
+        add("static_ip", False, "no static IP to compare with: set \"static_ip\" in trader/config.json to the IP you "
+                                "registered with %s" % ad.title)
+    else:
+        src = "%s has on record" % ad.title if theirs else "your config static_ip"
+        add("static_ip", bool(ip) and ip in allowed,
+            ("this machine's IP %s is the static IP %s" % (ip, src)) if ip in allowed else
+            ("this machine's IP %s is not the static IP %s (%s): orders would be refused; reading still works"
+             % (ip, src, ", ".join(sorted(allowed)))))
+    passed = all(c["ok"] for c in checks)
+    rec = {"at": ist_iso(now), "date": today, "broker": b, "passed": passed, "public_ip": ip,
+           "static_ip": mine, "registered_ips": theirs, "token_hash": base.token_hash(tok), "checks": checks,
+           "credentials": creds}
+    doc = read_json(a.preflight, "preflight", required=False) or {}
+    doc[b] = rec
+    write_json(a.preflight, doc)
+    if a.json:
+        print(json.dumps(rec, indent=2, ensure_ascii=False))
+        return 0 if passed else 1
+    print("Preflight for %s at %s IST:" % (ad.title, now.strftime("%Y-%m-%d %H:%M")))
+    for c in checks:
+        print("  %s %s: %s" % ("PASS" if c["ok"] else "FAIL", c["check"], c["words"]))
+    print("%s. %s" % ("Ready for live orders from this machine today (each still needs trader-risk PASS and your yes)"
+                      if passed else "Not ready for live orders: fix the FAIL lines and run preflight again. "
+                                     "Reading holdings and positions works anyway",
+                      au.SEBI_WORDS % _q(adapters().base.order_rate(cfg))))
+    return 0 if passed else 1
+
+
+def cmd_place(a):
+    orders, cfg, risk, state, today, now = _load(a)
+    mode, b = mode_of(cfg)
+    if mode != "live":
+        raise TicketError("place sends a LIVE order and the config is paper; on paper, confirm places the order. "
+                          "Nothing was sent")
+    base = adapters().base
+    ticket = _pick(orders, a.index)
+    leg = a.leg or "entry"
+    fp = fingerprint(ticket)
+    ad = get_adapter(b, cfg)
+    pre = read_json(a.preflight, "preflight", required=False) or {}
+    try:
+        single = base.leg_order(ticket, leg)
+        gp = base.open_gate(b, cfg, ticket, risk, state, pre, ad.token(), today, now, leg=leg)
+    except base.GateClosed as e:
+        print("Not sent. Closed gates:", file=sys.stderr)
+        for g, why in e.failed:
+            print("  %s: %s" % (g, why), file=sys.stderr)
+        return 1
+    except base.BrokerError as e:
+        raise TicketError(e.message)
+    approved = [r for r in records(state, fp, today, "approved") if r.get("broker") == b][-1]
+    if leg != "entry":
+        entry = [r for r in records(state, fp, today, "placed") if r.get("live") and r.get("broker") == b]
+        if not entry:
+            raise TicketError("send the entry first: ticket.py place --index %d" % a.index)
+        book = {o["broker_order_id"]: o for o in _broker_call(ad.orders)}
+        got = book.get(str(entry[-1].get("broker_order_id")))
+        if not got or got["status"] != "filled":
+            raise TicketError("the entry %s is %s at %s, not filled: the %s goes out after the fill" % (
+                entry[-1].get("broker_order_id"), (got or {}).get("status", "not in the order book"), ad.title, leg))
+        other = "target" if leg == "stop" else "stop"
+        for r in records(state, fp, today, ("leg_sent", "unknown")):
+            if r.get("leg") == other and r.get("broker") == b:
+                o = book.get(str(r.get("broker_order_id")))
+                if not o or o["status"] == "open":
+                    raise TicketError("the %s (%s) is still working at %s. In this version only one exit leg works "
+                                      "at the broker at a time (no broker-side OCO yet): cancel it first with "
+                                      "ticket.py cancel --index %d --leg %s" % (other, r.get("broker_order_id"),
+                                                                                  ad.title, a.index, other))
+    rec = {"at": ist_iso(now), "date": today, "index": a.index, "fingerprint": fp, "leg": leg, "broker": b,
+           "live": True, "paper": False, "symbol": approved["symbol"], "side": str(single.get("side")).upper(),
+           "qty": single.get("qty"), "product": approved.get("product"), "kind": approved.get("kind"),
+           "max_loss": approved.get("max_loss"), "stop": approved.get("stop"), "target": approved.get("target"),
+           "has_legs": approved.get("has_legs"), "yes_text": approved.get("yes_text"), "order": single,
+           "tag": gp.tag, "plain": plain(single, cfg)}
+    try:
+        oid = ad.place_order(single, gp)
+    except base.BrokerDown as e:
+        rec.update(status="unknown", error=e.message)
+        state.setdefault("orders", []).append(rec)
+        write_json(a.state, state)
+        raise TicketError("%s. It may or may not have reached %s: check ticket.py orders for tag %s before "
+                          "anything else. Not retried." % (e.message, ad.title, gp.tag))
+    except base.BrokerError as e:
+        rec.update(status="send_failed", error=e.message)
+        state.setdefault("orders", []).append(rec)
+        write_json(a.state, state)
+        raise TicketError("%s refused it: %s" % (ad.title, e.message))
+    rec.update(status="placed" if leg == "entry" else "leg_sent", broker_order_id=oid)
+    state.setdefault("orders", []).append(rec)
+    write_json(a.state, state)
+    print("SENT to %s (real money): %s. %s order id %s, tag %s." % (ad.title, plain(single, cfg), ad.title, oid,
+                                                                   gp.tag))
+    if leg == "entry" and approved.get("has_legs"):
+        print("The stop and the target are NOT at the broker yet. When the entry fills, send the stop: "
+              "ticket.py place --index %d --leg stop" % a.index)
+    return 0
+
+
+def cmd_cancel(a):
+    orders, cfg, risk, state, today, now = _load(a)
+    mode, b = mode_of(cfg)
+    if mode != "live":
+        raise TicketError("cancel is for a live order; the config is paper")
+    base = adapters().base
+    ticket = _pick(orders, a.index)
+    fp, leg = fingerprint(ticket), a.leg or "entry"
+    sent = [r for r in records(state, fp, today, ("placed", "leg_sent")) if r.get("live") and r.get("broker") == b
+            and (r.get("leg") or "entry") == leg]
+    ad = get_adapter(b, cfg)
+    pre = read_json(a.preflight, "preflight", required=False) or {}
+    try:
+        gp = base.open_cancel_gate(b, cfg, (sent[-1] if sent else {}).get("broker_order_id"),
+                                   sent[-1] if sent else None, state, pre, ad.token(), today, now)
+        ad.cancel_order(sent[-1]["broker_order_id"], gp)
+    except base.GateClosed as e:
+        print("Not cancelled. Closed gates:", file=sys.stderr)
+        for g, why in e.failed:
+            print("  %s: %s" % (g, why), file=sys.stderr)
+        return 1
+    except base.BrokerError as e:
+        raise TicketError(e.message)
+    state.setdefault("orders", []).append({"at": ist_iso(now), "date": today, "index": a.index, "fingerprint": fp,
+                                           "leg": leg, "broker": b, "live": True, "status": "cancel_sent",
+                                           "broker_order_id": sent[-1]["broker_order_id"]})
+    write_json(a.state, state)
+    print("Cancel sent to %s for order %s (the %s of order %d)." % (ad.title, sent[-1]["broker_order_id"], leg,
+                                                                  a.index))
+    return 0
+
+
+def cmd_instruments(a):
+    cfg = read_json(a.config, "config", required=False) or {}
+    now, today = _clock(a)
+    b = which_broker(a, cfg)
+    ad = get_adapter(b, cfg)
+    inst = _broker_call(ad.resolve, a.symbol, a.exchange)
+    if a.json:
+        _print_json(b, now, inst)
+        return 0
+    print("%s on %s at %s: %s (id %s), lot %s, tick %s%s, exchange token %s." % (
+        inst["symbol"], inst["exchange"], ad.title, inst["broker_symbol"], inst["broker_id"], inst["lot_size"],
+        inst["tick_size"], (", freeze %s" % inst["freeze_qty"]) if inst.get("freeze_qty") else "",
+        inst["exchange_token"]))
+    return 0
+
+# ---------------------------------------------------------------- end of live brokers
+
+
 def utf8_console():
     """Print the rupee sign on any console, including a Windows pipe (cp1252 by default)."""
     for stream in (sys.stdout, sys.stderr):
@@ -1273,8 +1773,8 @@ def utf8_console():
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Order tickets, your yes and the paper broker (trader-broker). "
-                                             "No real orders.")
+    ap = argparse.ArgumentParser(description="Order tickets, your yes, the paper broker and read-only live "
+                                             "broker accounts (trader-broker). Paper by default.")
     sub = ap.add_subparsers(dest="cmd")
 
     def clock(p):
@@ -1329,15 +1829,58 @@ def main(argv=None):
     p.add_argument("--config", default="trader/config.json")
     p.add_argument("--state", default="trader/state/broker.json")
     clock(p)
+    brokers = list(LIVE_BROKERS) + ["zerodha"]
+
+    def reader(name, what):
+        p = sub.add_parser(name, help=what)
+        p.add_argument("--broker", type=str.lower, choices=brokers, help="default: the config broker")
+        p.add_argument("--config", default="trader/config.json")
+        p.add_argument("--json", action="store_true")
+        clock(p)
+        return p
+
+    reader("accounts", "your broker account: profile, funds, token, what the API can do (read only)")
+    reader("funds", "available and used funds at your broker (read only)")
+    reader("holdings", "delivery holdings at your broker (read only)")
+    reader("positions", "today's positions at your broker (read only)")
+    reader("orders", "today's orders and trades at your broker (read only)")
+    p = reader("instruments", "look one symbol up in the broker's instrument master (read only)")
+    p.add_argument("--symbol", required=True, help="RELIANCE, or \"NIFTY 2026-11-23 25000 CE\"")
+    p.add_argument("--exchange", type=str.upper, choices=["NSE", "NFO"], default="NSE")
+    p = sub.add_parser("login", help="log in to a broker in your browser; prints export lines for your shell")
+    p.add_argument("broker", type=str.lower, choices=brokers)
+    p.add_argument("--config", default="trader/config.json")
+    p.add_argument("--timeout", type=int, default=180, help="seconds to wait for the login (default 180)")
+    p.add_argument("--no-browser", action="store_true", help="print the login URL instead of opening it")
+    clock(p)
+    p = sub.add_parser("preflight", help="static IP, token and a harmless call: ready for live orders?")
+    p.add_argument("broker", type=str.lower, choices=brokers)
+    p.add_argument("--config", default="trader/config.json")
+    p.add_argument("--preflight", default="trader/state/preflight.json")
+    p.add_argument("--ip", help="skip the IP echo services and use this public IP")
+    p.add_argument("--json", action="store_true")
+    clock(p)
+    for name, what in (("place", "send ONE approved order to the live broker, after every gate"),
+                       ("cancel", "cancel one live order this tool sent today")):
+        p = sub.add_parser(name, help=what)
+        common(p)
+        p.add_argument("--index", type=int, required=True)
+        p.add_argument("--leg", choices=["entry", "stop", "target"], default="entry")
+        p.add_argument("--preflight", default="trader/state/preflight.json")
     a = ap.parse_args(argv)
     if not a.cmd:
         ap.print_help()
         return 1
+    if getattr(a, "broker", None) is not None:
+        a.broker = broker_name(a.broker)
     try:
         return {"show": cmd_show, "confirm": cmd_confirm, "decline": cmd_decline, "fill": cmd_fill,
-                "flatten": cmd_flatten, "status": cmd_status}[a.cmd](a)
+                "flatten": cmd_flatten, "status": cmd_status, "accounts": cmd_accounts, "funds": cmd_funds,
+                "holdings": cmd_holdings, "positions": cmd_positions, "orders": cmd_orders, "login": cmd_login,
+                "preflight": cmd_preflight, "place": cmd_place, "cancel": cmd_cancel,
+                "instruments": cmd_instruments}[a.cmd](a)
     except (TicketError, RulesError) as e:
-        print("ticket.py: %s" % e, file=sys.stderr)
+        print("ticket.py: %s" % adapters().base.scrub(e), file=sys.stderr)
         return 1
 
 

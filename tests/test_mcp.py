@@ -26,7 +26,7 @@ TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit
          "size_trade", "risk_check", "risk_scenarios", "paper_orders_show", "paper_order_draft", "paper_order_confirm",
          "portfolio_status", "options_chain", "options_summary", "results_analyse", "insider_deals",
          "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "lab_forward", "strategy_build",
-         "strategy_price", "doctor"]
+         "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor"]
 # one offline call per tool, on the real saved answers in tests/fixtures (see tests/fixtures/mcp/offline.json)
 CALLS = [
     ("market_status", {}),
@@ -54,6 +54,9 @@ CALLS = [
     ("lab_forward", {"strategy": "rsi2-nifty50"}),
     ("strategy_build", {"template": "iron-condor", "symbol": "NIFTY", "wings": 200, "width": 100, "paths": 1000}),
     ("strategy_price", {"symbol": "NIFTY", "legs": "-1 CE 23000, +1 CE 23000 @01-Dec-2026", "simulate": False}),
+    ("broker_status", {}),
+    ("broker_holdings", {"broker": "upstox"}),
+    ("broker_positions", {}),
     ("doctor", {}),
     ("paper_order_draft", {}),
     ("paper_order_confirm", {"index": 1, "risk_fingerprint": FP, "yes_text": "yes 42 RELIANCE"}),
@@ -420,6 +423,22 @@ class Tools(ServerCase):
         self.assertFalse(by["paper_order_confirm"]["annotations"]["readOnlyHint"])
         self.assertTrue(by["paper_order_draft"]["annotations"]["destructiveHint"])
         self.assertEqual(by["paper_order_confirm"]["inputSchema"]["required"], ["index", "risk_fingerprint"])
+        for n in ("broker_status", "broker_holdings", "broker_positions"):
+            self.assertTrue(by[n]["annotations"]["readOnlyHint"], n)
+            self.assertFalse(by[n]["annotations"]["destructiveHint"], n)
+        self.assertFalse(by["broker_status"]["annotations"]["openWorldHint"])
+
+    def test_broker_tools_read_only_and_offline(self):
+        st = self.result(self.c.call("broker_status", {}))["structuredContent"]["data"]
+        self.assertEqual(st["mode"], "paper")
+        self.assertEqual(sorted(b["broker"] for b in st["brokers"]), ["dhan", "kite", "upstox"])
+        for b in st["brokers"]:
+            self.assertTrue(all(isinstance(v, bool) for v in b["credentials"].values()))
+        h = self.result(self.c.call("broker_holdings", {"broker": "kite"}))["structuredContent"]["data"]
+        self.assertEqual((h["connected"], h["read_only"], h["rows"]), (False, True, []))
+        self.assertIn("Offline", h["note"])
+        r = self.result(self.c.call("broker_positions", {"broker": "angel"}))
+        self.assertTrue(r["isError"])
 
     def test_every_tool_offline(self):
         tools = {t["name"]: t for t in self.result(self.c.request("tools/list"))["tools"]}

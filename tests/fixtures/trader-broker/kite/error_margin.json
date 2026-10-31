@@ -1,0 +1,17 @@
+{
+ "doc_derived": true,
+ "source": "https://kite.trade/docs/connect/v3/exceptions/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/orders/regular"
+ },
+ "response": {
+  "status": 400,
+  "body": {
+   "status": "error",
+   "message": "Insufficient funds. Required margin is 95417.84 but available margin is 74251.80.",
+   "error_type": "MarginException"
+  }
+ },
+ "note": "shape and exception name from the exceptions page"
+}
