@@ -498,7 +498,7 @@ class Network(unittest.TestCase):
         self.assertEqual(tm.chart_url("hdfcbank"),
                          "https://query2.finance.yahoo.com/v8/finance/chart/HDFCBANK.NS?range=60d&interval=5m")
         self.assertIn("/chart/BAJAJ-AUTO.NS?", tm.chart_url("BAJAJ-AUTO", "query1"))
-        self.assertEqual(tm.UA, "Mozilla/5.0 (compatible; bharat-trader/0.1; +https://github.com/rajdavee/bharat-trader)")
+        self.assertEqual(tm.UA, "Mozilla/5.0 (compatible; bharat-trader/0.2; +https://github.com/rajdavee/bharat-trader)")
 
     def test_429_waits_retries_then_falls_back_to_query1(self):
         self.answer([429, 429, 200])
