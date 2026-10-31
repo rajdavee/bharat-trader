@@ -26,7 +26,7 @@ TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit
          "size_trade", "risk_check", "risk_scenarios", "paper_orders_show", "paper_order_draft", "paper_order_confirm",
          "portfolio_status", "options_chain", "options_summary", "results_analyse", "insider_deals",
          "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "lab_forward", "strategy_build",
-         "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor"]
+         "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor", "persona_scorecards"]
 # one offline call per tool, on the real saved answers in tests/fixtures (see tests/fixtures/mcp/offline.json)
 CALLS = [
     ("market_status", {}),
@@ -58,6 +58,7 @@ CALLS = [
     ("broker_holdings", {"broker": "upstox"}),
     ("broker_positions", {}),
     ("doctor", {}),
+    ("persona_scorecards", {}),
     ("paper_order_draft", {}),
     ("paper_order_confirm", {"index": 1, "risk_fingerprint": FP, "yes_text": "yes 42 RELIANCE"}),
 ]
@@ -696,10 +697,12 @@ class Resources(ServerCase):
 
 class Prompts(ServerCase):
     NAMES = ["morning_briefing", "intraday_plan", "options_income_scan", "weekly_review", "research_strategy"]
+    PERSONAS = ["persona_intraday_trader", "persona_journal_coach", "persona_options_seller", "persona_researcher",
+                "persona_risk_officer", "persona_swing_trader"]     # tests/test_agents.py checks their text
 
     def test_list_and_get(self):
         ps = self.result(self.c.request("prompts/list"))["prompts"]
-        self.assertEqual([p["name"] for p in ps], self.NAMES)
+        self.assertEqual([p["name"] for p in ps], self.NAMES + self.PERSONAS)
         args = {"morning_briefing": {}, "intraday_plan": {"symbol": "reliance"},
                 "options_income_scan": {"symbol": "NIFTY", "expiry": "03-Nov-2026"}, "weekly_review": {},
                 "research_strategy": {"idea": "buy 20-day breakouts", "symbol": "TCS"}}

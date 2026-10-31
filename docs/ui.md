@@ -32,13 +32,14 @@ Ctrl-C stops the server cleanly.
 | Risk | The kill switch (on, with optional flatten; lifted only with the typed word `unkill`), the circuit-breakers, the F&O book's Greeks gauges against your limits and its scenario heatmap (spot +/-1/2/3 sigma x IV +/-5/10 vol, after charges), your limits, the verdicts trader-risk recorded, and a fresh preview (not recorded) | trader-risk `check`, `scenarios`, `kill`, `unkill` |
 | Settings | The broker connection (which `BT_*` variables are set, never their values; token; `live_enabled`; the last preflight), then every `trader/config.json` key with its meaning from [configuration.md](configuration.md); validate and save | the skills' own parsers (see below); trader-broker's adapters |
 | Option chain | The chain by expiry with ITM shading, OI bars, OI change, volume, our IV, a Greeks toggle; spot and forward, ATM IV, expected move, straddle, PCR, max pain, call and put walls; the IV smile and the max-pain curve; today's OI build-up | trader-options `fetch_*`, `analyse`, `smile`, `max_pain`, `oi_buildup`, `expiry_table` |
+| Agents | The agent team (`agents/*.md`): each persona's role and description and its paper scorecard (closed trades, P&L after charges, profit factor, expectancy, drawdown, streaks, tickets drafted / confirmed / declined, flags for overtrading, revenge trades, late exits and off-ticket fills, recent trades); untagged trades and the Strategy Lab verdicts. Read only. See [agents.md](agents.md) | `ui/api.py` `persona_scorecards` over `trader/state/trades.json`, `broker.json` and `personas.json` |
 | Strategy | Template picker or custom legs, a legs editor, the payoff chart (expiry and a chosen date, gross and after charges, spot, forward, breakevens, the 1-SD band), net Greeks, margin with its method and error, PoP textbook vs simulated with EV and 5% tail, IV-shift scenarios, charges, and Send to paper (a proposal) | trader-strategy `template_specs`, `parse_legs`, `resolve_legs`, `evaluate`, `write_orders` |
 
 Click any number with a dotted underline for its **why** panel: the formula,
 its inputs, the source and the time.
 
 Keyboard: `g d` dashboard, `g c` chart, `g s` scanner, `g p` portfolio, `g r`
-risk, `g o` option chain, `g b` strategy, `g e` settings, `/` chart a symbol,
+risk, `g o` option chain, `g b` strategy, `g t` agents, `g e` settings, `/` chart a symbol,
 `t` theme, `?` the list, `Esc` closes a panel. Dark and light themes follow
 your system setting until you press the toggle.
 
@@ -74,6 +75,7 @@ free endpoints again.
 | GET | `/api/broker` | the live broker connection, no network: variables set (names only), capabilities, plans, last preflight |
 | GET | `/api/broker/holdings?broker=`, `/api/broker/positions?broker=` | read only, from the broker's API (cached 30 s; never called offline) |
 | GET | `/api/doctor` | the last data self-test from `trader/doctor.json` (the header's Data badge) |
+| GET | `/api/agents` | the agent personas (`agents/`) and each one's paper scorecard, read only |
 | GET | `/api/stream` | Server-Sent Events: `status`, `prices`, `alerts` |
 | POST | `/api/risk/check` | `check.py`: record verdicts in `trader/state/risk.json` |
 | POST | `/api/risk/kill` | `check.py kill`: `{"reason"?, "flatten"?}`; no new entries today, recorded entry PASSes revoked |

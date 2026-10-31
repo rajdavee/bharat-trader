@@ -28,7 +28,7 @@ SKILLS = ["trader-scanner", "trader-news", "trader-entry", "trader-exit", "trade
 # skills on the way to an order carry the safety block
 ORDER_PATH = ["trader-scanner", "trader-entry", "trader-exit", "trader-timemachine", "trader-budget",
               "trader-insider", "trader-risk", "trader-broker", "trader-alerts", "trader-lab", "trader-strategy"]
-ROOT_FILES = {".github", ".gitignore", "CHANGELOG.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md",
+ROOT_FILES = {".github", ".gitignore", "CHANGELOG.md", "agents", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md",
               "LICENSE", "NOTICE", "README.md", "SECURITY.md", "docs", "mcp", "tests", "ui"}
 
 NSE_HOLIDAYS_2026 = {
