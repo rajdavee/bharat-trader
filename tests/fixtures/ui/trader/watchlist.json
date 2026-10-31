@@ -1,0 +1,274 @@
+{
+  "created_by": "trader-scanner",
+  "created_at": "2026-10-29T10:30:00Z",
+  "mode": "daily",
+  "as_of": "2026-10-29 close",
+  "exchange": "NSE",
+  "universe": 62,
+  "scanned": 56,
+  "failed": 1,
+  "unconfirmed": 0,
+  "source": "yahoo",
+  "filters": {
+    "min_price": 50.0,
+    "min_turnover": 100000000.0
+  },
+  "index": [],
+  "note": "A scan is a list of charts that match a rule, not a list of stocks to buy.",
+  "hits": [
+    {
+      "symbol": "INFY",
+      "setups": [
+        "bull_flag"
+      ],
+      "price": 1146.5,
+      "close_date": "2026-10-29",
+      "rsi": 59.0,
+      "volume": 14045904,
+      "turnover": 16832853506.05,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "KOTAKBANK",
+      "setups": [
+        "breakout_20d"
+      ],
+      "price": 459.0,
+      "close_date": "2026-10-29",
+      "rsi": 68.1,
+      "volume": 46297204,
+      "turnover": 11099480639.92,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "TCS",
+      "setups": [
+        "bull_flag"
+      ],
+      "price": 2478.0,
+      "close_date": "2026-10-29",
+      "rsi": 65.1,
+      "volume": 3427409,
+      "turnover": 10897870320.18,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "ETERNAL",
+      "setups": [
+        "breakout_20d"
+      ],
+      "price": 337.85,
+      "close_date": "2026-10-29",
+      "rsi": 59.2,
+      "volume": 29672726,
+      "turnover": 8357892974.5,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "SBIN",
+      "setups": [
+        "reclaim_ma20"
+      ],
+      "price": 971.9,
+      "close_date": "2026-10-29",
+      "rsi": 51.4,
+      "volume": 7598911,
+      "turnover": 7844166385.5,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "LT",
+      "setups": [
+        "breakout_20d"
+      ],
+      "price": 3837.1,
+      "close_date": "2026-10-29",
+      "rsi": 59.1,
+      "volume": 1754195,
+      "turnover": 7146036379.5,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "TECHM",
+      "setups": [
+        "bull_flag"
+      ],
+      "price": 1769.6,
+      "close_date": "2026-10-29",
+      "rsi": 63.7,
+      "volume": 2792374,
+      "turnover": 5084686242.94,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "HCLTECH",
+      "setups": [
+        "bull_flag"
+      ],
+      "price": 1403.9,
+      "close_date": "2026-10-29",
+      "rsi": 66.3,
+      "volume": 3093103,
+      "turnover": 4962191598.79,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "ITC",
+      "setups": [
+        "reclaim_ma20"
+      ],
+      "price": 265.0,
+      "close_date": "2026-10-29",
+      "rsi": 52.7,
+      "volume": 23252659,
+      "turnover": 4787750516.41,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "ADANIPORTS",
+      "setups": [
+        "breakout_20d"
+      ],
+      "price": 1872.0,
+      "close_date": "2026-10-29",
+      "rsi": 64.9,
+      "volume": 7792103,
+      "turnover": 3969834017.23,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "WIPRO",
+      "setups": [
+        "bull_flag"
+      ],
+      "price": 190.1,
+      "close_date": "2026-10-29",
+      "rsi": 67.8,
+      "volume": 16861755,
+      "turnover": 3181659287.82,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "TITAN",
+      "setups": [
+        "reclaim_ma20"
+      ],
+      "price": 4434.0,
+      "close_date": "2026-10-29",
+      "rsi": 43.2,
+      "volume": 958377,
+      "turnover": 2802524565.06,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "POWERGRID",
+      "setups": [
+        "reclaim_ma20"
+      ],
+      "price": 260.0,
+      "close_date": "2026-10-29",
+      "rsi": 56.9,
+      "volume": 10525526,
+      "turnover": 2640840040.0,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "HINDUNILVR",
+      "setups": [
+        "reclaim_ma20"
+      ],
+      "price": 1858.2,
+      "close_date": "2026-10-29",
+      "rsi": 46.8,
+      "volume": 2653604,
+      "turnover": 2463454063.68,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "DRREDDY",
+      "setups": [
+        "breakout_20d"
+      ],
+      "price": 1345.0,
+      "close_date": "2026-10-29",
+      "rsi": 74.9,
+      "volume": 2020768,
+      "turnover": 2424228276.84,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "NESTLEIND",
+      "setups": [
+        "oversold_bounce"
+      ],
+      "price": 1188.6,
+      "close_date": "2026-10-29",
+      "rsi": 32.4,
+      "volume": 2196322,
+      "turnover": 2150790815.22,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "PNB",
+      "setups": [
+        "breakout_20d"
+      ],
+      "price": 123.9,
+      "close_date": "2026-10-29",
+      "rsi": 64.0,
+      "volume": 27688467,
+      "turnover": 1903678646.59,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "INDUSINDBK",
+      "setups": [
+        "reclaim_ma20"
+      ],
+      "price": 868.0,
+      "close_date": "2026-10-29",
+      "rsi": 45.2,
+      "volume": 1958915,
+      "turnover": 1756400060.18,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "DLF",
+      "setups": [
+        "breakout_20d"
+      ],
+      "price": 694.35,
+      "close_date": "2026-10-29",
+      "rsi": 61.8,
+      "volume": 2908593,
+      "turnover": 1655118936.55,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "BANKBARODA",
+      "setups": [
+        "breakout_20d",
+        "reclaim_ma20"
+      ],
+      "price": 241.31,
+      "close_date": "2026-10-29",
+      "rsi": 58.6,
+      "volume": 8072517,
+      "turnover": 1529185930.66,
+      "turnover_basis": "median 20d"
+    },
+    {
+      "symbol": "GRASIM",
+      "setups": [
+        "reclaim_ma20"
+      ],
+      "price": 2932.8,
+      "close_date": "2026-10-29",
+      "rsi": 44.6,
+      "volume": 241493,
+      "turnover": 926928502.0,
+      "turnover_basis": "median 20d"
+    }
+  ],
+  "offline": "daily-v8-2026-10-29.json.gz"
+}

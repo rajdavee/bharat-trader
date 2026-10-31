@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-29",
+  "now_ist": "2026-10-29 14:30",
+  "paper": true,
+  "results": [
+    {
+      "index": 1,
+      "symbol": "RELIANCE",
+      "side": "BUY",
+      "kind": "entry",
+      "product": "MIS",
+      "qty": 42,
+      "value": 49320.6,
+      "entry_ref": 1174.3,
+      "entry_ref_from": "limit",
+      "stop": 1163.3,
+      "target": 1196.3,
+      "risk_per_share": 11.0,
+      "max_loss": 462.0,
+      "charges": 52.0,
+      "max_loss_with_charges": 514.0,
+      "reward_risk": 2.0,
+      "fingerprint": "9ba8b90f83f96546",
+      "verdict": "PASS",
+      "reasons": [],
+      "warnings": [],
+      "info": [
+        "entry 1174.30 (the limit price), stop 1163.30, target 1196.30: risk 11.00 a share",
+        "loss at the stop ₹462.00 + ₹52.00 charges = ₹514.00 (limit ₹1,000.00), reward:risk 2.00 (min 1.5)",
+        "today before this: 0 of 3 trades, ₹0.00 of ₹3,000.00 daily loss"
+      ]
+    }
+  ],
+  "pass": 1,
+  "block": 0,
+  "warnings": [],
+  "cash_after": 38360.45,
+  "today": {
+    "orders_placed": 0,
+    "entries_placed": 0,
+    "loss_at_risk": 0.0
+  },
+  "prices_as_of": "2026-10-29T14:29:00+05:30",
+  "checked_at": "2026-10-31T19:42:55Z",
+  "orders_file": "trader/orders.json"
+}

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="csrf-token" content="__CSRF_TOKEN__">
+<title>bharat-trader</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/css/app.css">
+<script src="/static/vendor/lightweight-charts.standalone.production.js" defer></script>
+<script type="module" src="/static/js/app.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="#/" aria-label="bharat-trader, dashboard">
+    <span class="brand-mark" aria-hidden="true">BT</span>
+    <span class="brand-name">bharat-trader</span>
+  </a>
+  <nav class="nav" aria-label="Pages">
+    <ul id="nav">
+      <li><a href="#/" data-page="dashboard"><span class="k" aria-hidden="true">D</span>Dashboard</a></li>
+      <li><a href="#/chart" data-page="chart"><span class="k" aria-hidden="true">C</span>Chart</a></li>
+      <li><a href="#/scanner" data-page="scanner"><span class="k" aria-hidden="true">S</span>Scanner</a></li>
+      <li><a href="#/portfolio" data-page="portfolio"><span class="k" aria-hidden="true">P</span>Portfolio</a></li>
+      <li><a href="#/risk" data-page="risk"><span class="k" aria-hidden="true">R</span>Risk</a></li>
+      <li><a href="#/options" data-page="options"><span class="k" aria-hidden="true">O</span>Option chain</a></li>
+      <li><a href="#/strategy" data-page="strategy"><span class="k" aria-hidden="true">B</span>Strategy</a></li>
+      <li><a href="#/settings" data-page="settings"><span class="k" aria-hidden="true">E</span>Settings</a></li>
+    </ul>
+  </nav>
+  <form id="search" class="search" role="search" autocomplete="off">
+    <label class="sr-only" for="q">Chart a symbol</label>
+    <input id="q" name="q" type="search" placeholder="Symbol" spellcheck="false" autocapitalize="characters"
+           aria-describedby="q-hint">
+    <kbd id="q-hint" class="hint" aria-label="press slash to search">/</kbd>
+  </form>
+  <div id="market" class="pill" role="status" aria-live="polite">…</div>
+  <button id="theme" class="icon-btn" type="button" aria-label="Switch theme" title="Switch theme (t)">◐</button>
+</header>
+<div id="banner" class="banner" hidden></div>
+<main id="main" tabindex="-1" aria-live="polite"></main>
+<footer class="foot">
+  <span>Paper trading. Education and tooling, not financial advice.</span>
+  <span>Charts by TradingView Lightweight Charts™ (Apache-2.0) · <a href="#/about">About and licenses</a> ·
+    <button id="keys-btn" class="link" type="button">Keyboard <kbd>?</kbd></button></span>
+</footer>
+<div id="why" class="popover" role="dialog" aria-modal="false" aria-labelledby="why-title" hidden></div>
+<div id="help" class="modal" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
+  <div class="modal-box">
+    <h2 id="help-title">Keyboard</h2>
+    <dl class="keys">
+      <dt><kbd>g</kbd> <kbd>d</kbd></dt><dd>Dashboard</dd>
+      <dt><kbd>g</kbd> <kbd>c</kbd></dt><dd>Chart</dd>
+      <dt><kbd>g</kbd> <kbd>s</kbd></dt><dd>Scanner and watchlist</dd>
+      <dt><kbd>g</kbd> <kbd>p</kbd></dt><dd>Paper portfolio and orders</dd>
+      <dt><kbd>g</kbd> <kbd>r</kbd></dt><dd>Risk panel</dd>
+      <dt><kbd>g</kbd> <kbd>o</kbd></dt><dd>Option chain</dd>
+      <dt><kbd>g</kbd> <kbd>b</kbd></dt><dd>Strategy builder</dd>
+      <dt><kbd>g</kbd> <kbd>e</kbd></dt><dd>Settings</dd>
+      <dt><kbd>/</kbd></dt><dd>Chart a symbol</dd>
+      <dt><kbd>t</kbd></dt><dd>Dark or light theme</dd>
+      <dt><kbd>?</kbd></dt><dd>This list</dd>
+      <dt><kbd>Esc</kbd></dt><dd>Close a panel</dd>
+    </dl>
+    <p class="muted">Numbers with a dotted underline open a “why” panel: the formula, its inputs, the source
+      and the time.</p>
+    <button type="button" class="btn" data-close>Close</button>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "cash": 87681.05,
+  "positions": {
+    "TCS": {
+      "qty": 5,
+      "avg_price": 2460.0,
+      "product": "CNC",
+      "buy_charges": 18.95
+    }
+  }
+}

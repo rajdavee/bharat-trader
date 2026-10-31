@@ -48,6 +48,21 @@ All notable changes are documented here. The format follows
   percentile from India VIX history, stale-spot warnings after 15:30.
   `--write` saves `trader/options.json` (schema `bharat-trader/options/1`).
 - Config key `risk_free_rate` (default 0.0557).
+- Local web UI, `python3 ui/serve.py --open` (#11, foundation): dashboard (NSE
+  status, NIFTY 50 / BANK NIFTY / INDIA VIX, today's paper P&L, plan, alerts),
+  candlestick chart with volume, EMA, session VWAP, opening-range band and the
+  plan's entry/stop/target (1m, 5m, 1d), scanner and watchlist, paper portfolio
+  and order tickets (risk check, typed yes, decline, paper fill), risk panel and
+  a validated settings editor. Option chain and strategy builder pages describe
+  what v0.2 will show.
+- Every number comes from the skills' own functions through one route table
+  (`ui/api.py`); a "why" panel shows each key number's formula, inputs, source
+  and time. Live updates over Server-Sent Events.
+- Local-first security: binds 127.0.0.1, Host and Origin checks, per-session
+  CSRF token on every write, strict Content-Security-Policy, no CORS, nothing
+  loaded from the internet. `--offline DIR` serves saved real data for demos.
+- TradingView Lightweight Charts 5.2.1 (Apache-2.0) vendored unmodified in
+  `ui/static/vendor/` with its LICENSE, NOTICE and SHA-256.
 
 ## [0.1.0] - 2026-10-29
 

@@ -1,0 +1,25 @@
+{
+  "as_of": "2026-10-29T14:29:00+05:30",
+  "source": "yahoo",
+  "note": "Delayed quotes for alerts and sizing checks. Your broker's price is the one that fills. detail.time is the quote's own time (IST), detail.fetched when it was read.",
+  "prices": {
+    "TCS": 2478.0,
+    "RELIANCE": 1167.4
+  },
+  "detail": {
+    "TCS": {
+      "price": 2478.0,
+      "prev_close": 2460.0,
+      "time": "2026-10-29T15:29:02+05:30",
+      "source": "yahoo",
+      "fetched": "2026-10-29T14:29:00+05:30"
+    },
+    "RELIANCE": {
+      "price": 1167.4,
+      "prev_close": 1158.0,
+      "time": "2026-10-29T15:29:03+05:30",
+      "source": "yahoo",
+      "fetched": "2026-10-29T14:29:00+05:30"
+    }
+  }
+}

@@ -1,0 +1,2 @@
+# byte-exact third-party files: never convert line endings (their SHA-256 is checked)
+* -text

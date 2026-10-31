@@ -1,0 +1,18 @@
+{
+  "orders": [
+    {
+      "at": "2026-10-27T10:05:00+05:30",
+      "date": "2026-10-27",
+      "status": "filled",
+      "symbol": "TCS",
+      "side": "BUY",
+      "qty": 5,
+      "price": 2460.0,
+      "charges": 18.95,
+      "leg": "order",
+      "product": "CNC",
+      "paper": true,
+      "plain": "BUY 5 TCS at 2460.00 (order)"
+    }
+  ]
+}
