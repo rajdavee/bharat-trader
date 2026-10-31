@@ -20,8 +20,12 @@ How the replays work:
      IST: 75 five-minute bars, the last one starting 15:25. Keep only past
      sessions (before the plan's date) that have every bar from 09:15 up to
      the flat-by time. Sessions with gaps, special sessions (Muhurat) and
-     today are left out. Yahoo often leaves the 15:15 to 15:25 bars of an NSE
-     session empty, which is one more reason to be flat by 15:10.
+     today are left out. An F&O stock stops continuous trading early (the
+     Closing Auction Session: 15:15 from 2026-08-03, 15:30 from 2026-12-07,
+     see SESSION_RULES), so its replay ends by then: the flat-by is pulled
+     in to the safe time for the plan's day, and a past session is left out
+     when the replay would run into its auction (Yahoo shows the auction as
+     empty or one-print bars).
   2. The pool: for every bar slot 1..last of the day, each past session's bar
      as ratios to the previous bar's close: (open, high, low, close) / prev close.
   3. One replay starts at the entry price and walks the rest of the session.
@@ -146,6 +150,267 @@ NSE_HOLIDAYS = {
 CALENDAR_YEARS = (2026,)
 
 
+# ---------------------------------------------------------------- dated market rules (same in entry, exit, alerts, risk, timemachine, scanner, broker)
+# Every row holds from its effective_from date (IST) until the next row starts.
+# Times are IST. Segments: "EQ" a cash-market stock with no derivatives, "EQ_FNO"
+# a cash-market stock in NSE's F&O list (the Closing Auction Session applies to
+# it from 2026-08-03), "DERIV" futures and options. The sources are in
+# docs/data-sources.md; when NSE changes a timing, add a row, never edit one.
+
+SESSION_RULES = [
+    {"effective_from": "2000-01-01",
+     "pre_open": {"start": "09:00", "market_orders_until": "09:08", "random_close": ["09:07", "09:08"],
+                  "matching": ["09:08", "09:12"]},
+     "open": "09:15",
+     "continuous_end": {"EQ": "15:30", "EQ_FNO": "15:30", "DERIV": "15:30"},
+     "cas": None,
+     "post_close": ["15:40", "16:00"],
+     "source": "NSE/CMTR/74969 (1 Jul 2026, 'current' pre-open times); NSE/FAOP/74467 (29 May 2026, "
+               "derivatives close moved from 15:30)"},
+    {"effective_from": "2026-08-03",
+     "pre_open": {"start": "09:00", "market_orders_until": "09:08", "random_close": ["09:07", "09:08"],
+                  "matching": ["09:08", "09:12"]},
+     "open": "09:15",
+     "continuous_end": {"EQ": "15:30", "EQ_FNO": "15:15", "DERIV": "15:40"},
+     "cas": {"start": "15:15", "orders_from": "15:20", "limit_only_from": "15:25", "random_close": ["15:28", "15:30"],
+             "end": "15:35"},
+     "post_close": ["15:50", "16:00"],
+     "source": "SEBI circular 16 Jan 2026 para 4.2 and 6.1 (NSE/CMTR/72394); NSE/FAOP/74467; go-live NSE/CMTR/75479 "
+               "and NSE/FAOP/75472 (30 Jul 2026)"},
+    {"effective_from": "2026-09-07",
+     "pre_open": {"start": "09:00", "market_orders_until": "09:05", "random_close": ["09:08", "09:10"],
+                  "matching": ["09:10", "09:12"]},
+     "open": "09:15",
+     "continuous_end": {"EQ": "15:30", "EQ_FNO": "15:15", "DERIV": "15:40"},
+     "cas": {"start": "15:15", "orders_from": "15:20", "limit_only_from": "15:25", "random_close": ["15:28", "15:30"],
+             "end": "15:35"},
+     "post_close": ["15:50", "16:00"],
+     "source": "SEBI circular 16 Jan 2026 para 5 and 6.2 (NSE/CMTR/72394); NSE/CMTR/74969 (1 Jul 2026); "
+               "NSE/CMTR/76187 (4 Sep 2026)"},
+    {"effective_from": "2026-12-07",
+     "pre_open": {"start": "09:00", "market_orders_until": "09:05", "random_close": ["09:08", "09:10"],
+                  "matching": ["09:10", "09:12"]},
+     "open": "09:15",
+     "continuous_end": {"EQ": "15:30", "EQ_FNO": "15:30", "DERIV": "15:45"},
+     "cas": {"start": "15:30", "orders_from": "15:31", "limit_only_from": "15:36", "random_close": ["15:38", "15:40"],
+             "end": "15:40"},
+     "expiring_index_derivatives_end": "15:30",
+     "post_close": ["15:50", "16:00"],
+     "source": "SEBI circular HO/47/11/11(3)2025-MRD-POD2/I/23843/2026 (15 Oct 2026) para 4.2 and 6.1; "
+               "Zerodha bulletin 16 Oct 2026"},
+]
+
+# Brokers' MIS auto square-off, IST, by segment. A date before a broker's first
+# row uses that first row. Brokers move these without much notice: check yours.
+BROKER_SQUARE_OFF = {
+    "zerodha": [
+        {"effective_from": "2026-08-03", "EQ_FNO": "15:10", "EQ": "15:25", "DERIV": "15:26",
+         "source": "Zerodha product update 10 Aug 2026 (CAS stocks were 15:10)"},
+        {"effective_from": "2026-08-10", "EQ_FNO": "15:12", "EQ": "15:25", "DERIV": "15:26",
+         "source": "support.zerodha.com intraday-auto-square-off-timings (read 1 Nov 2026)"}],
+    "upstox": [
+        {"effective_from": "2026-08-03", "EQ_FNO": "15:05", "EQ": "15:20", "DERIV": "15:20",
+         "source": "upstox.com announcement 4 Sep 2026 (old times)"},
+        {"effective_from": "2026-09-11", "EQ_FNO": "15:10", "EQ": "15:25", "DERIV": "15:25",
+         "source": "upstox.com announcement 4 Sep 2026, effective 11 Sep 2026"}],
+    "dhan": [
+        {"effective_from": "2026-08-03", "EQ_FNO": "15:10", "EQ": "15:10", "DERIV": "15:25",
+         "source": "dhan.co support: what-are-the-dhan-intraday-auto-square-off-timings (read 1 Nov 2026)"}],
+    "angel": [
+        {"effective_from": "2026-08-03", "EQ_FNO": "15:10", "EQ": "15:10", "DERIV": "15:20",
+         "source": "smartapi.angelone.in forum post 19209 (CAS changes from 3 Aug 2026)"}],
+    "groww": [
+        {"effective_from": "2026-08-03", "EQ_FNO": "15:05", "EQ": "15:20", "DERIV": "15:20",
+         "source": "groww.in/p/risk-policy (read 1 Nov 2026)"}],
+}
+BROKER_PROFILES = tuple(sorted(BROKER_SQUARE_OFF)) + ("custom",)
+SEGMENTS = ("EQ", "EQ_FNO", "DERIV")
+RULES_DEFAULT_FLAT_BY = "15:10"   # the config's default flat_by
+SQUARE_OFF_MARGIN_MIN = 5    # flat by at least this long before the broker's square-off
+ENTRY_LEAD_MIN = 15          # and stop new entries this long before the flat-by
+FNO_LIST_URL = "https://www.nseindia.com/api/master-quote"
+FNO_LIST_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like "
+                                  "Gecko) Chrome/130 Safari/537.36",
+                    "Accept": "application/json", "Referer": "https://www.nseindia.com/"}
+
+
+class RulesError(ValueError):
+    pass
+
+
+def _rule_time(text, what="time"):
+    try:
+        h, m = str(text).strip().split(":")
+        return datetime.time(int(h), int(m))
+    except (ValueError, TypeError):
+        raise RulesError("%s wants an IST time like 15:10, not %r" % (what, text))
+
+
+def _rule_day(d):
+    return d if isinstance(d, str) else d.isoformat()
+
+
+def _rule_minus(t, minutes):
+    dt = datetime.datetime.combine(datetime.date(2000, 1, 3), t) - datetime.timedelta(minutes=minutes)
+    return dt.time()
+
+
+def _dated_row(rows, d):
+    day = _rule_day(d)
+    pick = rows[0]
+    for row in rows:
+        if row["effective_from"] <= day:
+            pick = row
+    return pick
+
+
+def session_for(d, segment="EQ"):
+    """The NSE session rules that hold on date d for one segment, as datetime.time values:
+    pre_open (start, order entry end), open, continuous_end (the last continuous-trading
+    minute), close (when the segment's day is over: the auction's end for EQ_FNO under CAS),
+    cas (dict or None), post_close (start, end), rule_from and source."""
+    seg = str(segment or "EQ").upper()
+    if seg not in SEGMENTS:
+        raise RulesError("segment is one of %s, not %r" % (", ".join(SEGMENTS), segment))
+    row = _dated_row(SESSION_RULES, d)
+    cts_end = _rule_time(row["continuous_end"][seg])
+    cas = None
+    if seg == "EQ_FNO" and row.get("cas"):
+        cas = {k: ([_rule_time(x) for x in v] if isinstance(v, list) else _rule_time(v))
+               for k, v in row["cas"].items()}
+    po = row["pre_open"]
+    return {"date": _rule_day(d), "segment": seg, "rule_from": row["effective_from"], "source": row["source"],
+            "pre_open": (_rule_time(po["start"]), _rule_time(po["random_close"][1])),
+            "pre_open_market_orders_until": _rule_time(po["market_orders_until"]),
+            "open": _rule_time(row["open"]), "continuous_end": cts_end,
+            "close": cas["end"] if cas else cts_end, "cas": cas,
+            "post_close": tuple(_rule_time(x) for x in row["post_close"])}
+
+
+def segment_of(symbol, fno_stocks):
+    """EQ_FNO when the stock is in the F&O list. With no list at all, EQ_FNO too:
+    its earlier close is the safe side to be wrong on."""
+    if fno_stocks is None:
+        return "EQ_FNO"
+    return "EQ_FNO" if str(symbol or "").strip().upper() in fno_stocks else "EQ"
+
+
+def square_off_for(d, segment, cfg):
+    """(time, "zerodha: source") of the broker's MIS auto square-off, or (None, "") with no profile."""
+    cfg = cfg or {}
+    name = str(cfg.get("broker_profile") or "").strip().lower()
+    if not name:
+        return None, ""
+    seg = str(segment or "EQ").upper()
+    if name == "custom":
+        custom = cfg.get("square_off") or {}
+        if not isinstance(custom, dict) or not custom.get(seg):
+            raise RulesError('broker_profile "custom" needs "square_off": {"EQ": "15:20", "EQ_FNO": "15:10", '
+                             '"DERIV": "15:25"} (your broker\'s MIS square-off times, IST)')
+        return _rule_time(custom[seg], "square_off %s" % seg), "custom: square_off in your config"
+    if name not in BROKER_SQUARE_OFF:
+        raise RulesError("broker_profile is one of %s, not %r" % (", ".join(BROKER_PROFILES), name))
+    row = _dated_row(BROKER_SQUARE_OFF[name], d)
+    return _rule_time(row[seg]), "%s: %s" % (name, row["source"])
+
+
+def safe_flat_by(d, segment, cfg):
+    """(flat_by time, note). The latest safe time is the earlier of continuous trading's
+    end and the broker's square-off, each less the margin (5 minutes). flat_by "auto"
+    takes it; flat_by (15:10 when missing) later than it is pulled in, with a note."""
+    cfg = cfg or {}
+    margin = int(cfg.get("square_off_margin_min", SQUARE_OFF_MARGIN_MIN) or 0)
+    s = session_for(d, segment)
+    safe, why = _rule_minus(s["continuous_end"], margin), "continuous trading ends %s" % s["continuous_end"].strftime("%H:%M")
+    sq, src = square_off_for(d, segment, cfg)
+    if sq is not None and _rule_minus(sq, margin) < safe:
+        safe, why = _rule_minus(sq, margin), "%s squares off MIS at %s" % (src.split(":")[0], sq.strftime("%H:%M"))
+    want = cfg.get("flat_by") or RULES_DEFAULT_FLAT_BY
+    if want == "auto":
+        return safe, "%s (%d min before: %s)" % (safe.strftime("%H:%M"), margin, why)
+    t = _rule_time(want, "flat_by")
+    if t > safe:
+        return safe, "flat_by %s is too late on %s for this stock: %s, so flat by %s" % (
+            t.strftime("%H:%M"), _rule_day(d), why, safe.strftime("%H:%M"))
+    return t, ""
+
+
+def entry_cutoff(d, segment, cfg):
+    """The last time for a new entry: no_entries_after, but at least ENTRY_LEAD_MIN before the safe flat-by."""
+    cfg = cfg or {}
+    flat, _ = safe_flat_by(d, segment, cfg)
+    late = _rule_minus(flat, ENTRY_LEAD_MIN)
+    want = cfg.get("no_entries_after")
+    t = _rule_time(want, "no_entries_after") if want else late
+    return min(t, late)
+
+
+def parse_fno_list(text):
+    """NSE master-quote JSON (a list of F&O underlying symbols) -> set of symbols."""
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        raise RulesError("the NSE F&O list is not JSON")
+    if isinstance(doc, dict):
+        doc = doc.get("symbols") or doc.get("data") or []
+    syms = {str(x).strip().upper() for x in doc if isinstance(x, str) and x.strip()}
+    if len(syms) < 50:
+        raise RulesError("the NSE F&O list has only %d symbols: not trusting it" % len(syms))
+    return syms
+
+
+def fetch_fno_stocks(timeout=20):
+    """NSE's F&O underlying list, live. One polite request; raises RulesError on failure."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(FNO_LIST_URL, headers=FNO_LIST_HEADERS)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return parse_fno_list(r.read().decode("utf-8", "replace"))
+    except (urllib.error.URLError, OSError) as e:
+        raise RulesError("could not fetch the NSE F&O list (%s)" % (getattr(e, "reason", None) or e))
+
+
+def load_fno_stocks(cfg=None, cache_path=None, fetch=False, today=None):
+    """(set of F&O stock symbols or None, note). The config's "fno_stocks" list wins.
+    Else the cache (trader/fno_stocks.json), refreshed from NSE at most once a day when
+    fetch is True. None means unknown: callers then treat every stock as EQ_FNO."""
+    cfg = cfg or {}
+    own = cfg.get("fno_stocks")
+    if isinstance(own, list) and own:
+        return {str(x).strip().upper() for x in own}, "F&O list from fno_stocks in your config"
+    today = _rule_day(today or datetime.date.today())
+    cached, fetched = None, None
+    if cache_path and os.path.exists(cache_path):
+        try:
+            with open(cache_path, encoding="utf-8") as fh:
+                doc = json.load(fh)
+            cached, fetched = {str(x).upper() for x in doc.get("symbols") or []} or None, doc.get("fetched")
+        except (OSError, ValueError, AttributeError):
+            cached = None
+    if fetch and (cached is None or fetched != today):
+        try:
+            syms = fetch_fno_stocks()
+        except RulesError as e:
+            if cached is not None:
+                return cached, "F&O list cached %s (%s)" % (fetched, e)
+            return None, "%s: treating every stock as an F&O stock (earlier close)" % e
+        if cache_path:
+            try:
+                os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
+                with open(cache_path, "w", encoding="utf-8") as fh:
+                    json.dump({"source": FNO_LIST_URL, "fetched": today, "symbols": sorted(syms)}, fh, indent=0)
+                    fh.write("\n")
+            except OSError:
+                pass
+        return syms, "F&O list from NSE, %s (%d stocks)" % (today, len(syms))
+    if cached is not None:
+        return cached, "F&O list cached %s (%d stocks)" % (fetched, len(cached))
+    return None, "no F&O list (trader/fno_stocks.json): treating every stock as an F&O stock (earlier close)"
+
+# ---------------------------------------------------------------- end of dated market rules
+
+
 class TMError(Exception):
     pass
 
@@ -177,7 +442,7 @@ def _paise(x):
     return x.quantize(PAISE, rounding=ROUND_HALF_UP)
 
 
-def round_trip_charges(entry, exit, qty, cfg):
+def round_trip_charges(entry, exit, qty, cfg, segment=None, on=None, exercised=False):
     """Estimated charges for buying qty at entry and selling at exit, in rupees, to the paisa.
 
     Intraday (product MIS): brokerage on each order (brokerage_pct of its value, capped at
@@ -186,6 +451,9 @@ def round_trip_charges(entry, exit, qty, cfg):
     stamp duty on the buy side (stamp_buy_pct), GST (gst_pct) on brokerage + exchange + SEBI.
     Delivery (CNC): STT stt_delivery_pct on both sides, stamp stamp_delivery_pct on the buy.
     Each part is rounded half up to the paisa from its unrounded value; total = sum of the parts."""
+    seg = str(segment or (cfg.get("segment") if isinstance(cfg, dict) else None) or "EQ").upper()
+    if seg != "EQ":
+        return fno_round_trip_charges(entry, exit, qty, cfg, seg, on, exercised)
     ch = dict(DEFAULTS["charges"])
     ch.update((cfg or {}).get("charges") or {})
     pct = Decimal("0.01")
@@ -208,6 +476,93 @@ def round_trip_charges(entry, exit, qty, cfg):
            "sebi": _paise(sebi), "stamp": _paise(stamp), "gst": _paise(gst)}
     out["total"] = sum(out.values(), Decimal("0"))
     return {k: float(v) for k, v in out.items()}
+
+
+# ---------------------------------------------------------------- F&O charges, dated (same in budget, risk, broker, exit, timemachine)
+# segment "OPT" (rates on the premium) or "FUT" (on the traded value). Each row holds
+# from its effective_from date until the next. Exchange = NSE transaction charge plus
+# the IPFT contribution (one number on a contract note). Sources: docs/data-sources.md.
+# "fno_charges": {"OPT": {...}, "FUT": {...}} in the config overrides any rate.
+FNO_CHARGES = [
+    {"effective_from": "2024-10-01",
+     "OPT": {"brokerage_flat": 20, "stt_sell_pct": 0.1, "stt_exercise_pct": 0.125, "exchange_txn_pct": 0.03553,
+             "sebi_per_crore": 10, "stamp_buy_pct": 0.003, "gst_pct": 18},
+     "FUT": {"brokerage_pct": 0.03, "brokerage_cap": 20, "stt_sell_pct": 0.02, "exchange_txn_pct": 0.00183,
+             "sebi_per_crore": 10, "stamp_buy_pct": 0.002, "gst_pct": 18},
+     "source": "NSE/FA/64323 (27 Sep 2024) and NSE/FA/73061 (27 Feb 2026, total outflow); STT up to 31 Mar 2026 "
+               "per NSE/FATAX/73524"},
+    {"effective_from": "2026-04-01",
+     "OPT": {"brokerage_flat": 20, "stt_sell_pct": 0.15, "stt_exercise_pct": 0.15, "exchange_txn_pct": 0.03553,
+             "sebi_per_crore": 10, "stamp_buy_pct": 0.003, "gst_pct": 18},
+     "FUT": {"brokerage_pct": 0.03, "brokerage_cap": 20, "stt_sell_pct": 0.05, "exchange_txn_pct": 0.00183,
+             "sebi_per_crore": 10, "stamp_buy_pct": 0.002, "gst_pct": 18},
+     "source": "Finance Act 2026, NSE/FATAX/73524 (31 Mar 2026); NSE/FA/73061"},
+]
+
+
+def fno_rates(segment, on=None, cfg=None):
+    """The dated F&O rates for "OPT" or "FUT" on date `on` (default today), with the config's overrides."""
+    seg = str(segment).upper()
+    if seg not in ("OPT", "FUT"):
+        raise ValueError("segment is EQ, OPT or FUT, not %r" % segment)
+    day = on if isinstance(on, str) else (on or datetime.date.today()).isoformat()
+    row = FNO_CHARGES[0]
+    for r in FNO_CHARGES:
+        if r["effective_from"] <= day:
+            row = r
+    rates = dict(row[seg])
+    over = ((cfg or {}).get("fno_charges") or {}).get(seg) if isinstance(cfg, dict) else None
+    if isinstance(over, dict):
+        rates.update({k: v for k, v in over.items() if v is not None})
+    return rates
+
+
+def fno_round_trip_charges(entry, exit, qty, cfg=None, segment="OPT", on=None, exercised=False):
+    """Buy qty at entry, sell at exit, for options (prices are premiums) or futures.
+
+    brokerage  OPT: brokerage_flat per executed order. FUT: lower of brokerage_pct and brokerage_cap per order
+    stt        stt_sell_pct on the sell side. OPT with exercised=True: no sell order; exit is the
+               intrinsic value per unit and STT is stt_exercise_pct of it (paid by the buyer)
+    exchange   exchange_txn_pct on buy + sell turnover (the exercise leg has none)
+    sebi       sebi_per_crore rupees per crore of that turnover
+    stamp      stamp_buy_pct on the buy side
+    gst        gst_pct on brokerage + exchange + sebi
+    Each part is rounded half up to the paisa; total is the sum of the parts."""
+    seg = str(segment).upper()
+    ch = fno_rates(seg, on, cfg)
+
+    def dec(x):
+        return Decimal(repr(float(x or 0)))
+
+    pct = Decimal("0.01")
+    q = dec(qty)
+    buy, sell = dec(entry) * q, dec(exit) * q
+    exercise = bool(exercised) and seg == "OPT"
+    traded = buy + (Decimal(0) if exercise else sell)
+
+    def brok(value):
+        if seg == "OPT":
+            return dec(ch.get("brokerage_flat")) if value > 0 else Decimal(0)
+        b = value * dec(ch.get("brokerage_pct")) * pct
+        cap = ch.get("brokerage_cap")
+        return min(b, dec(cap)) if cap is not None else b
+
+    brokerage = brok(buy) + (Decimal(0) if exercise else brok(sell))
+    stt = sell * dec(ch.get("stt_exercise_pct" if exercise else "stt_sell_pct")) * pct
+    exchange = traded * dec(ch.get("exchange_txn_pct")) * pct
+    sebi = traded * dec(ch.get("sebi_per_crore")) / Decimal(10000000)
+    stamp = buy * dec(ch.get("stamp_buy_pct")) * pct
+    gst = (brokerage + exchange + sebi) * dec(ch.get("gst_pct")) * pct
+
+    def paisa(x):
+        return x.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    out = {"brokerage": paisa(brokerage), "stt": paisa(stt), "exchange": paisa(exchange), "sebi": paisa(sebi),
+           "stamp": paisa(stamp), "gst": paisa(gst)}
+    out["total"] = sum(out.values(), Decimal("0"))
+    return {k: float(v) for k, v in out.items()}
+
+# ---------------------------------------------------------------- end of F&O charges
 
 
 def read_config(path):
@@ -438,10 +793,11 @@ def split_sessions(bars):
     return days
 
 
-def usable_sessions(days, before, last, cfg=None):
+def usable_sessions(days, before, last, cfg=None, segment="EQ"):
     """Past sessions (strictly before the plan's date, oldest first) with every bar
     from 09:15 through slot `last`, and the ones left out: gaps, short sessions,
-    special sessions and days the calendar says NSE was shut."""
+    special sessions, days the calendar says NSE was shut, and days whose
+    continuous trading (for this segment) ended before slot `last` closed."""
     full, short = [], []
     for d in sorted(days):
         if d >= before:
@@ -450,6 +806,11 @@ def usable_sessions(days, before, last, cfg=None):
         kind, reason, _ = market_day(d, cfg)
         if kind != "regular":
             short.append({"date": d, "bars": len(s), "why": reason})
+            continue
+        cts = session_for(d, segment)["continuous_end"]
+        if OPEN_MIN + 5 * (last + 1) > cts.hour * 60 + cts.minute:
+            short.append({"date": d, "bars": len(s), "why": "continuous trading ended %s (closing auction)"
+                          % cts.strftime("%H:%M")})
             continue
         missing = [i for i in range(last + 1) if i not in s]
         if missing:
@@ -880,11 +1241,27 @@ def time_machine(text, plan, now, replays=10000, seed=19, window=2, until=None, 
     if not bars:
         raise TMError("no complete 5-minute bars for %s in the data" % sym)
     k = plan["entry_bar"]
+    fno = cfg["_fno"] if "_fno" in cfg else load_fno_stocks(cfg)[0]
+    seg = segment_of(sym, fno)
+    day_rules = session_for(plan["date"], seg)
+    cts = day_rules["continuous_end"]
+    cts_min = cts.hour * 60 + cts.minute
     until_text = until or plan.get("flat_by") or cfg.get("flat_by") or DEFAULTS["flat_by"]
+    pulled = ""
+    if not until:
+        safe, note = safe_flat_by(plan["date"], seg, dict(cfg, flat_by=until_text))
+        safe_min = safe.hour * 60 + safe.minute
+        safe_min -= (safe_min - OPEN_MIN) % 5
+        if until_text == "auto" or safe_min < parse_clock(until_text, "flat_by"):
+            pulled = note if until_text != "auto" else ""
+            until_text = clock24(safe_min)
     until_min = parse_clock(until_text, "--until" if until else "flat_by")
     if (until_min - OPEN_MIN) % 5 or until_min > CLOSE_MIN or until_min <= OPEN_MIN:
         raise TMError("--until / flat_by must be on the 5-minute grid between 09:20 and 15:30 IST (got %s)"
                       % until_text)
+    if until_min > cts_min:
+        raise TMError("--until %s is after %s's continuous trading ends on %s (%s IST, then the closing auction): "
+                      "use %s or earlier" % (until_text, sym, plan["date"], clock24(cts_min), clock24(cts_min)))
     last = (until_min - OPEN_MIN) // 5 - 1
     if last <= k:
         raise TMError("%s %s leaves nothing to replay after the %s entry"
@@ -900,10 +1277,13 @@ def time_machine(text, plan, now, replays=10000, seed=19, window=2, until=None, 
     warn = []
     if cal_warning:
         warn.append(cal_warning)
+    if pulled:
+        warn.append(pulled.replace("so flat by", "so the replays end at").replace(
+            "flat by %s" % clock24(until_min), "the replays end at %s" % clock24(until_min)))
     if not eb["l"] - tick <= plan["entry"] <= eb["h"] + tick:
         warn.append("the plan's entry %.2f is outside that bar's range %.2f to %.2f"
                     % (plan["entry"], eb["l"], eb["h"]))
-    sessions, short = usable_sessions(days, plan["date"], last, cfg)
+    sessions, short = usable_sessions(days, plan["date"], last, cfg, seg)
     if len(sessions) < MIN_SESSIONS:
         raise TMError("only %d usable session(s) of %s before %s with every bar to %s in the data; the time "
                       "machine needs at least %d%s"
@@ -1087,6 +1467,8 @@ def compute(a):
     cfg = read_config(a.config)
     if a.no_charges:
         cfg["include_charges"] = False
+    cache = os.path.join(os.path.dirname(a.config) or ".", "fno_stocks.json")
+    cfg["_fno"] = load_fno_stocks(cfg, cache, fetch=not a.offline, today=now.date())[0]
     if a.offline:
         text, source = read_offline(a.offline, plan["symbol"]), "offline"
     else:
@@ -1177,7 +1559,7 @@ def main(argv=None):
         return 1
     try:
         return {"run": cmd_run, "chart": cmd_chart}[a.cmd](a)
-    except TMError as e:
+    except (TMError, RulesError) as e:
         print("timemachine.py: %s" % e, file=sys.stderr)
         return 1
 

@@ -14,6 +14,8 @@
   "no_entries_before": "09:30",
   "no_entries_after": "14:45",
   "flat_by": "15:10",
+  "broker_profile": "",
+  "square_off_margin_min": 5,
   "exchange": "NSE",
   "product": "MIS",
   "tick_size": "auto",
@@ -35,5 +37,6 @@
     "gst_pct": 18
   },
   "extra_holidays": [],
-  "special_sessions": []
+  "special_sessions": [],
+  "fno_stocks": []
 }

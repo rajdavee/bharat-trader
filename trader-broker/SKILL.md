@@ -82,8 +82,11 @@ python3 "<skill dir>/ticket.py" status                                # cash, po
   --leg stop` (at the trigger; a real stop can fill worse) or `--leg target`.
 - trader-alerts watches the stop, the target and the flat-by time.
 - By `flat_by` (15:10 IST) anything intraday still open gets closed.
-  Brokers auto square-off MIS positions around 15:15 to 15:25 IST, usually
-  with an extra fee, so this pack exits first:
+  Brokers auto square-off MIS positions on their own, usually with an extra
+  fee, and earlier for F&O stocks (Zerodha 15:12, Upstox 15:10, Dhan 15:10,
+  Angel One 15:10, Groww 15:05), so this pack exits first: with
+  `broker_profile` set, 5 minutes before that broker's time, and never
+  after an F&O stock's continuous trading ends for the closing auction:
   1. `ticket.py flatten` writes a SELL MARKET ticket for every open MIS
      position in `trader/portfolio.json` (CNC holdings are kept unless
      `--include-cnc`).

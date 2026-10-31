@@ -256,13 +256,28 @@ class Bars(unittest.TestCase):
         self.assertIn("calendar for 2027 is unknown", tm.market_day("2027-02-01")[2])
 
     def test_yahoos_empty_closing_bars(self):
-        # 15:10 needs bars up to 15:05: fine. 15:25 needs 15:20, which Yahoo never fills for NSE
+        # HDFCBANK is an F&O stock: since 2026-08-03 its continuous trading ends 15:15 and the
+        # closing auction follows (Yahoo shows those bars empty or as one print)
+        for until in ("15:20", "15:25"):
+            with self.assertRaises(tm.TMError) as cm:
+                machine(until=until, replays=10)
+            self.assertIn("after HDFCBANK's continuous trading ends on 2026-10-26 (15:15 IST", str(cm.exception))
+        self.assertEqual(machine(until="15:15", replays=10)["mc"]["pool_sessions"], 55)   # needs up to 15:10
+        # treated as a plain cash stock (an F&O list without it), the late bars are just missing
+        cfg = tm.read_config(None)
+        cfg["fno_stocks"] = ["RELIANCE"]
         with self.assertRaises(tm.TMError) as cm:
-            machine(until="15:25", replays=10)
+            machine(until="15:25", replays=10, cfg=cfg)
         self.assertIn("only 0 usable session(s)", str(cm.exception))
         self.assertIn("flat-by at or before 15:15", str(cm.exception))
-        self.assertEqual(machine(until="15:15", replays=10)["mc"]["pool_sessions"], 55)   # needs up to 15:10
-        self.assertEqual(machine(until="15:20", replays=10)["mc"]["pool_sessions"], 49)   # 15:15 empty on 6
+        self.assertEqual(machine(until="15:20", replays=10, cfg=cfg)["mc"]["pool_sessions"], 49)   # 15:15 empty on 6
+
+    def test_flat_by_pulled_in_for_the_closing_auction(self):
+        cfg = tm.read_config(None)
+        cfg.update(flat_by="15:15", broker_profile="groww")      # Groww squares off F&O stocks at 15:05
+        doc = machine(replays=10, cfg=cfg)
+        self.assertEqual(doc["mc"]["until"], "15:00")
+        self.assertTrue(any("the replays end at 15:00" in w for w in doc["warnings"]), doc["warnings"])
 
     def test_today_is_not_in_the_pool(self):
         doc = machine(replays=200, now=tm.parse_now("2026-10-29 16:30"))

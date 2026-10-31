@@ -7,7 +7,9 @@ description: >-
   09:25 bars by default) and calls the entry on the first completed bar that
   CLOSES above the range high, or above a level you give it (like a 20-day
   high from the scanner), with an optional volume check. Knows the 09:15 to
-  15:30 session, the pre-open, NSE holidays and Muhurat special sessions.
+  15:30 session, the pre-open, the Closing Auction Session that ends
+  continuous trading early for F&O stocks (15:15 from 3 Aug 2026, 15:30 from
+  7 Dec 2026), your broker's MIS square-off, NSE holidays and Muhurat.
   Says waiting and how far in rupees, triggered with the time and the price,
   expired after 14:45, or not open yet, and writes trader/entry.json for
   /trader-exit. Long side only. It never places an order. Use when the user
@@ -52,16 +54,24 @@ by bar without waiting.
 | file | what |
 | --- | --- |
 | `trader/watchlist.json` | the scanner's hits (`hits[].symbol`, NSE symbols), for `watchlist` |
-| `trader/config.json` | optional: `no_entries_before` (09:30), `no_entries_after` (14:45), `extra_holidays`, `special_sessions`, IST. Missing keys take the defaults |
+| `trader/config.json` | optional: `no_entries_before` (09:30), `no_entries_after` (14:45), `flat_by` (15:10), `broker_profile`, `square_off_margin_min` (5), `fno_stocks`, `extra_holidays`, `special_sessions`, IST. Missing keys take the defaults |
+| `trader/fno_stocks.json` | NSE's F&O stock list (`nseindia.com/api/master-quote`), refreshed once a day when the check is online; `--offline` only reads it |
 | Yahoo chart API | today's bars, `RELIANCE.NS?range=1d&interval=5m` (or `1m`; M&M is `M%26M.NS`): free, unofficial, can lag |
 | `trader/entry.json` | with `check --write`, or when `watch` triggers: symbol, exchange, setup, status, time (IST HH:MM), bar, price, level, opening range |
 
 ## The rule
 
 - **Session.** NSE cash market, IST (UTC+05:30, no daylight saving). The
-  pre-open call auction takes orders 09:00 to 09:08; the normal session runs
-  09:15 to 15:30, Monday to Friday. Before 09:15 the status is waiting, phase
-  pre-open.
+  pre-open call auction takes orders 09:00 to 09:08 (09:10 from 7 Sep 2026);
+  the normal session runs 09:15 to 15:30, Monday to Friday. Before 09:15 the
+  status is waiting, phase pre-open.
+- **F&O stocks close early.** A stock in NSE's F&O list stops continuous
+  trading at 15:15 from 3 Aug 2026 (15:30 from 7 Dec 2026) and gets its
+  closing price in the Closing Auction Session. Its session ends there, the
+  check says so, and `--json` has `segment`, `closing_auction` and the safe
+  `flat_by`. With no F&O list yet, every stock is treated as one (the safe
+  side). The dated table with its NSE and SEBI sources is in
+  docs/data-sources.md.
 - **Opening range (orb).** The high and low of the first 15 minutes: the
   09:15, 09:20 and 09:25 five-minute bars, or fifteen 1-minute bars. The
   level to beat is the range high. The range is set at 09:30.
@@ -77,9 +87,11 @@ by bar without waiting.
 - **Volume, if you want it.** `--min-volume-x 1.5` also needs the trigger
   bar's volume at 1.5 times the range bars' average. Yahoo reports 0 volume
   on the NSE 09:15 bar, so the average uses the range bars that have one.
-- **Time limits.** No entries before 09:30 or after 14:45 (config). After
-  14:45 there is too little time left before the broker's intraday (MIS)
-  square-off, around 15:15 to 15:25; the pack's plans aim to be flat by 15:10.
+- **Time limits.** No entries before 09:30 or after 14:45 (config), and
+  never later than 15 minutes before the safe flat-by: 5 minutes before the
+  earlier of continuous trading's end and your `broker_profile`'s MIS
+  square-off (Zerodha 15:12, Upstox 15:10, Dhan 15:10, Angel One 15:10, Groww
+  15:05 for F&O stocks). Plans aim to be flat by 15:10 or that earlier time.
 - **Holidays.** Weekends and the NSE trading holidays for 2026 are closed
   (no-data, with the next open). The 2027 list is not published yet: for a
   year with no table it warns and treats weekdays as open; add holidays with
@@ -132,7 +144,8 @@ RELIANCE  NSE  Thu 2026-10-29 09:40 IST  opening-range breakout (15-minute range
 Opening range 09:15-09:30: high ₹1,170.50, low ₹1,156.20 (3 of 3 bars).
 TRIGGERED 09:40 IST at ₹1,174.30: the 09:35 bar (bar 4) closed above the range high ₹1,170.50 (+0.32%).
 This is the moment to get in, if you take the trade. Nothing was placed.
-Next: set the stop and target BEFORE you buy: /trader-exit (exit.py plan --from trader/entry.json). Intraday (MIS) positions are squared off by the broker near 15:15-15:25; plan to be flat by 15:10.
+Next: set the stop and target BEFORE you buy: /trader-exit (exit.py plan --from trader/entry.json). Intraday (MIS) positions are squared off by the broker; plan to be flat by 15:10.
+F&O stock: continuous trading ends 15:15, then the closing auction (15:15-15:35 IST); entries until 14:45, flat by 15:10.
 ```
 
 With `--min-volume-x 1` the 09:35 bar is too thin (0.74x the range's volume)

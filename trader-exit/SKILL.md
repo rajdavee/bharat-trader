@@ -52,7 +52,7 @@ estimate), `--no-charges`, `--tick 0.10`, `--json`, `--now "2026-10-26
 | file | what |
 | --- | --- |
 | `trader/entry.json` | the trigger from trader-entry: symbol, entry price, IST time ("10:10"), bar, opening range |
-| `trader/config.json` | `flat_by` (15:10), `tick_size` ("auto"), `min_reward_risk` (1.5: a note here, trader-risk enforces it), `include_charges`, `charges`, `product`, `max_loss_per_trade`, `max_order_value`, `extra_holidays`, `special_sessions`. Missing keys take these defaults |
+| `trader/config.json` | `flat_by` (15:10), `broker_profile`, `square_off_margin_min` (5), `fno_stocks`, `tick_size` ("auto"), `min_reward_risk` (1.5: a note here, trader-risk enforces it), `include_charges`, `charges`, `product`, `max_loss_per_trade`, `max_order_value`, `extra_holidays`, `special_sessions`. Missing keys take these defaults |
 | Yahoo chart API | only for an `atr:K` stop: `SYMBOL.NS` 5-minute bars up to the entry bar, free and unofficial |
 | `trader/plan.json` | with `--write`: entry, stop and its rule, target and its R, risk a share, reward:risk gross and net, the charges estimate, flat by. trader-timemachine, trader-budget and trader-alerts read it |
 
@@ -83,9 +83,19 @@ A level setup has no opening range to lean on, so it needs a stop you name.
   this planner does longs only. A day NSE is shut (weekend or NSE holiday).
 - **Flat by.** 15:10 IST by default (or `flat_by` in the config). Out by
   then, win or lose, no overnight hold. Brokers square off intraday (MIS)
-  positions on their own from about 15:15 to 15:25 and often charge for it,
-  so the plan exits first. A flat-by outside 09:15 to 15:30 is refused, and
-  an entry at or after the flat-by time is refused. On a special session in
+  positions on their own and often charge for it, so the plan exits first:
+  never later than 5 minutes before the earlier of the stock's end of
+  continuous trading and your `broker_profile`'s square-off (Zerodha 15:12,
+  Upstox 15:10, Dhan 15:10, Angel One 15:10, Groww 15:05 for F&O stocks). A
+  later flat-by is pulled in, with a note.
+- **F&O stocks and the closing auction.** A stock in NSE's F&O list stops
+  continuous trading at 15:15 from 3 Aug 2026 (15:30 from 7 Dec 2026); the
+  Closing Auction Session then sets its close, and it takes no stop-loss
+  orders. The plan gets a `closing_auction` block and a line saying so. A
+  flat-by outside the stock's continuous session (09:15 to 15:15 for an F&O
+  stock today, 09:15 to 15:30 for the rest) is refused, and an entry at or
+  after the flat-by time is refused. With no F&O list (trader/fno_stocks.json
+  or `fno_stocks`), every stock is treated as an F&O stock. On a special session in
   the config (Muhurat trading) it moves to 5 minutes before that session's
   close. In a year with no holiday table here (2027 is not published yet) it
   treats weekdays as open and says so.
@@ -137,6 +147,7 @@ Exit plan: HDFCBANK (NSE) long, Mon 2026-10-26, opening-range breakout on 5-minu
   Reward:risk   2.0 gross, 1.38 net of charges
   Charges       ₹53.15 at the target, ₹52.77 at the stop, round trip on 72 shares (MIS, the most your max loss per trade allows)
   Flat by       15:10 IST, win or lose: no overnight hold
+  F&O stock     continuous trading ends 15:15, then the closing auction 15:15-15:35 IST: no stop-loss orders there
 ```
 
 72 shares: a ₹1,000 max loss allows floor(1000 / 2.80) = 357, but a ₹50,000

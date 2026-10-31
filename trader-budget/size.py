@@ -90,6 +90,8 @@ DEFAULTS = {
     "no_entries_before": "09:30",
     "no_entries_after": "14:45",
     "flat_by": "15:10",
+    "broker_profile": "",
+    "square_off_margin_min": 5,
     "exchange": "NSE",
     "product": "MIS",
     "tick_size": "auto",
@@ -102,6 +104,7 @@ DEFAULTS = {
     "charges": dict(CHARGES_DEFAULTS),
     "extra_holidays": [],
     "special_sessions": [],
+    "fno_stocks": [],
 }
 
 
@@ -141,7 +144,7 @@ def merged_config(cfg):
     return c
 
 
-def round_trip_charges(entry, exit, qty, cfg=None):
+def round_trip_charges(entry, exit, qty, cfg=None, segment=None, on=None, exercised=False):
     """Estimated charges for buying qty at entry and selling qty at exit (one round trip).
 
     brokerage  min(turnover x brokerage_pct, brokerage_cap) on EACH executed order (buy and sell)
@@ -151,6 +154,9 @@ def round_trip_charges(entry, exit, qty, cfg=None):
     stamp      MIS: stamp_buy_pct on the buy side. CNC: stamp_delivery_pct on the buy side
     gst        gst_pct on brokerage + exchange + sebi
     Each part is rounded half up to the paisa from its unrounded value; total is the sum of the parts."""
+    seg = str(segment or (cfg.get("segment") if isinstance(cfg, dict) else None) or "EQ").upper()
+    if seg != "EQ":
+        return fno_round_trip_charges(entry, exit, qty, cfg, seg, on, exercised)
     c = merged_config({"charges": cfg} if (cfg and "brokerage_pct" in cfg) else cfg)
     ch = c["charges"]
     product = str(c.get("product") or "MIS").upper()
@@ -187,6 +193,93 @@ def round_trip_charges(entry, exit, qty, cfg=None):
            "stamp": paisa(stamp), "gst": paisa(gst)}
     out["total"] = sum(out.values(), Decimal("0"))
     return {k: float(v) for k, v in out.items()}
+
+
+# ---------------------------------------------------------------- F&O charges, dated (same in budget, risk, broker, exit, timemachine)
+# segment "OPT" (rates on the premium) or "FUT" (on the traded value). Each row holds
+# from its effective_from date until the next. Exchange = NSE transaction charge plus
+# the IPFT contribution (one number on a contract note). Sources: docs/data-sources.md.
+# "fno_charges": {"OPT": {...}, "FUT": {...}} in the config overrides any rate.
+FNO_CHARGES = [
+    {"effective_from": "2024-10-01",
+     "OPT": {"brokerage_flat": 20, "stt_sell_pct": 0.1, "stt_exercise_pct": 0.125, "exchange_txn_pct": 0.03553,
+             "sebi_per_crore": 10, "stamp_buy_pct": 0.003, "gst_pct": 18},
+     "FUT": {"brokerage_pct": 0.03, "brokerage_cap": 20, "stt_sell_pct": 0.02, "exchange_txn_pct": 0.00183,
+             "sebi_per_crore": 10, "stamp_buy_pct": 0.002, "gst_pct": 18},
+     "source": "NSE/FA/64323 (27 Sep 2024) and NSE/FA/73061 (27 Feb 2026, total outflow); STT up to 31 Mar 2026 "
+               "per NSE/FATAX/73524"},
+    {"effective_from": "2026-04-01",
+     "OPT": {"brokerage_flat": 20, "stt_sell_pct": 0.15, "stt_exercise_pct": 0.15, "exchange_txn_pct": 0.03553,
+             "sebi_per_crore": 10, "stamp_buy_pct": 0.003, "gst_pct": 18},
+     "FUT": {"brokerage_pct": 0.03, "brokerage_cap": 20, "stt_sell_pct": 0.05, "exchange_txn_pct": 0.00183,
+             "sebi_per_crore": 10, "stamp_buy_pct": 0.002, "gst_pct": 18},
+     "source": "Finance Act 2026, NSE/FATAX/73524 (31 Mar 2026); NSE/FA/73061"},
+]
+
+
+def fno_rates(segment, on=None, cfg=None):
+    """The dated F&O rates for "OPT" or "FUT" on date `on` (default today), with the config's overrides."""
+    seg = str(segment).upper()
+    if seg not in ("OPT", "FUT"):
+        raise ValueError("segment is EQ, OPT or FUT, not %r" % segment)
+    day = on if isinstance(on, str) else (on or datetime.date.today()).isoformat()
+    row = FNO_CHARGES[0]
+    for r in FNO_CHARGES:
+        if r["effective_from"] <= day:
+            row = r
+    rates = dict(row[seg])
+    over = ((cfg or {}).get("fno_charges") or {}).get(seg) if isinstance(cfg, dict) else None
+    if isinstance(over, dict):
+        rates.update({k: v for k, v in over.items() if v is not None})
+    return rates
+
+
+def fno_round_trip_charges(entry, exit, qty, cfg=None, segment="OPT", on=None, exercised=False):
+    """Buy qty at entry, sell at exit, for options (prices are premiums) or futures.
+
+    brokerage  OPT: brokerage_flat per executed order. FUT: lower of brokerage_pct and brokerage_cap per order
+    stt        stt_sell_pct on the sell side. OPT with exercised=True: no sell order; exit is the
+               intrinsic value per unit and STT is stt_exercise_pct of it (paid by the buyer)
+    exchange   exchange_txn_pct on buy + sell turnover (the exercise leg has none)
+    sebi       sebi_per_crore rupees per crore of that turnover
+    stamp      stamp_buy_pct on the buy side
+    gst        gst_pct on brokerage + exchange + sebi
+    Each part is rounded half up to the paisa; total is the sum of the parts."""
+    seg = str(segment).upper()
+    ch = fno_rates(seg, on, cfg)
+
+    def dec(x):
+        return Decimal(repr(float(x or 0)))
+
+    pct = Decimal("0.01")
+    q = dec(qty)
+    buy, sell = dec(entry) * q, dec(exit) * q
+    exercise = bool(exercised) and seg == "OPT"
+    traded = buy + (Decimal(0) if exercise else sell)
+
+    def brok(value):
+        if seg == "OPT":
+            return dec(ch.get("brokerage_flat")) if value > 0 else Decimal(0)
+        b = value * dec(ch.get("brokerage_pct")) * pct
+        cap = ch.get("brokerage_cap")
+        return min(b, dec(cap)) if cap is not None else b
+
+    brokerage = brok(buy) + (Decimal(0) if exercise else brok(sell))
+    stt = sell * dec(ch.get("stt_exercise_pct" if exercise else "stt_sell_pct")) * pct
+    exchange = traded * dec(ch.get("exchange_txn_pct")) * pct
+    sebi = traded * dec(ch.get("sebi_per_crore")) / Decimal(10000000)
+    stamp = buy * dec(ch.get("stamp_buy_pct")) * pct
+    gst = (brokerage + exchange + sebi) * dec(ch.get("gst_pct")) * pct
+
+    def paisa(x):
+        return x.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    out = {"brokerage": paisa(brokerage), "stt": paisa(stt), "exchange": paisa(exchange), "sebi": paisa(sebi),
+           "stamp": paisa(stamp), "gst": paisa(gst)}
+    out["total"] = sum(out.values(), Decimal("0"))
+    return {k: float(v) for k, v in out.items()}
+
+# ---------------------------------------------------------------- end of F&O charges
 
 
 def to_paise(x):
@@ -351,7 +444,11 @@ def shares_for(rupees, per_share):
 
 # ---------------------------------------------------------------- init: build trader/config.json
 
-def build_config(capital, risk_pct=1.0, max_trades=3, product="MIS", max_position_pct=None):
+# the MIS square-off profiles the session tools know (BROKER_SQUARE_OFF in entry, exit, risk...)
+BROKER_PROFILE_NAMES = ("angel", "dhan", "groww", "upstox", "zerodha", "custom")
+
+
+def build_config(capital, risk_pct=1.0, max_trades=3, product="MIS", max_position_pct=None, broker_profile=None):
     """Your four answers -> a full config (the spec keys), every limit derived."""
     capital, risk_pct = _f(capital), _f(risk_pct)
     if capital is None or capital <= 0:
@@ -370,6 +467,12 @@ def build_config(capital, risk_pct=1.0, max_trades=3, product="MIS", max_positio
     product = str(product or "MIS").strip().upper()
     if product not in ("MIS", "CNC"):
         raise SizeError("product must be MIS (intraday) or CNC (delivery), got %r" % product)
+    profile = str(broker_profile or "").strip().lower()
+    if profile and profile not in BROKER_PROFILE_NAMES:
+        raise SizeError("broker profile is one of %s, not %r" % (", ".join(BROKER_PROFILE_NAMES), broker_profile))
+    if profile == "custom":
+        raise SizeError("a custom broker profile needs your square-off times: set \"broker_profile\": \"custom\" and "
+                        "\"square_off\" in the config by hand")
     pos_pct = _f(max_position_pct) if max_position_pct is not None else float(DEFAULTS["max_position_pct"])
     if pos_pct is None or not 0 < pos_pct <= 100:
         raise SizeError("max position must be above 0 and at most 100 percent")
@@ -389,6 +492,7 @@ def build_config(capital, risk_pct=1.0, max_trades=3, product="MIS", max_positio
         "max_position_pct": clean(pos_pct),
         "max_order_value": clean(capital * pos_pct / 100.0),
         "product": product,
+        "broker_profile": profile,
     })
     return c
 
@@ -398,8 +502,12 @@ def describe_config(c):
     mis = str(c.get("product")).upper() == "MIS"
     lines = [
         "Capital %s, product %s (%s)." % (inr(c["capital"]), c["product"],
-                                          "intraday: brokers square off MIS positions around 15:15-15:25 IST, "
-                                          "this pack exits first" if mis else "delivery: you keep the shares overnight"),
+                                          ("intraday: %s squares off MIS positions; this pack exits 5 minutes "
+                                           "before it and before an F&O stock's closing auction" % c["broker_profile"])
+                                          if mis and c.get("broker_profile") else
+                                          "intraday: brokers square off MIS positions from about 15:05 to 15:26 IST "
+                                          "(earlier for F&O stocks); this pack exits first" if mis
+                                          else "delivery: you keep the shares overnight"),
         "  - Most one trade may lose at its stop, charges included: %s (%s%% of capital)."
         % (inr(c["max_loss_per_trade"]), _num(c["risk_per_trade_pct"])),
         "  - Most one day may lose: %s. After that, no new entries today." % inr(c["max_daily_loss"]),
@@ -445,7 +553,7 @@ def run_init(a, ask=None, interactive=None):
     if capital is None:
         raise SizeError("capital is required: --capital 100000")
     c = build_config(capital, 1 if risk is None else risk, 3 if trades is None else trades, product or "MIS",
-                     a.max_position_pct)
+                     a.max_position_pct, getattr(a, "broker_profile", None))
     print(describe_config(c))
     if interactive and not a.yes:
         ok = ask("Write these rules to %s? Type yes to save: " % path).strip().lower()
@@ -1007,6 +1115,8 @@ def init_parser():
     ap.add_argument("--max-trades", type=int, help="most trades in one day (default 3)")
     ap.add_argument("--product", type=str.upper, choices=["MIS", "CNC"], help="MIS intraday or CNC delivery")
     ap.add_argument("--max-position-pct", type=float, help="biggest position, percent of capital (default 50)")
+    ap.add_argument("--broker-profile", type=str.lower, choices=BROKER_PROFILE_NAMES[:-1],
+                    help="your broker's MIS square-off times (zerodha, upstox, dhan, angel, groww)")
     ap.add_argument("--yes", action="store_true", help="write without asking (needs --capital)")
     ap.add_argument("--force", action="store_true", help="replace an existing config")
     return ap

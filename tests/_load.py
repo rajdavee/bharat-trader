@@ -12,4 +12,9 @@ def load(folder, name):
     spec = importlib.util.spec_from_file_location("trader_" + name, path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    if hasattr(mod, "fetch_fno_stocks"):
+        # the tests never go online: a tool that would refresh NSE's F&O list gets "no network"
+        def no_network(timeout=20):
+            raise mod.RulesError("no network in the tests")
+        mod.fetch_fno_stocks = no_network
     return mod
