@@ -19,6 +19,10 @@ of these are official APIs with stability guarantees: when one changes, open a
 | `nsearchives.nseindia.com/content/equities/bulk.csv`, `block.csv` | insider | The latest day's bulk and block deals. |
 | `nseindia.com/api/historicalOR/bulk-block-short-deals` | insider | Bulk and block deals over a date range (`&csv=true` for every row). |
 | `nseindia.com/api/corporates-pit-gg` | insider | SEBI PIT insider-trading disclosures (one row per filing; details are in the linked XBRL). |
+| `nseindia.com/api/option-chain-contract-info?symbol=X` | options | The exchange's expiry list and strikes for one underlying. |
+| `nseindia.com/api/option-chain-v3?type=Indices\|Equity&symbol=X&expiry=DD-Mon-YYYY` | options | One expiry's option chain. OI and volume in contracts. |
+| `nsearchives.nseindia.com/content/fo/fo_mktlots.csv` | options | F&O lot size per underlying per expiry month. |
+| `nseindia.com/api/historicalOR/vixhistory`, `nseindia.com/api/allIndices` | options | India VIX history (70 rows a call) and the live value. |
 | `nseindia.com/api/holiday-master?type=trading` | maintainers | Source of the holiday table shipped in the tools. |
 
 ## Known quirks
@@ -34,6 +38,9 @@ of these are official APIs with stability guarantees: when one changes, open a
 - **Banks** use a separate XBRL template (bank flag `B`); the analyst shows NII, operating profit and provisions instead of EBITDA.
 - **The historical bulk-deals JSON caps at 70 rows**; the CSV form returns all of them. NSE's bulk list repeats block trades; they are kept once, labelled block.
 - **PIT holding percentages** in the XBRL are fractions (0.3049 = 30.49 %). Some filers enter the per-share price as the value; those rows are flagged and left out of totals.
+
+- **Option chain v3** returns only the expiry asked for. A wrong expiry returns HTTP 200 with no rows and spot 0. `openInterest` and `totalTradedVolume` are in contracts (x lot = units), while the bhavcopy's open interest is in shares. `optionType` is always null. NSE's `impliedVolatility` disagrees between calls and puts and is 0 for skipped strikes; `trader-options` computes its own.
+- **Spot after 15:30.** The cash index stops at 15:30 while equity derivatives trade until 15:40, so the chain's `underlyingValue` is stale against option prices in that window.
 
 ## Calendar
 
