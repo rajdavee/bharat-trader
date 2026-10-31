@@ -30,7 +30,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 19 tools and 5 prompts from
+4. Restart the client. It should list 23 tools and 5 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -100,6 +100,10 @@ message.
 | `insider_deals` | **Bulk and block deals.** NSE bulk and block deals: who bought or sold how much, tagged when you hold or watch the stock or the client is on your watch list. | `symbol`?, `client`?, `min_value_cr`?, `side`?, `kind`?, `days`?, `mine`?, `limit`? | read-only; network |
 | `insider_disclosures` | **Insider trading disclosures.** SEBI PIT insider trading disclosures filed with NSE: promoters, directors and employees buying or selling, net by stock. | `symbol`?, `days`?, `promoters_only`?, `market_only`?, `mine`?, `max_filings`? | read-only; network |
 | `config_get` | **Your settings.** trader/config.json, the effective settings with defaults filled in, validation errors and warnings, and a plain-words summary. Read only. | `with_schema`? | read-only |
+| `lab_list` | **Strategy lab: library and runs.** The Strategy Lab's built-in specs (strategies to test, not promises) and your lab runs in trader/lab/ with their verdicts and out-of-sample numbers. Read only. | none | read-only |
+| `lab_run` | **Strategy lab: run a backtest.** Backtest a strategy spec bar by bar on NSE bars after Indian charges and slippage, with no look-ahead; then walk-forward out of sample, the parameter neighbourhood, Monte Carlo, the deflated Sharpe ratio, the probability of backtest overfitting, regimes and 1.5x/2x costs. Pre-registered gates give REJECT, WATCH (paper forward test next) or PROMOTE. Writes trader/lab/<name>/. Sends progress and stops at max_seconds. Expect most strategies to be rejected. | `strategy`, `symbols`?, `seed`?, `max_seconds`? | writes trader/ (replaces a file, keeps a .bak); network |
+| `lab_report` | **Strategy lab: scorecard.** The plain-words scorecard of a lab run: the verdict, every gate, the robustness checks and what the run does NOT prove. Read only. | `strategy`, `include_trades`? | read-only |
+| `lab_forward` | **Strategy lab: paper forward test.** Run a WATCH or PROMOTE strategy on the latest bars: settle its signals since the backtest into the rolling forward record (a decayed PROMOTE is demoted) and list today's fresh signals as draft plans. draft: SYMBOL makes that plan trader/plan.json (keeps a .bak) and runs paper_order_draft (trader-budget sizes it, trader-risk checks it). Places nothing: a paper order still needs the user's own yes through paper_order_confirm. | `strategy`, `draft`? | writes trader/ (replaces a file, keeps a .bak); network |
 <!-- tools:end -->
 
 `?` marks an optional argument. Every tool also carries MCP annotations:
@@ -127,6 +131,23 @@ are not on main yet; `mcp/toolkit.py` has a marked hook for each.
 The broker records the reply word for word in `trader/state/broker.json`. A
 yes covers one ticket; a second confirm of the same order is refused.
 
+### The strategy lab
+
+`lab_list` shows the built-in specs and your runs. `lab_run` backtests one
+(library name, or your own `trader/lab/<name>/spec.json`) after charges, with
+walk-forward, the deflated Sharpe ratio, the probability of backtest
+overfitting and the pre-registered gates, and writes `trader/lab/<name>/`. It
+sends progress notifications (one per grid point) when the request carries a
+`progressToken`, honours cancellation, and stops at `max_seconds` (default
+180). `lab_report` returns the plain-words scorecard, including what the run
+does NOT prove. `lab_forward` is the paper forward test for a WATCH or
+PROMOTE strategy: it settles the forward record and lists today's signals as
+draft plans; `draft: SYMBOL` makes one of them `trader/plan.json` and runs the
+normal `paper_order_draft` flow above, so sizing, the risk check and your
+typed yes are unchanged. Offline, `lab_run` sees the saved bars up to
+2026-10-23 16:00 and `lab_forward` up to 2026-10-29 09:50. See
+[lab.md](lab.md).
+
 ## Resources and prompts
 
 Resources are the JSON files of your `trader/` folder, read only:
@@ -144,7 +165,7 @@ resolved path must stay inside `trader/`.
 | `intraday_plan` | `symbol` | entry_check, exit_plan, timemachine_run, size_trade; draft and confirm only on your typed yes |
 | `options_income_scan` | `symbol`, `expiry`? | options_summary and options_chain; explain positioning and a seller's risks, no trade |
 | `weekly_review` | none | portfolio, tickets, risk, config and the trades/decisions logs; one process change |
-| `research_strategy` | `idea`, `symbol`? | gather evidence for and against with the tools; say what would kill the idea |
+| `research_strategy` | `idea`, `symbol`? | lab_list, lab_run and lab_report on the closest spec (gates, out of sample, what it does not prove); a forward test only for WATCH or PROMOTE; say what would kill the idea |
 
 Every prompt tells the assistant to use the tools for every number, show
 evidence and risks, never promise a result, and say it is not financial
@@ -164,6 +185,8 @@ advice.
 - "How did TCS's last five quarters look? Anything unusual in the notes?"
 - "Any bulk or block deals or promoter buying in stocks I hold?"
 - "Review my week: what did risk block, and which rule did I nearly break?"
+- "Does the 15-minute opening-range breakout survive charges out of sample?
+  Run it in the lab and tell me which gates it failed."
 
 Questions that will get a careful no: "which stock will go up?", "place a real
 order", "just buy it for me".

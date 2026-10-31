@@ -195,7 +195,7 @@ def round_trip_charges(entry, exit, qty, cfg=None, segment=None, on=None, exerci
     return {k: float(v) for k, v in out.items()}
 
 
-# ---------------------------------------------------------------- F&O charges, dated (same in budget, risk, broker, exit, timemachine)
+# ---------------------------------------------------------------- F&O charges, dated (same in budget, risk, broker, exit, timemachine, lab)
 # segment "OPT" (rates on the premium) or "FUT" (on the traded value). Each row holds
 # from its effective_from date until the next. Exchange = NSE transaction charge plus
 # the IPFT contribution (one number on a contract note). Sources: docs/data-sources.md.

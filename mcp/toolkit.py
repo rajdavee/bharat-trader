@@ -42,6 +42,7 @@ def _load_api():
         "timemachine": ("trader-timemachine", "timemachine"),
         "insider": ("trader-insider", "insider"),
         "analyst": ("trader-analyst", "facts"),
+        "lab": ("trader-lab", "lab"),
     })
     return mod
 
@@ -201,8 +202,10 @@ class RateLimit(object):
 class Call(object):
     """What a tool sees of the request: elicitation, cancellation, logging."""
 
-    def __init__(self, can_elicit=False, elicit_now=None, responses=None, state=None, cancel=None, log=None):
+    def __init__(self, can_elicit=False, elicit_now=None, responses=None, state=None, cancel=None, log=None,
+                 progress=None):
         self.can_elicit = can_elicit
+        self.progress = progress or (lambda fraction, message: None)   # the share of the work done, 0 to 1
         self._elicit_now = elicit_now          # legacy era: ask the client and wait
         self.responses = responses or {}       # modern era: inputResponses of the retry
         self.state = state                     # modern era: the verified requestState
@@ -732,6 +735,158 @@ def t_config_get(kit, a, call):
     return view, ["Read only. Edit trader/config.json yourself, or use the local UI's Settings page."]
 
 
+# ---------------------------------------------------------------- tools: the strategy lab
+
+LAB_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,47}$")
+LAB_SLIM = ("trades", "oos_trades", "equity")
+LAB_LIMITS = ("A backtest does not predict the future: out of sample means later bars of the same history, fills "
+              "and charges are models, and the universe has survivorship bias. A WATCH or PROMOTE is evidence, "
+              "not a promise.")
+
+
+def _lab_strategy(a):
+    n = str(a.get("strategy") or "").strip().lower()
+    if not LAB_NAME_RE.match(n):
+        raise ToolError("strategy is a library or lab name such as orb15-vwap (lab_list shows them)")
+    return n
+
+
+def _lab_now(kit, tool, lab):
+    n = kit.now_text(tool)
+    return lab.ist_now(str(n)) if n else lab.ist_now()
+
+
+def _lab_data(kit, tool, lab, spec, now):
+    """The spec's bars (offline: the bundle's saved bars, as seen at the tool's pinned clock), the regime
+    context, the F&O list and notes."""
+    data_dir = kit.offline.path(tool, "trader-lab") if kit.offline else None
+    data, ctx, notes = lab.load_data(spec, data_dir, os.path.join(kit.p("lab"), "data"), not kit.offline, now)
+    fno, fnote = lab.load_fno_stocks(spec["cfg"], kit.p("fno_stocks.json"), fetch=not kit.offline)
+    return data, ctx, fno, notes + [fnote]
+
+
+def _lab_view(lab, res, status):
+    st = dict(status or {})
+    st["history"] = (st.get("history") or [])[-5:]
+    return {"name": res["name"], "verdict": st.get("verdict") or res.get("verdict"),
+            "verdict_why": st.get("why") or res.get("verdict_why") or "", "status": st,
+            "results": {k: v for k, v in res.items() if k not in LAB_SLIM},
+            "scorecard": lab.scorecard(res, status), "does_not_prove": lab.does_not_prove(res),
+            "folder": "trader/lab/%s/" % res["name"]}
+
+
+def t_lab_list(kit, a, call):
+    lab = api.skill("lab")
+    out = kit.p("lab")
+    lib = [{"name": n, "title": d.get("title"), "timeframe": d.get("timeframe"),
+            "product": d.get("product") or ("MIS" if d.get("timeframe") == "5m" else "CNC"),
+            "description": d.get("description"), "symbols": len(d.get("universe") or []),
+            "params": d.get("params") or {}, "grid": d.get("grid") or {}} for n, d in sorted(lab.library().items())]
+    names = []
+    if os.path.isdir(out):
+        names = [n for n in sorted(os.listdir(out)) if os.path.isfile(os.path.join(out, n, "results.json"))]
+    try:
+        runs = lab.compare_rows(out, names)
+    except lab.LabError as e:
+        raise ToolError(str(e))
+    return {"library": lib, "runs": runs}, ["Library specs are strategies to test, not promises. lab_run tests one."]
+
+
+def t_lab_run(kit, a, call):
+    lab = api.skill("lab")
+    name = _lab_strategy(a)
+    out = kit.p("lab")
+    budget = float(a.get("max_seconds") or 180)
+    started = time.monotonic()
+    done = [0, 1]
+
+    def check(message, fraction):
+        if call.cancel.is_set():
+            raise ToolError("cancelled")
+        if time.monotonic() - started > budget:
+            raise ToolError("stopped after %d seconds (max_seconds): try fewer symbols or a smaller grid"
+                            % int(budget))
+        call.progress(fraction, message)
+        call.log("info", message)
+
+    def progress(message):
+        done[0] += 1
+        check(message, min(0.95, 0.1 + 0.85 * done[0] / float(done[1])))
+
+    try:
+        doc, src = lab.resolve_spec(name, out)
+        if a.get("symbols"):
+            doc["universe"] = [x.strip().upper() for x in a["symbols"].split(",") if x.strip()]
+        if a.get("seed") is not None:
+            doc["seed"] = int(a["seed"])
+        spec = lab.validate_spec(doc)
+        done[1] = len(lab.grid_points(spec)[2])
+        now = _lab_now(kit, "lab_run", lab)
+        check("loading bars for %d symbols" % len(spec["universe"]), 0.02)
+        data, ctx, fno, notes = _lab_data(kit, "lab_run", lab, spec, now)
+        check("backtesting %d grid points" % done[1], 0.1)
+        res = lab.run_and_decide(doc, data, ctx, out, fno, now, progress)
+        res["notes"] = notes
+        st = lab.save_run(out, doc, res, now)
+    except (lab.LabError, lab.RulesError) as e:
+        raise ToolError(str(e))
+    return _lab_view(lab, res, st), notes + ["Wrote trader/lab/%s/ (spec, results, scorecard, equity, status)." % name,
+                                             LAB_LIMITS]
+
+
+def t_lab_report(kit, a, call):
+    lab = api.skill("lab")
+    name = _lab_strategy(a)
+    d = os.path.join(kit.p("lab"), name)
+    try:
+        res = lab.read_json(os.path.join(d, "results.json"))
+        st = lab.read_json(os.path.join(d, "status.json"), {}) or {}
+    except lab.LabError as e:
+        raise ToolError(str(e))
+    if not res:
+        raise ToolError("no results for %s yet: run it with lab_run" % name)
+    view = _lab_view(lab, res, st)
+    if a.get("include_trades"):
+        view["oos_trades"] = (res.get("oos_trades") or [])[:500]
+    return view, [LAB_LIMITS]
+
+
+def t_lab_forward(kit, a, call):
+    lab = api.skill("lab")
+    name = _lab_strategy(a)
+    want = _sym(a, "draft", required=False)
+    try:
+        doc, src = lab.resolve_spec(name, kit.p("lab"))
+        spec = lab.validate_spec(doc)
+        now = _lab_now(kit, "lab_forward", lab)
+        data, ctx, fno, notes = _lab_data(kit, "lab_forward", lab, spec, now)
+        r = lab.forward(doc, data, kit.p("lab"), None, fno, now)
+    except (lab.LabError, lab.RulesError) as e:
+        raise ToolError(str(e))
+    drafted = None
+    if want:
+        plan = [p for p in r["plans"] if p["symbol"] == want]
+        if not plan:
+            raise ToolError("no fresh %s signal to draft (today's lab plans: %s)"
+                            % (want, ", ".join(p["symbol"] for p in r["plans"]) or "none"))
+        kit.backup("plan.json")
+        lab.write_json(kit.p("plan.json"), plan[0])
+        drafted, dnotes = t_paper_order_draft(kit, {}, call)
+        notes += list(dnotes) + ["The lab's plan for %s is now trader/plan.json (the old one kept as plan.json.bak)."
+                                 % want]
+    if drafted:
+        step = drafted["next_step"]
+    elif r["plans"]:
+        step = ("Fresh signals: %s. To paper trade one, call lab_forward again with draft: SYMBOL. It becomes "
+                "trader/plan.json and goes through paper_order_draft (trader-budget sizes it, trader-risk checks "
+                "it); then show the user the ticket and wait for their own typed yes before paper_order_confirm."
+                % ", ".join(p["symbol"] for p in r["plans"]))
+    else:
+        step = "No paper plans to draft."
+    return {"forward": r, "drafted": drafted, "next_step": step}, \
+        notes + ["The forward record is the lab's simulated fills on bars the backtest never saw. Nothing was placed."]
+
+
 # HOOK: trader-strategy (issue #7) is not on main yet. When trader-strategy/strategy.py lands, add
 # strategy_build and strategy_price here, calling its own functions (legs -> payoff after charges,
 # breakevens, Greeks, margin estimate), and append them in build_tools() below.
@@ -915,6 +1070,46 @@ def build_tools():
                   {"with_schema": S("boolean", "include every known key with its default and meaning")},
                   data=obj({"exists": S("boolean"), "effective": ANY_OBJ}, ["exists", "effective"], extra=True),
                   network=False))
+    lab_name = S("string", "a library name (lab_list) or a strategy in trader/lab/, e.g. orb15-vwap",
+                 pattern=LAB_NAME_RE.pattern, maxLength=48)
+    lab_data = obj({"name": S("string"), "verdict": S("string", enum=["REJECT", "WATCH", "PROMOTE", "DEMOTE"]),
+                    "verdict_why": S("string"), "results": ANY_OBJ, "scorecard": S("string"),
+                    "does_not_prove": {"type": "array", "items": S("string")}},
+                   ["name", "verdict", "results", "scorecard", "does_not_prove"], extra=True)
+    T.append(tool("lab_list", "Strategy lab: library and runs",
+                  "The Strategy Lab's built-in specs (strategies to test, not promises) and your lab runs in "
+                  "trader/lab/ with their verdicts and out-of-sample numbers. Read only.", t_lab_list, {},
+                  data=obj({"library": ANY_LIST, "runs": ANY_LIST}, ["library", "runs"], extra=True), network=False))
+    T.append(tool("lab_run", "Strategy lab: run a backtest",
+                  "Backtest a strategy spec bar by bar on NSE bars after Indian charges and slippage, with no "
+                  "look-ahead; then walk-forward out of sample, the parameter neighbourhood, Monte Carlo, the "
+                  "deflated Sharpe ratio, the probability of backtest overfitting, regimes and 1.5x/2x costs. "
+                  "Pre-registered gates give REJECT, WATCH (paper forward test next) or PROMOTE. Writes "
+                  "trader/lab/<name>/. Sends progress and stops at max_seconds. Expect most strategies to be "
+                  "rejected.", t_lab_run,
+                  {"strategy": lab_name,
+                   "symbols": S("string", "NSE symbols to test on instead of the spec's universe, comma separated "
+                                          "(a new variant: it counts as another trial)", maxLength=400,
+                                pattern=r"^[A-Za-z0-9&\-,\s]{1,400}$"),
+                   "seed": S("integer", "Monte Carlo seed (default: the spec's)", minimum=0, maximum=2 ** 31 - 1),
+                   "max_seconds": S("integer", "time budget in seconds (default 180)", minimum=5, maximum=600)},
+                  ["strategy"], data=lab_data,
+                  annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True}))
+    T.append(tool("lab_report", "Strategy lab: scorecard",
+                  "The plain-words scorecard of a lab run: the verdict, every gate, the robustness checks and what "
+                  "the run does NOT prove. Read only.", t_lab_report,
+                  {"strategy": lab_name, "include_trades": S("boolean", "add the out-of-sample trades (up to 500)")},
+                  ["strategy"], data=lab_data, network=False))
+    T.append(tool("lab_forward", "Strategy lab: paper forward test",
+                  "Run a WATCH or PROMOTE strategy on the latest bars: settle its signals since the backtest into "
+                  "the rolling forward record (a decayed PROMOTE is demoted) and list today's fresh signals as draft "
+                  "plans. draft: SYMBOL makes that plan trader/plan.json (keeps a .bak) and runs paper_order_draft "
+                  "(trader-budget sizes it, trader-risk checks it). Places nothing: a paper order still needs the "
+                  "user's own yes through paper_order_confirm.", t_lab_forward,
+                  {"strategy": lab_name, "draft": SYMBOL}, ["strategy"],
+                  data=obj({"forward": ANY_OBJ, "drafted": {}, "next_step": S("string")},
+                           ["forward", "next_step"], extra=True),
+                  annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False}))
     return T
 
 
@@ -964,11 +1159,16 @@ def build_prompts():
          "description": "Test an idea honestly: evidence for and against, after charges, out of sample.",
          "arguments": [{"name": "idea", "description": "the strategy idea in plain words", "required": True},
                        {"name": "symbol", "description": "a stock to try it on (optional)", "required": False}],
-         "text": ("I want to research this strategy idea: {idea}.{symbol_text} Use the tools to gather evidence: "
-                  "scan_daily or scan_orb for when the setup appears, entry_check and exit_plan to define it "
-                  "precisely, timemachine_run for the spread of outcomes after charges, results_analyse and news "
-                  "for context. Separate what the data shows from what it cannot show (few samples, one regime, "
-                  "costs, slippage). Say what result would make you drop the idea. " + RULES)},
+         "text": ("I want to research this strategy idea: {idea}.{symbol_text} Start in the Strategy Lab: call "
+                  "lab_list and pick the closest built-in spec (say so if none fits, and what spec it would need), "
+                  "then lab_run it{symbols_arg} for the after-charges backtest, walk-forward out of sample, parameter "
+                  "neighbourhood, deflated Sharpe, probability of backtest overfitting, regimes and cost stress. "
+                  "Read me the verdict, every failed gate and the does-not-prove list from lab_report. Use "
+                  "scan_daily or scan_orb, entry_check, exit_plan and timemachine_run only to illustrate one real "
+                  "example. Only a WATCH or PROMOTE goes on to the paper forward test (lab_forward each session; "
+                  "draft a paper ticket only if I ask, and wait for my own typed yes). Separate what the data shows "
+                  "from what it cannot show (few samples, one regime, costs, slippage, survivorship). Say what "
+                  "result would make you drop the idea. " + RULES)},
     ]
 
 
@@ -990,6 +1190,7 @@ def render_prompt(p, args):
         "expiry_text": (" for the %s expiry" % args["expiry"]) if args.get("expiry") else " (nearest expiry)",
         "idea": (args.get("idea") or "").strip(),
         "symbol_text": (" Try it on %s." % args["symbol"].strip().upper()) if args.get("symbol") else "",
+        "symbols_arg": (" with symbols %s" % args["symbol"].strip().upper()) if args.get("symbol") else "",
     }
     return p["text"].format(**fill)
 

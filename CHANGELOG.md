@@ -12,11 +12,14 @@ All notable changes are documented here. The format follows
   (logs to stderr only) and optional streamable HTTP on 127.0.0.1 (Host and
   Origin checks). MCP revision 2026-07-28 (per-request `_meta`,
   `server/discover`, multi round-trip elicitation, `resultType`, cache hints)
-  plus the handshake-based 2025-11-25, 2025-06-18 and 2025-03-26. 19 tools
+  plus the handshake-based 2025-11-25, 2025-06-18 and 2025-03-26. 23 tools
   over the skills' own functions and commands (market status, daily and ORB
   scans, news, entry check, exit plan, time machine, sizing, risk check,
   paper tickets, draft and confirm, portfolio, option chain and summary,
-  results, bulk/block deals, PIT disclosures, config) with input and output
+  results, bulk/block deals, PIT disclosures, config, and the strategy lab:
+  `lab_list`, `lab_run` with progress and a time budget, `lab_report`,
+  `lab_forward`, which drafts paper tickets only through `paper_order_draft`)
+  with input and output
   schemas, structured results and annotations; `trader/*.json` as resources;
   5 prompts. No live-order tool: `paper_order_confirm` needs the exact
   risk-PASS fingerprint and the user's typed yes (elicitation when the client
@@ -48,13 +51,36 @@ All notable changes are documented here. The format follows
   with IPFT, SEBI fee, stamp duty, GST), overridable with `fno_charges`.
   Equity results are unchanged.
 
+- `trader-lab` (#16, phase 1): the Strategy Lab. Strategies are plain JSON
+  specs in a small safe rule vocabulary (SMA, EMA, RSI, ATR, VWAP, opening
+  range, previous-day high/low/close, gap %, comparisons, crosses, time
+  windows; nothing is eval'd). A bar-by-bar backtest with no look-ahead
+  (signal on the close, fill at the next open plus slippage), the shared
+  Indian charges on every trade, trader-budget's sizing, one position per
+  stock, MIS flat by the dated safe flat-by (closing auction, broker
+  square-off) and trader-risk's day limits. Robustness: rolling walk-forward,
+  parameter-grid neighbourhood, seeded Monte Carlo reshuffles and bootstrap
+  bands, the deflated Sharpe ratio, the probability of backtest overfitting
+  (CSCV), India VIX and NIFTY trend regimes, costs at 1.5x and 2x.
+  Pre-registered gates give REJECT, WATCH or PROMOTE, with an automatic
+  DEMOTE when the rolling paper forward record decays. `lab.py list | show |
+  validate | run | report | compare | forward`; `forward` drafts trader-exit
+  shaped plans for trader-budget and trader-risk and never places anything.
+  Six library specs (ORB 15m with VWAP, VWAP reclaim, gap fade,
+  previous-day-high breakout, RSI(2) on NIFTY 50 names, 20-day breakout
+  swing): all six are rejected on the fixture data. Writes
+  `trader/lab/<name>/{spec.json, results.json, scorecard.md, equity.csv}`.
+  An `OPTIONS_HOOK` for trader-strategy. Method and limits in `docs/lab.md`.
+
 ### Changed
 - Entry, exit, risk, alerts, timemachine, scanner and broker end an F&O
   stock's session at continuous trading's end and pull a too-late flat-by in,
   with a note. trader-risk blocks entries during the closing auction.
 - Tests never go online: `tests/_load.py` swaps the F&O list fetch for a
   stub, and `tests/test_repo.py` keeps the rules and F&O charge blocks
-  identical in every copy and checks the charges by segment.
+  identical in every copy and checks the charges by segment. It now includes
+  trader-lab (order path, Safety block, charges, rules) and checks the lab's
+  sizing against trader-budget's.
 - `trader-options`: NSE option chain (v3 API) with expiries from the exchange's
   list and lot sizes per expiry month from `fo_mktlots.csv`. Forward from
   put-call parity, Black-76 implied volatility (bracketed Newton solver, `null`

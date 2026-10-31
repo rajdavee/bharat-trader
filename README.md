@@ -37,6 +37,7 @@ ever placed without your yes.
 | `trader-analyst` | Quarterly results straight from NSE XBRL filings: revenue, margins, profit, EPS, YoY and QoQ, in ₹ crore. |
 | `trader-insider` | NSE bulk and block deals and SEBI insider-trading (PIT) disclosures, flagged when they touch stocks you hold or watch. |
 | `trader-options` | NSE option chain with our own Black-76 IV and Greeks off the put-call-parity forward: PCR, max pain, call/put walls, OI build-up, straddle and expected move, IV smile and IV rank from India VIX. |
+| `trader-lab` | Strategy Lab: backtests a JSON strategy bar by bar after Indian charges, then walk-forward, parameter neighbourhood, Monte Carlo, deflated Sharpe and overfitting odds. Pre-registered gates: REJECT, WATCH (paper forward test) or PROMOTE. Six library strategies, no promises. |
 
 ## Install
 
@@ -74,6 +75,8 @@ python3 trader-analyst/facts.py TCS                    # last quarters from NSE 
 python3 trader-insider/insider.py deals                # today's bulk and block deals
 python3 trader-options/options.py chain NIFTY          # option chain, IV, Greeks, PCR, max pain
 python3 trader-options/options.py iv NIFTY             # IV smile, skew, IV rank from India VIX
+python3 trader-lab/lab.py run orb15-vwap               # backtest + robustness + gates, after charges
+python3 trader-lab/lab.py report orb15-vwap            # the scorecard, and what it does NOT prove
 ```
 
 Prefer a screen? The local web UI shows the same numbers, from the same
@@ -89,9 +92,9 @@ See [docs/ui.md](docs/ui.md).
 ## Use it from your AI assistant (MCP)
 
 `mcp/server.py` is a standard-library [MCP](https://modelcontextprotocol.io/)
-server: connect any MCP-compatible AI assistant and it can call 19 tools
+server: connect any MCP-compatible AI assistant and it can call 23 tools
 (market status, scans, news, entry and exit plans, the time machine, sizing,
-risk, the paper broker, option chains, results, insider deals) and 5 prompts
+risk, the paper broker, option chains, results, insider deals, the strategy lab) and 5 prompts
 (morning briefing, intraday plan, options income scan, weekly review,
 research a strategy). Add it to your client's configuration:
 
@@ -115,7 +118,7 @@ questions to ask.
 
 With an agent, just ask: *"scan NSE for breakouts"*, *"any news on Reliance?"*,
 *"plan my exit for HDFCBANK"*, *"how many shares can I buy with ₹1,000 risk?"*,
-*"what are promoters buying?"*.
+*"what are promoters buying?"*, *"does the opening-range breakout really work after charges?"*.
 
 ## A trading day
 
