@@ -43,7 +43,9 @@ orb       Opening-range breakouts, 5-minute bars. The range is the first
           bars, a hit = the first completed bar to CLOSE above it, at that bar's
           close time. At most --max-confirm (200) charts, the most traded first.
           A chart is usable only when every 5-minute bar from 09:15 to the cutoff
-          is there (a missing bar is a halt, a circuit or no trades).
+          is there (a missing bar is a halt, a circuit or no trades). Spark
+          leaves out a close on the straight line between its neighbours;
+          stage 1 puts it back on that line, stage 2 never fills a bar.
           Floors: --min-price 50, --min-turnover 0 (rupees traded so far today).
 
 Bars: null closes are dropped, a bar off the 5-minute grid (the live tick,
@@ -991,7 +993,24 @@ def session_bars(series, day, cutoff, cfg=None, segment="EQ"):
                    "h": None if not hs or hs[i] is None else float(hs[i]),
                    "l": None if not ls or ls[i] is None else float(ls[i]),
                    "v": (v[i] or 0) if v else 0}
+    if not hs:
+        _fill_spark_gaps(out)
     return [out[k] for k in sorted(out)]
+
+
+def _fill_spark_gaps(out):
+    """Spark (closes only) thins its line: a 5-minute close that lies exactly on the
+    straight line between its neighbours is left out (seen on every range, 1d and 5d;
+    each one checked against the v8 chart). Put those slots back, on that line, between
+    two bars of the same session. Only stage 1 sees them; stage 2 rechecks the v8 chart."""
+    keys = sorted(out)
+    step = datetime.timedelta(minutes=BAR_MIN)
+    for a, b in zip(keys, keys[1:]):
+        n = int((b - a).total_seconds() // (BAR_MIN * 60))
+        for j in range(1, n):
+            ca, cb = out[a]["c"], out[b]["c"]
+            out[a + step * j] = {"start": a + step * j, "c": ca + (cb - ca) * j / n, "h": None, "l": None,
+                                 "v": 0, "filled": True}
 
 
 def usable(bars, day, cutoff, n_range, cfg=None, segment="EQ"):

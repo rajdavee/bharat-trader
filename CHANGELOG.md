@@ -133,6 +133,14 @@ All notable changes are documented here. The format follows
 - TradingView Lightweight Charts 5.2.1 (Apache-2.0) vendored unmodified in
   `ui/static/vendor/` with its LICENSE, NOTICE and SHA-256.
 
+### Fixed
+- `scan.py orb` found few or no usable charts later in the day, worst on
+  Yahoo's 5-day data for a past session (#23). Yahoo's spark answer leaves out
+  a 5-minute close that lies on the straight line between its neighbours, so
+  the "every bar is there" check failed. Stage 1 now puts those bars back on
+  that line between two bars of the same session; stage 2 still checks each
+  candidate on the full v8 chart, where a missing bar still makes it unusable.
+
 ## [0.1.0] - 2026-10-29
 
 ### Added
