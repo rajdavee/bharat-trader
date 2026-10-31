@@ -1216,7 +1216,7 @@ def years_to(expiry, now):
 
 def fno_positions(portfolio, c=None):
     """Open F&O positions from portfolio.json: [{"contract", "qty" (signed: + long, - short), "avg_price",
-    "lot_size", "iv", "ltp"}]. A position is F&O when it says exchange NFO, carries an expiry, or its key is
+    "lot_size", "iv", "ltp", "strategy_id" (trader-broker's paper strategy, or None)}]. A position is F&O when it says exchange NFO, carries an expiry, or its key is
     a contract symbol. qty may be signed, or positive with "side": "SELL" (or "short": true)."""
     out = []
     pos = (portfolio or {}).get("positions") or {}
@@ -1246,7 +1246,7 @@ def fno_positions(portfolio, c=None):
         out.append({"contract": k, "error": why, "name": str(key), "qty": q, "avg_price": _f(p.get("avg_price")),
                     "lot_size": int(_f(p.get("lot_size")) or 0) or None, "iv": _f(p.get("iv")),
                     "ltp": _f(p.get("ltp") or p.get("last_price") or p.get("mark")),
-                    "forward": _f(p.get("forward"))})
+                    "forward": _f(p.get("forward")), "strategy_id": p.get("strategy_id")})
     return out
 
 
@@ -1660,6 +1660,73 @@ def stop_rule_loss(legs, orders, rule, cfg, on):
     return None, "no stop or adjustment rule"
 
 
+def adjustment_of(orders, file_adjust=None):
+    """The adjustment a ticket is, or None: {"strategy_id" (or None), "action"}. From orders.json's "adjust"
+    block (trader-broker's ticket.py adjust), else a "strategy_id" or the "bt-adjust" tag on a leg."""
+    adj = file_adjust if isinstance(file_adjust, dict) else None
+    mine = [o for o in orders if isinstance(o, dict)]
+    sid = (adj or {}).get("strategy_id") or next((o["strategy_id"] for o in mine if o.get("strategy_id")), None)
+    if adj is None and not sid and not any(str(o.get("tag") or "") == "bt-adjust" for o in mine):
+        return None
+    return {"strategy_id": str(sid) if sid else None, "action": (adj or {}).get("action")}
+
+
+def strategy_legs(book, adj, legs):
+    """(the open legs of the strategy an adjustment changes, how they were found). By the ticket's strategy
+    id when the open positions carry it; else every open leg of the same underlying and expiry."""
+    sid = adj.get("strategy_id")
+    if sid:
+        mine = [l for l in book if l.get("strategy_id") == sid]
+        if mine:
+            return mine, "its %d open leg%s in portfolio.json" % (len(mine), "" if len(mine) == 1 else "s")
+    unders = {l["underlying"] for l in legs}
+    exps = {l["expiry"] for l in legs}
+    mine = [l for l in book if l["underlying"] in unders and l["expiry"] in exps]
+    why = ("no open position carries strategy id %s" % sid) if sid else "the ticket carries no strategy id"
+    return mine, ("%s, so it was matched by underlying and expiry (%s %s): %d open leg%s" % (
+        why, "/".join(sorted(unders)), ", ".join(sorted(exps)), len(mine), "" if len(mine) == 1 else "s"))
+
+
+def net_position(open_legs, ticket_legs, cfg, on):
+    """(the position after the ticket fills, the closing parts, what closing costs now). Each ticket leg
+    first closes open legs of the same contract on the other side; what is left of it opens a new leg.
+    The closing cost is the closing orders' charges plus their price away from the open legs' last price."""
+    after = [dict(l) for l in open_legs]
+    closed, cost = [], 0.0
+    for n in ticket_legs:
+        rem = n["qty"]
+        for a in after:
+            if abs(rem) < 1e-9:
+                break
+            if contract_key(a["contract"]) != contract_key(n["contract"]) or a["qty"] * rem >= 0:
+                continue
+            take = min(abs(rem), abs(a["qty"]))
+            sign = 1.0 if rem > 0 else -1.0
+            cost += leg_charges(dict(a, qty=-sign * take, open=True), n["entry"], False, cfg, on)
+            cost += (n["entry"] - a["entry"]) * sign * take     # vs its last price, expiry_extremes' base
+            closed.append({"label": a["label"], "contract": a["contract"], "qty": -sign * take, "long": sign < 0,
+                           "option": a["instrument"] == "OPT"})
+            a["qty"] += sign * take
+            rem -= sign * take
+        if abs(rem) > 1e-9:
+            after.append(dict(n, qty=rem))
+    return [a for a in after if abs(a["qty"]) > 1e-9], closed, round_paise(max(cost, 0.0))
+
+
+def naked_shorts(legs):
+    """Labels of the short futures and of the short options in `legs` that bought options of the same type
+    (same or later expiry, in quantity) do not cover: defined_risk()'s rule, leg by leg."""
+    out = [l["label"] for l in legs if l["instrument"] == "FUT" and l["qty"] < 0]
+    for kind in ("CE", "PE"):
+        for s in [l for l in legs if l["option_type"] == kind and l["qty"] < 0]:
+            cover = sum(l["qty"] for l in legs if l["option_type"] == kind and l["qty"] > 0 and l["expiry"] >= s["expiry"])
+            short = -sum(l["qty"] for l in legs if l["option_type"] == kind and l["qty"] < 0
+                         and l["expiry"] <= s["expiry"])
+            if cover < short:
+                out.append(s["label"])
+    return out
+
+
 # ---------------------------------------------------------------- behaviour: circuit-breakers, kill switch, order rate
 
 SEBI_ORDER_RATE = 10        # orders a second per exchange per client, above which an algo must be registered
@@ -1883,6 +1950,7 @@ def open_book(portfolio, now, mk, prices, c, lots=None):
             errors.append("cannot value the open position %s: %s" % (contract_label(k), why))
             continue
         leg["avg_price"] = p["avg_price"]
+        leg["strategy_id"] = p["strategy_id"]
         book.append(leg)
     return book, errors
 
@@ -2184,6 +2252,37 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                    "kind": kind}
         unders = sorted({x["contract"]["underlying"] for x in legs if x["contract"]})
         u = unders[0] if unders else "?"
+        # an adjustment (roll, close a leg, add a hedge) is checked on the position it leaves: the strategy's
+        # open legs from portfolio.json with this ticket's legs netted in
+        adj = adjustment_of([orders[j] for j in idxs], extra.get("adjust") if extra.get("basket") else None)
+        actx = None
+        if adj:
+            tl = [x["leg"] for x in legs]
+            if all(tl) and len(unders) == 1:
+                mine, found = strategy_legs(holdings_book, adj, tl)
+            else:
+                mine, found = [], "some legs could not be valued"
+            what = "%s%s" % (adj["action"] or "adjustment", (" of " + adj["strategy_id"]) if adj["strategy_id"] else "")
+            if not mine:
+                warns.append("%s: no open legs of it found (%s), so this ticket is checked as a new position"
+                             % (what, found))
+            else:
+                after, closed, close_cost = net_position(mine, tl, c, on)
+                bare = naked_shorts(after)
+                uncovers = bool(bare) and any(x["long"] and x["option"] for x in closed)
+                actx = {"open": mine, "after": after, "closed": closed, "close_cost": close_cost, "naked": bare,
+                        "found": found, "what": what}
+                # it only closes: an exit (never blocked), unless closing a bought leg leaves a short uncovered
+                kind = "adjust" if any(not l["open"] for l in after) or uncovers else "exit"
+                summary.update({"kind": kind, "adjustment": {
+                    "strategy_id": adj["strategy_id"], "action": adj["action"], "open_legs_found": found,
+                    "open_legs": [{"label": l["label"], "qty": l["qty"]} for l in mine],
+                    "after": [{"label": l["label"], "qty": l["qty"], "open": l["open"]} for l in after],
+                    "closes": closed, "close_cost": close_cost, "naked_after": bare}})
+                info.append("%s: checked with %s; after it: %s" % (
+                    what, found, ", ".join("%s %+d" % (l["label"], int(l["qty"])) for l in after) or "nothing open"))
+                if "matched by underlying" in found:
+                    warns.append("%s: %s" % (what, found))
         if len(unders) > 1:
             later.append("basket: %s are different underlyings; one basket is one underlying" % ", ".join(unders))
         later.extend(locks)
@@ -2204,7 +2303,7 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                 later.append("ban: %s is in NSE's F&O ban for %s (open interest over 95%% of its market-wide limit): "
                              "no new positions, only closing ones" % (u, today))
         cap_t = int(c.get("max_trades_per_day") or 0)
-        if cap_t and len(groups_today) + run["entries"] >= cap_t:
+        if cap_t and kind != "adjust" and len(groups_today) + run["entries"] >= cap_t:     # a roll is no new trade
             later.append("trades: %d entries placed today plus %d passed earlier in this batch; your limit is %d a day "
                          "(a basket counts as one)" % (len(groups_today), run["entries"], cap_t))
         passed_so_far = sum(1 for r in results if r["verdict"] == "PASS")
@@ -2212,16 +2311,24 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
         if cap_n and count_today + passed_so_far + len(idxs) > cap_n:
             later.append("daily limit: %d placed today plus %d passed earlier in this batch plus %d legs here; your "
                          "limit is %d orders a day" % (count_today, passed_so_far, len(idxs), cap_n))
-        loss = None
-        paid = sum(l["entry"] * l["qty"] for l in bl if l["instrument"] == "OPT" and l["qty"] > 0)
-        received = sum(-l["entry"] * l["qty"] for l in bl if l["instrument"] == "OPT" and l["qty"] < 0)
+        loss, loss_add = None, None
+        adjusting = bool(actx) and kind == "adjust"
+        if adjusting:       # the position it leaves; the premium of every leg (a roll pays to buy back)
+            pos, pos_orders, prem = actx["after"], [], [x["leg"] for x in legs]
+            noun = "position after this %s" % actx["what"]
+        else:
+            pos, pos_orders, prem, noun = bl, [x["order"] for x in entry_legs], bl, "basket"
+        paid = sum(l["entry"] * l["qty"] for l in prem if l["instrument"] == "OPT" and l["qty"] > 0)
+        received = sum(-l["entry"] * l["qty"] for l in prem if l["instrument"] == "OPT" and l["qty"] < 0)
         debit = max(0.0, paid - received)       # the premium budget counts the net premium paid
         margin_use, margin = None, None
-        if bl and valued and len(unders) == 1:
-            defined = defined_risk(bl)
-            maxloss, at, exact = expiry_extremes(bl, c, on)
-            shorts = any(l["qty"] < 0 for l in bl)
-            rule = _risk_rule([x["order"] for x in entry_legs])
+        if pos and (valued or adjusting) and len(unders) == 1:
+            defined = defined_risk(pos)
+            maxloss, at, exact = expiry_extremes(pos, c, on)
+            if adjusting and maxloss is not None:
+                maxloss += actx["close_cost"]           # buying back / selling out the closed legs now
+            shorts = any(l["qty"] < 0 for l in pos)
+            rule = _risk_rule([x["order"] for x in (legs if adjusting else entry_legs)])
             summary.update({"defined_risk": defined, "max_loss_at_expiry": round_paise(maxloss)
                             if maxloss is not None else None, "unlimited_loss": maxloss is None,
                             "max_loss_at": round_paise(at) if at else None, "exact": exact})
@@ -2230,38 +2337,53 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                 if c.get("defined_risk_counts_as_stop", True):
                     loss, how = round_paise(maxloss), "the most it can lose at expiry, charges included"
                 else:
-                    loss, how = stop_rule_loss(bl, [x["order"] for x in entry_legs], rule, c, on)
+                    loss, how = stop_rule_loss(pos, pos_orders, rule, c, on)
                     if loss is None:
                         later.append("stop: %s (\"defined_risk_counts_as_stop\": false, so a defined-risk basket "
                                      "needs a risk_rule too)" % how)
             else:
                 naked = shorts
                 if naked and not c.get("allow_naked_short"):
-                    later.append("naked: the %s basket has short legs not covered by bought ones (a loss %s); naked "
-                                 "shorts are off (\"allow_naked_short\": false)" % (
-                                     u, "without limit" if maxloss is None else "far past the premium"))
-                loss, how = stop_rule_loss(bl, [x["order"] for x in entry_legs], rule, c, on)
+                    if adjusting:
+                        later.append("naked: after this %s, %s would be short with no bought leg of the strategy to "
+                                     "cover it (a loss %s); naked shorts are off (\"allow_naked_short\": false)" % (
+                                         actx["what"], " and ".join(actx["naked"]) or "a leg",
+                                         "without limit" if maxloss is None else "far past the premium"))
+                    else:
+                        later.append("naked: the %s basket has short legs not covered by bought ones (a loss %s); "
+                                     "naked shorts are off (\"allow_naked_short\": false)" % (
+                                         u, "without limit" if maxloss is None else "far past the premium"))
+                loss, how = stop_rule_loss(pos, pos_orders, rule, c, on)
                 if loss is None:
                     if naked or c.get("require_stop", True):
-                        later.append("stop: the %s basket is not defined-risk and has %s. Add \"risk_rule\": "
+                        later.append("stop: the %s %s is not defined-risk and has %s. Add \"risk_rule\": "
                                      "{\"max_loss\": RUPEES} or {\"stop_underlying\": {\"above\": X, \"below\": Y}} "
-                                     "to every leg, or an SL-M stop_loss on each short leg" % (u, how))
+                                     "to every leg%s" % (u, noun, how, "" if adjusting else
+                                                         ", or an SL-M stop_loss on each short leg"))
                     else:
                         warns.append("no stop: the loss is not capped")
                         loss = round_paise(maxloss) if maxloss is not None else None
                 elif maxloss is not None:
                     loss = min(loss, round_paise(maxloss))
             summary.update({"loss_used": loss, "loss_from": how})
+            loss_add = loss
+            if adjusting and loss is not None:      # the daily budget counts what the adjustment adds
+                was = expiry_extremes(actx["open"], c, on)[0] if defined_risk(actx["open"]) else None
+                loss_add = round_paise(max(0.0, loss - was)) if was is not None else loss
+                summary["adjustment"].update({"max_loss_before": round_paise(was) if was is not None else None,
+                                              "max_loss_after": loss, "max_loss_added": loss_add})
             cap = _f(c.get("max_loss_per_trade"))
             if cap and loss is not None and loss > cap + PAISA:
-                later.append("loss: the %s basket can lose %s (%s), over your %s max loss per trade"
-                             % (u, inr(loss), how, inr(cap)))
+                later.append("loss: the %s %s can lose %s (%s), over your %s max loss per trade"
+                             % (u, noun, inr(loss), how, inr(cap)))
             daily = _f(c.get("max_daily_loss"))
-            if daily and loss is not None:
+            if daily and loss_add is not None:
                 used = loss_today + run["loss"]
-                if used + loss > daily + PAISA:
-                    later.append("daily loss: %s already at risk today plus %s for this basket = %s, over your %s "
-                                 "daily loss limit" % (inr(used), inr(loss), inr(used + loss), inr(daily)))
+                if used + loss_add > daily + PAISA:
+                    later.append("daily loss: %s already at risk today plus %s for this %s = %s, over your %s "
+                                 "daily loss limit" % (inr(used), inr(loss_add), "adjustment (what it adds to the "
+                                                                                  "max loss)" if adjusting else "basket",
+                                                       inr(used + loss_add), inr(daily)))
             x = lim["max_premium_per_trade"]
             if x and debit > x + PAISA:
                 later.append("premium: %s net premium paid for this basket (%s paid, %s received), over your %s per "
@@ -2287,27 +2409,38 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                 later.append("lots: %s would hold %s lots of %s (open + this batch), over your %s lots per underlying"
                              % (u, _num(round(worst_side[1], 3)), worst_side[0], _num(x)))
             # margin against the cash left after the buffer
-            margin_use, margin = basket_margin(bl, today, c, extra.get("strategy"),
-                                               bool(c.get("margin_use_upper_bound", True)))
+            upper = bool(c.get("margin_use_upper_bound", True))
+            margin_use, margin = basket_margin(pos, today, c, None if adjusting else extra.get("strategy"), upper)
+            if adjusting:       # the open legs' margin is blocked already: the adjustment needs the difference
+                now_use = basket_margin(actx["open"], today, c, None, upper)[0]
+                margin.update({"before": round_paise(now_use), "after": round_paise(margin_use)})
+                margin_use = round_paise(margin_use - now_use)
+                margin["change"] = margin_use
             base = capital or (acct["cash"] + sum(acct["values"].values()))
             buffer_rs = base * float(c.get("cash_buffer_pct") or 0) / 100.0
             avail = acct["cash"] - open_margin - buffer_rs
             margin.update({"available": round_paise(avail), "cash": round_paise(acct["cash"]),
                            "open_margin": round_paise(open_margin), "buffer": round_paise(buffer_rs)})
             summary["margin"] = margin
-            if margin_use > avail + PAISA:
+            if adjusting and margin_use > avail + PAISA:
+                later.append("margin: after this %s the position needs about %s (%s, %s), %s more than now, but only "
+                             "%s is free after your %s%% cash buffer and %s already blocked" % (
+                                 actx["what"], inr(margin["after"]), margin["used_is"], margin["source"],
+                                 inr(margin_use), inr(max(avail, 0)), _num(c.get("cash_buffer_pct") or 0),
+                                 inr(open_margin)))
+            elif not adjusting and margin_use > avail + PAISA:
                 later.append("margin: the basket needs about %s (%s, %s) but only %s is free after your %s%% cash "
                              "buffer%s" % (inr(margin_use), margin["used_is"], margin["source"], inr(max(avail, 0)),
                                            _num(c.get("cash_buffer_pct") or 0),
                                            (" and %s already blocked" % inr(open_margin)) if open_margin else ""))
-            if today in [l["expiry"] for l in bl]:
+            if today in [l["expiry"] for l in pos]:
                 warns.append("expiry day for %s: %s%s" % (
-                    ", ".join(sorted({contract_label(l["contract"]) for l in bl if l["expiry"] == today})),
+                    ", ".join(sorted({contract_label(l["contract"]) for l in pos if l["expiry"] == today})),
                     "2%% more margin (ELM) on index shorts expiring today (%s)" % inr(margin["expiry_day_elm"])
                     if margin.get("expiry_day_elm") else "gamma is extreme and Greeks are unreliable in the last hours",
                     "; no calendar-spread benefit: each expiry is margined on its own (%s)"
                     % inr(margin["without_calendar_benefit"]) if margin.get("calendar_benefit") is False else ""))
-        elif entry_legs and not valued:
+        elif entry_legs and not valued and not adjusting:
             later.append("price: some legs could not be valued, so the basket's loss, margin and scenarios are unknown")
         # the whole book: Greeks and the scenario grid, before and after this basket
         if book_errors:
@@ -2315,7 +2448,10 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
         all_new = [x["leg"] for x in legs if x["leg"]]
         if all_new and valued and len(unders) == 1:
             before = holdings_book + run["book"]
-            after = before + all_new
+            if actx:            # the strategy's open legs give way to what the adjustment leaves
+                after = [l for l in before if all(l is not m for m in actx["open"])] + actx["after"]
+            else:
+                after = before + all_new
             gb = book_greeks(before) if before else None
             ga = book_greeks(after)
             later.extend(greek_breaches(gb, ga, lim))
@@ -2331,12 +2467,24 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                                                                            inr(g["theta"]))
                           for uu, g in sorted(ga["by_underlying"].items())),
                 scenario_words(wa)))
-        if loss is not None:
+        if loss is not None and adjusting:
+            was = summary["adjustment"].get("max_loss_before")
+            info.insert(0, "the %s on %s, %s: can lose %s (%s)%s%s" % (
+                noun, u, "defined risk" if summary.get("defined_risk") else "NOT defined risk", inr(loss),
+                summary.get("loss_from"), (", %s before it" % inr(was)) if was is not None else "",
+                (" (limit %s)" % inr(c["max_loss_per_trade"])) if _f(c.get("max_loss_per_trade")) else ""))
+        elif loss is not None:
             info.insert(0, "basket of %d leg%s on %s, %s: can lose %s (%s)%s" % (
                 len(idxs), "" if len(idxs) == 1 else "s", u, "defined risk" if summary.get("defined_risk") else
                 "NOT defined risk", inr(loss), summary.get("loss_from"),
                 (" (limit %s)" % inr(c["max_loss_per_trade"])) if _f(c.get("max_loss_per_trade")) else ""))
-        if margin:
+        if margin and adjusting:
+            info.insert(1 if loss is not None else 0, "margin about %s after it, %s now: %s %s (%s, %s), %s free; "
+                        "premium paid %s, received %s" % (
+                            inr(margin["after"]), inr(margin["before"]), inr(abs(margin_use)),
+                            "more" if margin_use > 0 else "released", margin["used_is"], margin["source"],
+                            inr(max(margin["available"], 0)), inr(paid), inr(received)))
+        elif margin:
             info.insert(1 if loss is not None else 0, "margin about %s (%s, %s), %s free%s"
                         % (inr(margin_use), margin["used_is"], margin["source"], inr(max(margin["available"], 0)),
                            ("; premium paid %s, received %s" % (inr(paid), inr(received)))
@@ -2350,7 +2498,7 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
             j, o, R = x["j"], x["order"], per[x["j"]]
             reasons, wl = list(R["reasons"]), list(R["warns"]) + list(warns)
             group = later + R.get("later", [])
-            if kind == "entry":
+            if kind != "exit":
                 reasons.extend(group)
             else:
                 wl.extend("exit, not blocked: " + w for w in group)
@@ -2385,7 +2533,21 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                 run["premium"] += debit
                 if margin_use:
                     acct["cash"] -= margin_use
-            run["book"].extend(x["leg"] for x in legs if x["leg"])
+            elif kind == "adjust":
+                run["loss"] += loss_add or 0.0
+                run["premium"] += debit
+                if margin_use and margin_use > 0:
+                    acct["cash"] -= margin_use
+            if actx:        # the book from here on holds what the adjustment leaves, not both
+                holdings_book[:] = [l for l in holdings_book if all(l is not m for m in actx["open"])] + \
+                    [l for l in actx["after"] if l["open"]]
+                run["book"].extend(l for l in actx["after"] if not l["open"])
+                for x in actx["closed"]:
+                    key = contract_key(x["contract"])
+                    q0, l0 = open_keys.get(key, (0.0, None))
+                    open_keys[key] = (q0 - x["qty"], l0)
+            else:
+                run["book"].extend(x["leg"] for x in legs if x["leg"])
             for x in legs:
                 if x["contract"]:
                     seen.add((contract_key(x["contract"]), x["side"]))
@@ -2828,6 +2990,7 @@ def gather_inputs(tdir, orders, doc, cfg, today, fetch=False, portfolio_path=Non
     lots, lots_note = load_lots(os.path.join(tdir, "fo_mktlots.csv"), bool(fetch and any_fno), today)
     return portfolio, {
         "basket": bool(isinstance(doc, dict) and doc.get("basket")),
+        "adjust": doc.get("adjust") if isinstance(doc, dict) and isinstance(doc.get("adjust"), dict) else None,
         "strategy": read_json(os.path.join(tdir, "strategy.json"), "strategy", required=False),
         "options": read_json(os.path.join(tdir, "options.json"), "option chain", required=False),
         "trades": read_json(trades_path or os.path.join(tdir, "state", "trades.json"), "trades log", required=False),

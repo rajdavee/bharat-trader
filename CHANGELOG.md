@@ -137,6 +137,10 @@ paper by default.
   charge plus the IPFT contribution (NSE/FA/73061, 27 Feb 2026), in every copy
   of the charges helper, `config.example.json` and `size.py init`. Worked
   examples move by a few paise; the dated F&O rates are unchanged.
+- trader-risk blocked rolling a covered short leg as naked (#33, #38): an
+  adjustment ticket is now checked on the position it leaves, with the
+  strategy's open legs from `fno_positions`. Covered rolls pass; a roll or close
+  that leaves a short uncovered blocks unless `allow_naked_short` is on.
 
 ## [0.1.0] - 2026-10-29
 
