@@ -776,6 +776,8 @@ def positions_of(portfolio):
     for sym, p in rows:
         if not sym or not isinstance(p, dict):
             continue
+        if str(p.get("exchange") or "").upper() in FNO_EXCHANGES or p.get("expiry") or FNO.match(str(sym).upper()):
+            continue          # an F&O position: fno_positions() reads it
         q = _f(p.get("qty", p.get("shares"))) or 0.0
         prev = out.get(str(sym).upper(), (0.0, None))
         out[str(sym).upper()] = (prev[0] + q, _f(p.get("avg_price")) or prev[1])
@@ -821,13 +823,1013 @@ def placed_today(state, today):
             if r.get("status") == "placed" and rec_day(r) == today]
 
 
+# ---------------------------------------------------------------- F&O contracts, lots and the ban list (NSE files, cached)
+
+INDICES = ("NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50")
+INDEX_QUOTES = {"NIFTY": ("NIFTY", "^NSEI", "NIFTY 50"), "BANKNIFTY": ("BANKNIFTY", "^NSEBANK", "NIFTY BANK"),
+                "FINNIFTY": ("FINNIFTY",), "MIDCPNIFTY": ("MIDCPNIFTY",), "NIFTYNXT50": ("NIFTYNXT50",)}
+NSE_ARCHIVES = "https://nsearchives.nseindia.com"
+LOTS_URL = NSE_ARCHIVES + "/content/fo/fo_mktlots.csv"
+BAN_URL = NSE_ARCHIVES + "/content/fo/fo_secban.csv"
+BAN_DATED_URL = NSE_ARCHIVES + "/archives/fo/sec_ban/fo_secban_%s.csv"      # DDMMYYYY, the trade date
+NSE_GET_HEADERS = {"User-Agent": FNO_LIST_HEADERS["User-Agent"], "Accept": "application/json, text/csv, */*",
+                   "Referer": "https://www.nseindia.com/"}
+NSE_PAUSE = 1.5                     # seconds between two NSE requests
+MONTHS = {m: i for i, m in enumerate(("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV",
+                                      "DEC"), 1)}
+WEEK_MONTH = dict({str(i): i for i in range(1, 10)}, O=10, N=11, D=12)
+FNO_PARTS = re.compile(r"^(?P<u>[A-Z][A-Z&\-]*?)(?P<yy>\d{2})(?:(?P<mon>JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|"
+                       r"DEC)|(?P<wm>[1-9OND])(?P<dd>\d{2}))(?:(?P<fut>FUT)|(?P<k>\d+(?:\.\d+)?)(?P<t>CE|PE))$")
+OPTION_TICK = 0.05
+EXPIRY_TIME = datetime.time(15, 30)          # equity derivatives settle at 15:30 IST on expiry day
+YEAR_SECONDS = 365.0 * 86400
+DEFAULT_RATE = 0.0557                       # trader-options' default (91-day T-bill, 08-Oct-2026 auction)
+_LAST_GET = [0.0]
+
+
+def nse_get(url, timeout=30, retries=2):
+    """One polite GET from NSE (browser headers, a pause between calls, back-off on 403/429). Text or RulesError."""
+    import time
+    import urllib.error
+    import urllib.request
+    delay = 2.0
+    for attempt in range(retries + 1):
+        gap = time.time() - _LAST_GET[0]
+        if gap < NSE_PAUSE:
+            time.sleep(NSE_PAUSE - gap)
+        _LAST_GET[0] = time.time()
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=NSE_GET_HEADERS), timeout=timeout) as r:
+                data, ctype = r.read(), str(r.headers.get("Content-Type") or "")
+        except urllib.error.HTTPError as e:
+            if e.code in (403, 429, 500, 502, 503, 504) and attempt < retries:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            raise RulesError("HTTP %s for %s" % (e.code, url))
+        except (urllib.error.URLError, OSError) as e:
+            if attempt < retries:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            raise RulesError("could not reach %s (%s)" % (url, getattr(e, "reason", None) or e))
+        text = data.decode("utf-8-sig", "replace")
+        if "html" in ctype.lower() or text.lstrip().startswith("<"):
+            raise RulesError("NSE sent a web page, not the file, for %s (missing or retired)" % url)
+        return text
+    raise RulesError("gave up on %s" % url)
+
+
+def parse_lots(text):
+    """fo_mktlots.csv text -> {"NIFTY": {"2026-11": 65, ...}, ...} (same reader as trader-options).
+
+    The file is fixed-width padded, has an index block then a second header row for stocks, and its
+    month columns read like NOV-26: lots are per expiry month."""
+    import csv
+    import io
+    out, months = {}, None
+    for row in csv.reader(io.StringIO(text)):
+        cells = [x.strip() for x in row]
+        if len(cells) < 3:
+            continue
+        if cells[1].upper() == "SYMBOL":
+            months = []
+            for x in cells[2:]:
+                try:
+                    months.append(datetime.datetime.strptime(x.title(), "%b-%y").strftime("%Y-%m"))
+                except ValueError:
+                    months.append(None)
+            continue
+        if months is None:
+            continue
+        lots = {}
+        for m, x in zip(months, cells[2:]):
+            v = _f(x)
+            if m and v:
+                lots[m] = int(v)
+        if cells[1] and lots:
+            out[cells[1].upper()] = lots
+    return out
+
+
+def parse_ban(text):
+    """NSE fo_secban CSV -> {"trade_date": "2026-11-02", "symbols": ["KAYNES", "SAIL"]}."""
+    m = re.search(r"Trade Date\s+(\d{1,2}-[A-Za-z]{3}-\d{4})", text or "")
+    if not m:
+        raise RulesError("not NSE's F&O ban list (no 'Securities in Ban For Trade Date' line)")
+    day = datetime.datetime.strptime(m.group(1).title(), "%d-%b-%Y").date().isoformat()
+    syms = set()
+    for line in text.splitlines():
+        cells = [x.strip().upper() for x in line.split(",")]
+        if len(cells) >= 2 and cells[0].isdigit() and TICKER.match(cells[1]):
+            syms.add(cells[1])
+    return {"trade_date": day, "symbols": sorted(syms)}
+
+
+def _read_cache(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def _write_cache(path, doc):
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=1, sort_keys=True)
+            fh.write("\n")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def load_ban(cache_path, today, fetch=False):
+    """(set of banned underlyings for trade date `today` or None if unknown, note).
+
+    The cache (trader/fo_secban.json) keeps each trade date's list. fetch=True asks NSE for the dated
+    file of that trade date first, then the current one (published the evening before)."""
+    doc = (_read_cache(cache_path) if cache_path else None) or {}
+    days = doc.get("days") if isinstance(doc.get("days"), dict) else {}
+    errors = []
+    if fetch and today not in days:
+        d = datetime.date.fromisoformat(today)
+        for url in (BAN_DATED_URL % d.strftime("%d%m%Y"), BAN_URL):
+            try:
+                b = parse_ban(nse_get(url))
+            except RulesError as e:
+                errors.append(str(e))
+                continue
+            days[b["trade_date"]] = {"symbols": b["symbols"], "source": url,
+                                     "fetched": datetime.datetime.now(IST).isoformat(timespec="seconds")}
+            if b["trade_date"] == today:
+                break
+        if cache_path:
+            keep = sorted(days)[-15:]
+            _write_cache(cache_path, {"source": BAN_URL, "days": {k: days[k] for k in keep}})
+    if today in days:
+        syms = set(days[today].get("symbols") or [])
+        return syms, "NSE F&O ban list for %s: %s" % (today, ", ".join(sorted(syms)) or "none")
+    return None, "no NSE F&O ban list for %s in %s%s" % (today, cache_path or "the cache",
+                                                          (" (%s)" % "; ".join(errors)) if errors else
+                                                          " (check.py refresh fetches it)")
+
+
+def load_lots(path, fetch=False, today=None):
+    """(lots per underlying and expiry month or None, note). path is trader/fo_mktlots.csv; fetch=True
+    refreshes it from NSE at most once a day."""
+    note = ""
+    stamp = None
+    if path and os.path.exists(path):
+        stamp = datetime.datetime.fromtimestamp(os.path.getmtime(path), IST).date().isoformat()
+    if fetch and path and stamp != (today or datetime.datetime.now(IST).date().isoformat()):
+        try:
+            text = nse_get(LOTS_URL)
+            if len(parse_lots(text)) < 20:
+                raise RulesError("fo_mktlots.csv has too few rows: not trusting it")
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            stamp = today
+        except (RulesError, OSError) as e:
+            note = " (refresh failed: %s)" % e
+    if not path or not os.path.exists(path):
+        return None, "no NSE lot-size file (%s)%s: lot sizes come from the orders" % (path, note)
+    try:
+        with open(path, encoding="utf-8-sig", errors="replace") as fh:
+            lots = parse_lots(fh.read())
+    except OSError as e:
+        return None, "cannot read %s (%s)" % (path, e)
+    return (lots or None), "NSE lot sizes from %s (%s)%s" % (os.path.basename(path), stamp, note)
+
+
+def lot_for(lots, underlying, expiry):
+    """Lot size of underlying for the expiry's month, or None."""
+    return ((lots or {}).get(underlying) or {}).get(str(expiry)[:7])
+
+
+def _closed_day(d, c):
+    iso = d.isoformat()
+    return d.weekday() >= 5 or iso in NSE_HOLIDAYS or iso in {str(x) for x in (c.get("extra_holidays") or [])}
+
+
+def monthly_expiry(year, month, c=None):
+    """NSE's monthly expiry: the last Tuesday of the month, a day earlier for each holiday."""
+    nxt = datetime.date(year + (month == 12), month % 12 + 1, 1)
+    d = nxt - datetime.timedelta(days=1)
+    while d.weekday() != 1:
+        d -= datetime.timedelta(days=1)
+    while _closed_day(d, c or {}):
+        d -= datetime.timedelta(days=1)
+    return d
+
+
+def parse_day(text):
+    """'2026-11-03' or '03-Nov-2026' -> '2026-11-03', else None."""
+    s = str(text or "").strip()
+    for fmt in ("%Y-%m-%d", "%d-%b-%Y", "%d%b%Y"):
+        try:
+            return datetime.datetime.strptime(s.title() if "-" in s and not s[:4].isdigit() else s, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def contract_of(o, c=None):
+    """The F&O contract an order is for: ({"underlying", "kind", "instrument" OPT|FUT, "option_type",
+    "strike", "expiry"}, None) or (None, reason). Reads trader-strategy's fields (symbol = underlying,
+    expiry, strike, option_type, segment) or an NSE trading symbol (NIFTY26NOV23000CE, NIFTY26N0323000CE)."""
+    sym = str(o.get("symbol") or "").strip().upper()
+    seg = str(o.get("segment") or "").strip().upper()
+    inst = str(o.get("instrument") or "").strip().upper()
+    if o.get("expiry") and sym and TICKER.match(sym) and not FNO.match(sym):
+        exp = parse_day(o.get("expiry"))
+        if exp is None:
+            return None, "contract: expiry %r is not a date like 2026-11-03" % o.get("expiry")
+        if seg == "FUT" or inst.startswith("FUT") or (not o.get("option_type") and o.get("strike") is None):
+            return {"underlying": sym, "kind": "index" if sym in INDICES else "stock", "instrument": "FUT",
+                    "option_type": None, "strike": None, "expiry": exp}, None
+        t = str(o.get("option_type") or "").strip().upper()
+        k = _f(o.get("strike"))
+        if t not in ("CE", "PE") or not k or k <= 0:
+            return None, "contract: an option needs option_type CE or PE and a positive strike"
+        return {"underlying": sym, "kind": "index" if sym in INDICES else "stock", "instrument": "OPT",
+                "option_type": t, "strike": k, "expiry": exp}, None
+    text = str(o.get("tradingsymbol") or "").strip().upper() or sym
+    m = FNO_PARTS.match(text)
+    if not m:
+        return None, ("contract: %r is not an NSE F&O contract (give symbol, expiry, strike and option_type, or a "
+                      "trading symbol like NIFTY26NOV23000CE)" % (text or "?"))
+    year = 2000 + int(m.group("yy"))
+    try:
+        if m.group("mon"):
+            exp = monthly_expiry(year, MONTHS[m.group("mon")], c).isoformat()
+        else:
+            exp = datetime.date(year, WEEK_MONTH[m.group("wm")], int(m.group("dd"))).isoformat()
+    except ValueError:
+        return None, "contract: %r has no valid expiry date" % text
+    u = m.group("u")
+    base = {"underlying": u, "kind": "index" if u in INDICES else "stock", "expiry": exp}
+    if m.group("fut"):
+        return dict(base, instrument="FUT", option_type=None, strike=None), None
+    return dict(base, instrument="OPT", option_type=m.group("t"), strike=float(m.group("k"))), None
+
+
+def contract_label(k):
+    if k["instrument"] == "FUT":
+        return "%s FUT %s" % (k["underlying"], k["expiry"])
+    return "%s %s %s %s" % (k["underlying"], _num(k["strike"]), k["option_type"], k["expiry"])
+
+
+def contract_key(k):
+    return (k["underlying"], k["instrument"], k.get("option_type"), _f(k.get("strike")), k["expiry"])
+
+
+# ---------------------------------------------------------------- Black-76 (same maths as trader-options and trader-strategy)
+
+def _ncdf(x):
+    import math
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def b76_price(F, K, T, r, sigma, kind):
+    """Black-76 price of a European option on forward F; T years, r and sigma decimals."""
+    import math
+    df = math.exp(-r * max(T, 0.0))
+    if T <= 0 or sigma <= 0 or F <= 0:
+        return df * max(0.0, (F - K) if kind == "CE" else (K - F))
+    vt = sigma * math.sqrt(T)
+    d1 = (math.log(F / K) + 0.5 * sigma * sigma * T) / vt
+    d2 = d1 - vt
+    if kind == "CE":
+        return df * (F * _ncdf(d1) - K * _ncdf(d2))
+    return df * (K * _ncdf(-d2) - F * _ncdf(-d1))
+
+
+def b76_greeks(F, K, T, r, sigma, kind):
+    """Per unit: delta dPrice/dF, gamma per point, theta per calendar day, vega per 1 vol point.
+    Under an hour to expiry the option is treated as its intrinsic value (delta 0 or 1, no gamma)."""
+    import math
+    if T < 1.0 / (365 * 24) or sigma <= 0 or F <= 0:
+        itm = (F > K) if kind == "CE" else (F < K)
+        return {"delta": (1.0 if kind == "CE" else -1.0) if itm else 0.0, "gamma": 0.0, "theta": 0.0, "vega": 0.0}
+    df = math.exp(-r * T)
+    vt = sigma * math.sqrt(T)
+    d1 = (math.log(F / K) + 0.5 * sigma * sigma * T) / vt
+    pdf = math.exp(-0.5 * d1 * d1) / math.sqrt(2.0 * math.pi)
+    price = b76_price(F, K, T, r, sigma, kind)
+    delta = df * _ncdf(d1) if kind == "CE" else -df * _ncdf(-d1)
+    theta_year = -df * F * pdf * sigma / (2.0 * math.sqrt(T)) + r * price
+    return {"delta": delta, "gamma": df * pdf / (F * vt), "theta": theta_year / 365.0,
+            "vega": df * F * pdf * math.sqrt(T) / 100.0}
+
+
+def b76_iv(price, F, K, T, r, kind):
+    """Implied volatility in percent from a premium, by bisection on [0.1%, 500%]; None if untradeable."""
+    if not price or not F or not K or T is None or T < 1.0 / (365 * 24):
+        return None
+    lo, hi = 0.001, 5.0
+    if not (b76_price(F, K, T, r, lo, kind) < price < b76_price(F, K, T, r, hi, kind)):
+        return None
+    for _ in range(100):
+        mid = 0.5 * (lo + hi)
+        if b76_price(F, K, T, r, mid, kind) < price:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < 1e-7:
+            break
+    return 100.0 * 0.5 * (lo + hi)
+
+
+def years_to(expiry, now):
+    """Years (365-day) from now to 15:30 IST on the expiry date; 0 once it has passed."""
+    end = datetime.datetime.combine(datetime.date.fromisoformat(expiry), EXPIRY_TIME).replace(tzinfo=IST)
+    return max(0.0, (end - now).total_seconds() / YEAR_SECONDS)
+
+
+# ---------------------------------------------------------------- the F&O book: open positions + proposals, valued
+
+def fno_positions(portfolio, c=None):
+    """Open F&O positions from portfolio.json: [{"contract", "qty" (signed: + long, - short), "avg_price",
+    "lot_size", "iv", "ltp"}]. A position is F&O when it says exchange NFO, carries an expiry, or its key is
+    a contract symbol. qty may be signed, or positive with "side": "SELL" (or "short": true)."""
+    out = []
+    pos = (portfolio or {}).get("positions") or {}
+    rows = list(pos.items()) if isinstance(pos, dict) else [((p or {}).get("tradingsymbol") or (p or {}).get("symbol"), p)
+                                                             for p in pos]
+    rows += [((p or {}).get("tradingsymbol") or (p or {}).get("symbol"), p)
+             for p in ((portfolio or {}).get("fno_positions") or []) if isinstance(p, dict)]
+    for key, p in rows:
+        if not isinstance(p, dict):
+            continue
+        is_fno = str(p.get("exchange") or "").upper() in FNO_EXCHANGES or p.get("expiry") or \
+            bool(key and FNO.match(str(key).upper()))
+        if not is_fno:
+            continue
+        o = dict(p)
+        o.setdefault("symbol", p.get("underlying") or key)
+        if p.get("underlying"):
+            o["symbol"] = p["underlying"]
+        if not p.get("expiry") and key:
+            o["tradingsymbol"] = key
+        k, why = contract_of(o, c)
+        q = _f(p.get("qty", p.get("quantity"))) or 0.0
+        if q > 0 and (str(p.get("side") or "").upper() == "SELL" or p.get("short") is True):
+            q = -q
+        if not q:
+            continue
+        out.append({"contract": k, "error": why, "name": str(key), "qty": q, "avg_price": _f(p.get("avg_price")),
+                    "lot_size": int(_f(p.get("lot_size")) or 0) or None, "iv": _f(p.get("iv")),
+                    "ltp": _f(p.get("ltp") or p.get("last_price") or p.get("mark")),
+                    "forward": _f(p.get("forward"))})
+    return out
+
+
+def market_inputs(strategy=None, options=None):
+    """{(underlying, expiry): {"forward", "spot", "atm_iv", "asof", "ivs": {(type, strike): iv}, "source"}}
+    from trader/strategy.json (its priced legs) and trader/options.json (a whole chain)."""
+    out = {}
+    docs = options if isinstance(options, list) else ([options] if isinstance(options, dict) else [])
+    for a in docs:
+        if not isinstance(a, dict) or not a.get("underlying") or not a.get("expiry"):
+            continue
+        m = out.setdefault((str(a["underlying"]).upper(), str(a["expiry"])), {"ivs": {}})
+        m.update({"forward": _f(a.get("forward")), "spot": _f(a.get("spot")), "atm_iv": _f(a.get("atm_iv")),
+                  "asof": a.get("asof"), "source": "trader/options.json (%s)" % a.get("asof")})
+        for row in a.get("rows") or []:
+            for side in ("ce", "pe"):
+                iv = _f((row.get(side) or {}).get("iv"))
+                if iv:
+                    m["ivs"][(side.upper(), _f(row.get("strike")))] = iv
+    if isinstance(strategy, dict) and strategy.get("underlying"):
+        u = str(strategy["underlying"]).upper()
+        for l in strategy.get("legs") or []:
+            if not l.get("expiry"):
+                continue
+            m = out.setdefault((u, str(l["expiry"])), {"ivs": {}})
+            if _f(l.get("forward")):
+                m["forward"] = _f(l["forward"])
+                m["spot"] = _f(strategy.get("spot")) or m.get("spot")
+                m["asof"] = strategy.get("asof")
+                m["source"] = "trader/strategy.json (%s)" % strategy.get("asof")
+            if m.get("atm_iv") is None:
+                m["atm_iv"] = _f(strategy.get("atm_iv"))
+            if l.get("instrument") == "OPT" and _f(l.get("iv")):
+                m["ivs"][(l.get("option_type"), _f(l.get("strike")))] = _f(l["iv"])
+    return out
+
+
+def underlying_price(u, prices):
+    for name in INDEX_QUOTES.get(u, (u,)):
+        if (prices or {}).get(name):
+            return prices[name]
+    return None
+
+
+def book_leg(k, qty, entry, now, mk, prices, rate, lot=None, iv=None, forward=None, is_open=False, label=None,
+             mark=None):
+    """One valued leg of the book: the contract, signed qty, the entry premium (a proposal) or the current
+    mark (an open position), and the model inputs (forward, IV, years left). (leg, None) or (None, why)."""
+    m = mk.get((k["underlying"], k["expiry"])) or {}
+    live = underlying_price(k["underlying"], prices)
+    F, src = forward or m.get("forward"), m.get("source")
+    if F and live and m.get("spot") and not forward:
+        F = F * live / m["spot"]
+    if not F and live:
+        F, src = live, "trader/prices.json (spot as the forward)"
+    if not F:
+        return None, ("no price for %s: write a fresh chain (trader-options: options.py %s --write) or a strategy "
+                      "(trader-strategy --write)" % (k["underlying"], k["underlying"]))
+    T = years_to(k["expiry"], now)
+    leg = {"label": label or contract_label(k), "contract": k, "underlying": k["underlying"], "kind": k["kind"],
+           "instrument": k["instrument"], "option_type": k.get("option_type"), "strike": k.get("strike"),
+           "expiry": k["expiry"], "qty": float(qty), "lot_size": lot, "F": F, "T": T, "rate": rate,
+           "open": is_open, "source": src, "notes": []}
+    if k["instrument"] == "OPT":
+        sig = iv or m["ivs"].get((k["option_type"], _f(k["strike"]))) if m else iv
+        if not sig and T > 0:
+            ref = entry if not is_open else mark
+            sig = b76_iv(ref, F, k["strike"], T, rate, k["option_type"]) if ref else None
+            if sig:
+                leg["notes"].append("IV %.2f%% implied from the premium %s" % (sig, _p(ref)))
+        if not sig and T > 0 and m.get("atm_iv"):
+            sig = m["atm_iv"]
+            leg["notes"].append("IV not in the chain for this strike: the at-the-money IV %.2f%% is used" % sig)
+        if not sig and T > 0:
+            return None, "no IV for %s: write a fresh chain (trader-options --write)" % leg["label"]
+        leg["iv"] = sig or 0.0
+    else:
+        leg["iv"] = 0.0
+    leg["mark"] = leg_value(leg, 0.0, 0.0, 0.0)
+    leg["entry"] = entry if entry is not None else (mark if mark is not None else leg["mark"])
+    return leg, None
+
+
+def leg_value(leg, rel, dv, h):
+    """Per-unit value of one leg after the underlying moves by rel (0.01 = +1%), IV by dv vol points and
+    h years pass. Every expiry's forward moves in proportion."""
+    F = leg["F"] * (1.0 + rel)
+    if leg["instrument"] == "FUT":
+        return F
+    T = leg["T"] - h
+    if T <= 1e-9:
+        return max(0.0, F - leg["strike"]) if leg["option_type"] == "CE" else max(0.0, leg["strike"] - F)
+    return b76_price(F, leg["strike"], T, leg["rate"], max(0.005, (leg["iv"] + dv) / 100.0), leg["option_type"])
+
+
+def leg_charges(leg, value, settles, cfg, on):
+    """Charges of one leg from here to `value`: a proposal pays its round trip (entry and exit), an open
+    position only its exit. settles=True: the leg reaches expiry (a long in the money is exercised and
+    pays STT on its intrinsic value; anything else expires with no closing order)."""
+    seg = "FUT" if leg["instrument"] == "FUT" else "OPT"
+    q, long = abs(leg["qty"]), leg["qty"] > 0
+    entry = 0.0 if leg["open"] else leg["entry"]
+    if seg == "FUT":
+        return round_trip_charges(entry, value, q, cfg, seg, on)["total"] if long else \
+            round_trip_charges(value, entry, q, cfg, seg, on)["total"]
+    if long:
+        if settles:
+            return round_trip_charges(entry, value, q, cfg, seg, on, value > 0)["total"]
+        return round_trip_charges(entry, value, q, cfg, seg, on)["total"]
+    if settles:
+        return round_trip_charges(0, entry, q, cfg, seg, on)["total"]
+    return round_trip_charges(value, entry, q, cfg, seg, on)["total"]
+
+
+def book_pnl(book, rel_of, dv, h, cfg, on):
+    """P&L after charges of the whole book in one scenario. rel_of: {underlying: move}."""
+    total = 0.0
+    for l in book:
+        v = leg_value(l, rel_of.get(l["underlying"], 0.0), dv, h)
+        base = l["mark"] if l["open"] else l["entry"]
+        total += (v - base) * l["qty"] - leg_charges(l, v, l["T"] - h <= 1e-9, cfg, on)
+    return total
+
+
+def book_greeks(book):
+    """Net Greeks per underlying and in total: delta in units and lots (and ₹ per 1% move), gamma per point,
+    vega ₹ per vol point, theta ₹ per calendar day."""
+    per = {}
+    for l in book:
+        g = per.setdefault(l["underlying"], {"delta": 0.0, "gamma": 0.0, "vega": 0.0, "theta": 0.0,
+                                             "lot_size": l.get("lot_size"), "forward": l["F"]})
+        if l["instrument"] == "FUT":
+            g["delta"] += l["qty"]
+            continue
+        x = b76_greeks(l["F"], l["strike"], l["T"], l["rate"], l["iv"] / 100.0, l["option_type"])
+        for k in ("delta", "gamma", "vega", "theta"):
+            g[k] += x[k] * l["qty"]
+        g["lot_size"] = g["lot_size"] or l.get("lot_size")
+    out, tot = {}, {"vega": 0.0, "theta": 0.0, "delta_rupees_1pct": 0.0}
+    for u, g in sorted(per.items()):
+        lot = g["lot_size"] or 1
+        out[u] = {"delta": round(g["delta"], 2), "delta_lots": round(g["delta"] / lot, 3),
+                  "delta_rupees_1pct": round_paise(g["delta"] * g["forward"] / 100.0),
+                  "gamma": round(g["gamma"], 5), "gamma_lots_1pct": round(g["gamma"] * g["forward"] / 100.0 / lot, 3),
+                  "vega": round_paise(g["vega"]), "theta": round_paise(g["theta"]), "lot_size": g["lot_size"],
+                  "forward": round_paise(g["forward"])}
+        tot["vega"] += g["vega"]
+        tot["theta"] += g["theta"]
+        tot["delta_rupees_1pct"] += g["delta"] * g["forward"] / 100.0
+    return {"by_underlying": out, "total": {k: round_paise(v) for k, v in tot.items()}}
+
+
+def underlying_sigma(book, mk, days):
+    """{underlying: one-sigma move over `days` sessions, as a fraction}: at-the-money IV (else the legs'
+    average IV) x sqrt(days / 252)."""
+    import math
+    out = {}
+    for u in sorted({l["underlying"] for l in book}):
+        ivs = [m.get("atm_iv") for (uu, _), m in sorted(mk.items()) if uu == u and m.get("atm_iv")]
+        legs = [l["iv"] for l in book if l["underlying"] == u and l["instrument"] == "OPT" and l["iv"]]
+        iv = ivs[0] if ivs else (sum(legs) / len(legs) if legs else 15.0)
+        out[u] = iv / 100.0 * math.sqrt(days / 252.0)
+    return out
+
+
+def scenario_grid(book, now, cfg, mk=None):
+    """The book's P&L after charges on a grid: every underlying moves the same number of its own sigmas
+    (one session of at-the-money IV unless scenario_horizon_days says otherwise) at once, times IV shifts in
+    vol points; one session of time passes. Returns rows, the worst cell and the sigma of each underlying."""
+    c = cfg
+    days = float(c.get("scenario_horizon_days") or 1)
+    sig = sorted({abs(float(x)) for x in (c.get("scenario_sigmas") or [1, 2, 3])})
+    moves = [-s for s in reversed(sig)] + [0.0] + sig
+    shifts = sorted({float(x) for x in (c.get("scenario_iv_shifts") or [5, 10])} |
+                    {-float(x) for x in (c.get("scenario_iv_shifts") or [5, 10])} | {0.0})
+    sigma = underlying_sigma(book, mk or {}, days)
+    h = days / 365.0
+    on = now.date().isoformat()
+    rows, worst, best = [], None, None
+    for k in moves:
+        rel = {u: k * s for u, s in sigma.items()}
+        pnl = []
+        for dv in shifts:
+            v = round_paise(book_pnl(book, rel, dv, h, c, on))
+            pnl.append(v)
+            cell = {"pnl": v, "sigma": k, "iv_shift": dv, "move_pct": {u: round(100 * x, 2) for u, x in rel.items()}}
+            if worst is None or v < worst["pnl"]:
+                worst = cell
+            if best is None or v > best["pnl"]:
+                best = cell
+        rows.append({"sigma": k, "move_pct": {u: round(100 * x, 2) for u, x in rel.items()}, "pnl": pnl})
+    return {"horizon_days": days, "sigmas": moves, "iv_shifts": shifts,
+            "sigma_pct": {u: round(100 * s, 3) for u, s in sigma.items()},
+            "forward": {u: round_paise(next(l["F"] for l in book if l["underlying"] == u)) for u in sigma},
+            "rows": rows, "worst": worst, "best": best,
+            "method": "Black-76 on each leg's forward and IV; every underlying moves k of its own sigmas "
+                      "(at-the-money IV x sqrt(%s/252)) at once, IV shifts in vol points, %s day(s) pass; P&L "
+                      "after charges (a proposal pays its entry and exit, an open position its exit)" % (
+                          _num(days), _num(days))}
+
+
+def scenario_words(cell, limit=None):
+    if not cell:
+        return ""
+    moves = ", ".join("%s %+.2f%%" % (u, x) for u, x in sorted(cell["move_pct"].items()))
+    return "spot %+g sigma (%s) with IV %+g vol: %s after charges%s" % (
+        cell["sigma"], moves or "no move", cell["iv_shift"], inr(cell["pnl"]),
+        (", over your %s max scenario loss" % inr(limit)) if limit else "")
+
+
+# ---------------------------------------------------------------- one basket as one position
+
+SPAN_STYLE = {   # the same assumptions as trader-strategy's SPAN-style estimate (NSE SPAN file of 30-Oct-2026)
+    "index": {"scan_pct": 9.3, "vol_scan": 4.0, "elm_pct": 2.0, "error_pct": 15},
+    "stock": {"scan_pct": 20.0, "vol_scan": 10.0, "elm_pct": 3.5, "error_pct": 35},
+}
+EXPIRY_DAY_ELM_PCT = 2.0     # SEBI 01-Oct-2024: 2% more ELM on short index options on their expiry day
+
+
+def defined_risk(legs):
+    """True when every short option is covered by a long of the same type, same or later expiry, in
+    quantity, and there is no future (trader-strategy's rule)."""
+    if any(l["instrument"] == "FUT" for l in legs):
+        return False
+    for kind in ("CE", "PE"):
+        for s in [l for l in legs if l["option_type"] == kind and l["qty"] < 0]:
+            cover = sum(l["qty"] for l in legs if l["option_type"] == kind and l["qty"] > 0 and l["expiry"] >= s["expiry"])
+            short = -sum(l["qty"] for l in legs if l["option_type"] == kind and l["qty"] < 0
+                         and l["expiry"] <= s["expiry"])
+            if cover < short:
+                return False
+    return True
+
+
+def expiry_extremes(legs, cfg, on):
+    """Max loss of the basket held to its (near) expiry, after charges: (loss >= 0 or None if unlimited,
+    at, exact). One expiry: exact on the piecewise-linear payoff. Two expiries: the later legs are valued
+    by Black-76 at the near expiry, on a wide price grid, IV as now and 5 points lower (an estimate)."""
+    near = min(l["expiry"] for l in legs)
+    F0 = next(l["F"] for l in legs if l["expiry"] == near)
+    if len({l["expiry"] for l in legs}) == 1:
+        def pnl(x):
+            tot = 0.0
+            for l in legs:
+                v = x if l["instrument"] == "FUT" else (max(0.0, x - l["strike"]) if l["option_type"] == "CE"
+                                                        else max(0.0, l["strike"] - x))
+                tot += (v - l["entry"]) * l["qty"] - leg_charges(l, v, True, cfg, on)
+            return tot
+        slope = sum(l["qty"] for l in legs if l["instrument"] == "FUT" or l["option_type"] == "CE")
+        if slope < -1e-9:
+            return None, None, True
+        pts = sorted({0.0, F0} | {l["strike"] for l in legs if l["strike"]} | {3.0 * F0})
+        lo = min((pnl(x), x) for x in pts)
+        return max(0.0, -lo[0]), lo[1], True
+    if not defined_risk(legs):
+        return None, None, False
+    h = next(l["T"] for l in legs if l["expiry"] == near)
+    worst, at = 0.0, None
+    for i in range(241):
+        rel = 0.25 * (12.0 ** (i / 240.0)) - 1.0          # 0.25 x to 3 x the forward
+        for dv in (0.0, -5.0):
+            v = book_pnl(legs, {legs[0]["underlying"]: rel}, dv, h, cfg, on)
+            if v < worst:
+                worst, at = v, F0 * (1 + rel)
+    return -worst, at, False
+
+
+def span_margin(legs, today, cfg=None):
+    """A SPAN-style margin estimate for one underlying's legs, the same method as trader-strategy: the worst
+    of 16 price and IV scenarios on the whole position + exposure (ELM) on every short option and future +
+    2% more on index shorts expiring today + premium paid. Only bought options: the premium."""
+    p = dict(SPAN_STYLE[legs[0]["kind"]])
+    p.update({k: v for k, v in ((cfg or {}).get("span") or {}).items() if v is not None})
+    paid = sum(l["entry"] * l["qty"] for l in legs if l["instrument"] == "OPT" and l["qty"] > 0)
+    if not any(l["instrument"] == "FUT" or l["qty"] < 0 for l in legs):
+        return {"method": "premium", "total": round_paise(paid), "high": round_paise(paid), "expiry_day_elm": 0.0,
+                "scan_risk": 0.0, "exposure": 0.0, "premium_paid": round_paise(paid), "error_pct": 0}
+    ps, vs = p["scan_pct"] / 100.0, p["vol_scan"]
+
+    def gross(rel, dv):
+        return sum((leg_value(l, rel, dv, 0.0) - l["entry"]) * l["qty"] for l in legs)
+    base = gross(0.0, 0.0)
+    worst = 0.0
+    for m in (0.0, 1 / 3.0, -1 / 3.0, 2 / 3.0, -2 / 3.0, 1.0, -1.0):
+        for dv in (vs, -vs):
+            worst = max(worst, base - gross(m * ps, dv))
+    for m in (3.0, -3.0):
+        worst = max(worst, (base - gross(m * ps, 0.0)) * 0.30)
+    exposure = sum(l["F"] * -l["qty"] * p["elm_pct"] / 100.0 for l in legs
+                   if l["qty"] < 0 or l["instrument"] == "FUT") + \
+        sum(l["F"] * l["qty"] * p["elm_pct"] / 100.0 for l in legs if l["instrument"] == "FUT" and l["qty"] > 0)
+    extra = sum(l["F"] * -l["qty"] * EXPIRY_DAY_ELM_PCT / 100.0 for l in legs
+                if l["kind"] == "index" and l["instrument"] == "OPT" and l["qty"] < 0 and l["expiry"] == today)
+    total = worst + exposure + extra + paid
+    return {"method": "span-style", "scan_risk": round_paise(worst), "exposure": round_paise(exposure),
+            "expiry_day_elm": round_paise(extra), "premium_paid": round_paise(paid), "total": round_paise(total),
+            "high": round_paise(total * (1 + p["error_pct"] / 100.0)), "error_pct": p["error_pct"]}
+
+
+def strategy_matches(strategy, legs):
+    """True when trader/strategy.json describes exactly these legs (side, type, strike, expiry, qty)."""
+    if not isinstance(strategy, dict) or not strategy.get("legs") or not legs:
+        return False
+    if str(strategy.get("underlying") or "").upper() != legs[0]["underlying"]:
+        return False
+
+    def sig(side, inst, t, k, e, q):
+        return (side, inst, t or None, round(_f(k) or 0, 2), str(e), int(round(abs(_f(q) or 0))))
+    mine = sorted(sig("BUY" if l["qty"] > 0 else "SELL", l["instrument"], l["option_type"], l["strike"], l["expiry"],
+                      l["qty"]) for l in legs)
+    theirs = sorted(sig(str(l.get("side")).upper(), l.get("instrument"), l.get("option_type"), l.get("strike"),
+                        l.get("expiry"), l.get("qty")) for l in strategy["legs"])
+    return mine == theirs
+
+
+def basket_margin(legs, today, cfg, strategy=None, upper=True):
+    """(margin to hold against your cash, detail). trader-strategy's estimate when trader/strategy.json is
+    this basket, else the same method here. Expiry day: 2% more ELM on index shorts expiring today (if the
+    estimate was made on another day) and no calendar-spread benefit: each expiry margined on its own."""
+    own = span_margin(legs, today, cfg)
+    detail = {"method": own["method"], "source": "trader-risk (same SPAN-style method as trader-strategy)",
+              "estimate": own["total"], "high": own["high"], "expiry_day_elm": own["expiry_day_elm"],
+              "calendar_benefit": True, "error_pct": own["error_pct"]}
+    if strategy_matches(strategy, legs) and isinstance(strategy.get("margin"), dict):
+        m = strategy["margin"]
+        span = m.get("span_style") or {}
+        est, high = _f(m.get("required")) or own["total"], _f(m.get("high")) or _f(m.get("required")) or own["high"]
+        add = own["expiry_day_elm"] - (_f(span.get("expiry_day_elm")) or 0.0)
+        if add > PAISA:
+            est, high = est + add, high + add
+            detail["expiry_day_elm_added"] = round_paise(add)
+        detail.update({"source": "trader-strategy (trader/strategy.json, %s)" % strategy.get("asof"),
+                       "method": m.get("method") or own["method"], "estimate": round_paise(est),
+                       "high": round_paise(high), "error_pct": m.get("error_pct", own["error_pct"])})
+    exps = sorted({l["expiry"] for l in legs})
+    if today in exps and len(exps) > 1:
+        parts = [span_margin([l for l in legs if l["expiry"] == e], today, cfg) for e in exps]
+        split = sum(x["total"] for x in parts)
+        split_high = sum(x["high"] for x in parts)
+        detail["calendar_benefit"] = False
+        detail["without_calendar_benefit"] = round_paise(split)
+        if split > detail["estimate"]:
+            detail["estimate"], detail["high"] = round_paise(split), round_paise(max(split_high, detail["high"]))
+    use = detail["high"] if upper else detail["estimate"]
+    detail["used"] = round_paise(use)
+    detail["used_is"] = "the upper bound (+%s%%)" % _num(detail["error_pct"]) if upper else "the estimate"
+    return use, detail
+
+
+def _risk_rule(orders):
+    for o in orders:
+        r = o.get("risk_rule")
+        if isinstance(r, dict) and r:
+            return r
+    return None
+
+
+def stop_rule_loss(legs, orders, rule, cfg, on):
+    """(loss at the stop or adjustment rule after charges, words) or (None, why it does not cover the
+    position). Rules: "risk_rule": {"max_loss": 4000} (exit or adjust when the basket is down that much),
+    {"stop_underlying": {"above": 23400, "below": 22700}}, or an SL / SL-M stop_loss on every short leg
+    and future."""
+    entry_rt = sum(leg_charges(dict(l, open=False), l["entry"], False, cfg, on) for l in legs)
+    if rule and _f(rule.get("max_loss")):
+        m = _f(rule["max_loss"])
+        return round_paise(m + entry_rt), "your risk_rule exits at a %s loss (+ %s charges)" % (inr(m), inr(entry_rt))
+    if rule and isinstance(rule.get("stop_underlying"), dict):
+        su = rule["stop_underlying"]
+        F0 = legs[0]["F"]
+        need_up = any(l["qty"] < 0 and (l["instrument"] == "FUT" or l["option_type"] == "CE") for l in legs)
+        need_down = any((l["qty"] < 0 and l["option_type"] == "PE") or (l["instrument"] == "FUT" and l["qty"] > 0)
+                        for l in legs)
+        up, down = _f(su.get("above")), _f(su.get("below"))
+        if (need_up and not up) or (need_down and not down):
+            return None, ("stop_underlying needs %s: the basket loses without limit on that side" %
+                          " and ".join(x for x, n in (("\"above\"", need_up and not up), ("\"below\"", need_down and not down))
+                                       if n))
+        worst = 0.0
+        for lvl in (up, down):
+            if lvl:
+                rel = lvl / F0 - 1.0
+                worst = min(worst, book_pnl(legs, {legs[0]["underlying"]: rel}, 5.0, 0.0, cfg, on))
+        return round_paise(-worst), "your underlying stop (%s), valued now with IV 5 points higher" % ", ".join(
+            "%s %s" % (k, _p(v)) for k, v in (("above", up), ("below", down)) if v)
+    risky = [(l, o) for l, o in zip(legs, orders) if l["qty"] < 0 or l["instrument"] == "FUT"]
+    if risky and all(isinstance(o.get("stop_loss"), dict) and _f(o["stop_loss"].get("trigger_price")) for _, o in risky):
+        loss = 0.0
+        for l, o in risky:
+            t = _f(o["stop_loss"]["trigger_price"])
+            if (l["qty"] < 0 and t <= l["entry"]) or (l["qty"] > 0 and t >= l["entry"]):
+                return None, "the stop %s of %s is on the wrong side of its entry %s" % (_p(t), l["label"], _p(l["entry"]))
+            loss += abs(t - l["entry"]) * abs(l["qty"])
+        loss += sum(l["entry"] * l["qty"] for l in legs if l["qty"] > 0 and l["instrument"] == "OPT")
+        return round_paise(loss + entry_rt), "the stop_loss legs on every short leg (a stop can fill worse)"
+    return None, "no stop or adjustment rule"
+
+
+# ---------------------------------------------------------------- behaviour: circuit-breakers, kill switch, order rate
+
+SEBI_ORDER_RATE = 10        # orders a second per exchange per client, above which an algo must be registered
+ORDER_RATE_HARD_CAP = 9     # this pack never goes above it, whatever the config says
+
+
+def order_rate(c):
+    """(orders a second this pack allows, warning or None): the config's max_orders_per_second (3), never
+    above ORDER_RATE_HARD_CAP (below SEBI's 10 a second)."""
+    want = _f(c.get("max_orders_per_second"))
+    if want is None or want <= 0:
+        return 3, None if want is None else "max_orders_per_second must be above 0: using 3"
+    if want > ORDER_RATE_HARD_CAP:
+        return ORDER_RATE_HARD_CAP, ("max_orders_per_second %s is over the hard cap of %d (SEBI registers algos "
+                                     "above %d a second): using %d" % (_num(want), ORDER_RATE_HARD_CAP,
+                                                                        SEBI_ORDER_RATE, ORDER_RATE_HARD_CAP))
+    return int(want), None
+
+
+def rate_gate(sent, now, per_second):
+    """(ok, wait seconds): may one more order go now? sent: aware times of orders already sent. A sliding
+    one-second window: at most per_second orders in any second."""
+    window = [t for t in sent if t is not None and 0 <= (now - t).total_seconds() < 1.0]
+    if len(window) < per_second:
+        return True, 0.0
+    oldest = min(window)
+    return False, round(1.0 - (now - oldest).total_seconds(), 3)
+
+
+def trades_today(trades, today):
+    """Today's closed trades (fills with a realised P&L), oldest first: [{"at", "symbol", "pnl", "leg"}]."""
+    out = []
+    for t in ((trades or {}).get("trades") or []) if isinstance(trades, dict) else (trades or []):
+        if not isinstance(t, dict) or rec_day(t) != today:
+            continue
+        out.append({"at": parse_time(t.get("at")), "symbol": str(t.get("underlying") or t.get("symbol") or "").upper(),
+                    "pnl": _f(t.get("realised_pnl")), "leg": t.get("leg"), "side": t.get("side")})
+    out.sort(key=lambda x: x["at"] or datetime.datetime.min.replace(tzinfo=IST))
+    return out
+
+
+def circuit_breakers(c, trades, today, now, capital):
+    """The behavioural locks on new entries (exits are never blocked). SEBI's study of F&O traders found
+    that the more often people trade, the more they lose; these slow you down after losses.
+
+    Returns {"locks": [reasons for every entry], "revenge": {SYM: reason}, "state": {...}}."""
+    rows = trades_today(trades, today)
+    closed = [r for r in rows if r["pnl"] is not None]
+    locks, revenge, state = [], {}, {}
+    streak = 0
+    for r in reversed(closed):
+        if r["pnl"] < -PAISA:
+            streak += 1
+        else:
+            break
+    realised = round_paise(sum(r["pnl"] for r in closed))
+    state.update({"closed_trades": len(closed), "losing_streak": streak, "realised_today": realised})
+    n = int(_f(c.get("max_consecutive_losses")) or 0)
+    if n and streak >= n:
+        locks.append("breaker: %d losing trades in a row today (your limit is %d): no new entries until tomorrow"
+                     % (streak, n))
+    dd = _f(c.get("max_daily_drawdown_pct"))
+    if dd and capital and realised < 0 and -realised >= capital * dd / 100.0 - PAISA:
+        locks.append("breaker: down %s today after charges, %.2f%% of %s (your limit is %s%%): no new entries "
+                     "until tomorrow" % (inr(-realised), -100.0 * realised / capital, inr(capital), _num(dd)))
+    state["drawdown_limit"] = round_paise(capital * dd / 100.0) if dd and capital else None
+    cool = _f(c.get("cooloff_after_stop_min"))
+    stops = [r for r in rows if r["leg"] == "stop" and r["at"]]
+    if cool and stops:
+        last = stops[-1]
+        until = last["at"] + datetime.timedelta(minutes=cool)
+        state["cooloff_until"] = until.strftime("%H:%M")
+        if now < until:
+            locks.append("cooling-off: a stop filled at %s IST (%s); no new entries for %s minutes, until %s IST"
+                         % (last["at"].strftime("%H:%M"), last["symbol"], _num(cool), until.strftime("%H:%M")))
+    win = _f(c.get("revenge_window_min"))
+    if win:
+        for r in closed:
+            if r["pnl"] < -PAISA and r["at"] and now < r["at"] + datetime.timedelta(minutes=win):
+                revenge[r["symbol"]] = ("revenge: %s lost %s at %s IST; re-entering it within %s minutes of a loss "
+                                        "is a revenge trade (until %s IST)" % (
+                                            r["symbol"], inr(-r["pnl"]), r["at"].strftime("%H:%M"), _num(win),
+                                            (r["at"] + datetime.timedelta(minutes=win)).strftime("%H:%M")))
+    state["locked"] = bool(locks)
+    return {"locks": locks, "revenge": revenge, "state": state}
+
+
+KILL_WORD = "unkill"
+
+
+def kill_active(kill, today):
+    """The kill-switch record if it is on for today, else None."""
+    if isinstance(kill, dict) and kill.get("active") and kill.get("date") == today:
+        return kill
+    return None
+
+
+def kill_on(kill, now, reason=None):
+    """The kill.json body after `check.py kill` at now."""
+    doc = dict(kill) if isinstance(kill, dict) else {}
+    log = list(doc.get("log") or [])
+    rec = {"at": now.isoformat(timespec="seconds"), "action": "kill", "reason": reason or "no reason given"}
+    log.append(rec)
+    doc.update({"active": True, "date": now.date().isoformat(), "at": rec["at"], "reason": rec["reason"],
+                "log": log[-50:]})
+    return doc
+
+
+def kill_off(kill, now, typed):
+    """(kill.json body, None) after `check.py unkill`, or (None, why not). The typed confirmation must be
+    the word unkill: a kill switch is not lifted by accident."""
+    if not kill_active(kill, now.date().isoformat()):
+        return None, "the kill switch is not on today: nothing to lift"
+    if " ".join(str(typed or "").lower().split()) != KILL_WORD:
+        return None, "not lifted: type the word %s to lift the kill switch (you typed %r)" % (KILL_WORD, typed or "")
+    doc = dict(kill)
+    log = list(doc.get("log") or [])
+    log.append({"at": now.isoformat(timespec="seconds"), "action": "unkill", "typed": typed})
+    doc.update({"active": False, "lifted_at": now.isoformat(timespec="seconds"), "log": log[-50:]})
+    return doc, None
+
+# ---------------------------------------------------------------- end of the F&O and behaviour rules
+
+
 # ---------------------------------------------------------------- the check
 
-def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=None, price_times=None):
+def is_fno(o):
+    sym = str(o.get("symbol", "")).strip().upper()
+    exch = str(o.get("exchange") or "").strip().upper()
+    product = str(o.get("product") or "").strip().upper()
+    return bool(sym and FNO.match(sym)) or exch in FNO_EXCHANGES or product == "NRML" or bool(o.get("expiry")) \
+        or bool(o.get("tradingsymbol") and FNO.match(str(o["tradingsymbol"]).upper()))
+
+
+def fno_limits(c):
+    """The F&O and portfolio limits in force: a missing (null) key takes its default, often derived from
+    your loss limits; 0 switches a limit off."""
+    ml, dl = _f(c.get("max_loss_per_trade")), _f(c.get("max_daily_loss"))
+
+    def pick(key, derived):
+        v = c.get(key)
+        if v is None:
+            return derived
+        v = _f(v)
+        return v if v else None
+    return {"max_premium_per_trade": pick("max_premium_per_trade", ml),
+            "max_premium_per_day": pick("max_premium_per_day", dl),
+            "max_lots_per_underlying": pick("max_lots_per_underlying", 2),
+            "max_net_delta_lots": pick("max_net_delta_lots", 2),
+            "max_net_vega": pick("max_net_vega", round_paise(dl / 10.0) if dl else None),
+            "max_net_gamma_lots_1pct": pick("max_net_gamma_lots_1pct", None),
+            "max_theta_paid_per_day": pick("max_theta_paid_per_day", None),
+            "max_scenario_loss": pick("max_scenario_loss", dl)}
+
+
+def risk_rate(c):
+    r = _f(c.get("risk_free_rate"))
+    if r is None:
+        return DEFAULT_RATE
+    return r / 100.0 if r > 1 else r
+
+
+def open_book(portfolio, now, mk, prices, c, lots=None):
+    """(valued open F&O positions, [errors])."""
+    book, errors = [], []
+    rate = risk_rate(c)
+    for p in fno_positions(portfolio, c):
+        k = p["contract"]
+        if k is None:
+            errors.append("cannot read the open position %s (%s)" % (p["name"], p["error"]))
+            continue
+        if k["expiry"] < now.date().isoformat():
+            continue
+        lot = p["lot_size"] or lot_for(lots, k["underlying"], k["expiry"])
+        leg, why = book_leg(k, p["qty"], None, now, mk, prices, rate, lot, p["iv"], p["forward"], True,
+                            mark=p["ltp"] or p["avg_price"])
+        if leg is None:
+            errors.append("cannot value the open position %s: %s" % (contract_label(k), why))
+            continue
+        leg["avg_price"] = p["avg_price"]
+        book.append(leg)
+    return book, errors
+
+
+def side_lots(legs_by_key):
+    """{underlying: {"CE long", "CE short", "PE long", "PE short", "FUT"}: lots} from net qty per contract."""
+    out = {}
+    for key, (q, lot) in legs_by_key.items():
+        u, inst, t = key[0], key[1], key[2]
+        if not q:
+            continue
+        b = "FUT" if inst == "FUT" else "%s %s" % (t, "long" if q > 0 else "short")
+        d = out.setdefault(u, {})
+        d[b] = d.get(b, 0.0) + (abs(q) / float(lot or 1) if inst == "OPT" else q / float(lot or 1))
+    return {u: {b: abs(v) for b, v in d.items()} for u, d in out.items()}
+
+
+def portfolio_risk(book, now, c, mk=None, errors=None):
+    """Greeks and the scenario grid of a book, with the limits."""
+    lim = fno_limits(c)
+    if not book:
+        return {"legs": 0, "greeks": None, "scenarios": None, "limits": lim, "errors": list(errors or [])}
+    return {"legs": len(book), "greeks": book_greeks(book), "scenarios": scenario_grid(book, now, c, mk),
+            "limits": lim, "errors": list(errors or []),
+            "positions": [{"label": l["label"], "qty": l["qty"], "lots": round(abs(l["qty"]) / float(l["lot_size"]), 3)
+                           if l.get("lot_size") else None, "open": l["open"], "iv": round(l["iv"], 2),
+                           "forward": round_paise(l["F"]), "mark": round_paise(l["mark"]),
+                           "days_left": round(l["T"] * 365.0, 2), "source": l.get("source")} for l in book]}
+
+
+def greek_breaches(before, after, lim):
+    """Reasons for Greek limits that `after` breaks AND makes worse than `before` (a hedge always passes)."""
+    out = []
+    b_by = (before or {}).get("by_underlying") or {}
+    for u, g in sorted(((after or {}).get("by_underlying") or {}).items()):
+        b = b_by.get(u) or {}
+        x = lim.get("max_net_delta_lots")
+        if x and abs(g["delta_lots"]) > x + 1e-9 and abs(g["delta_lots"]) > abs(b.get("delta_lots") or 0) + 1e-9:
+            out.append("greeks: %s net delta would be %+.2f lots (%s per 1%% move), over your %s-lot limit"
+                       % (u, g["delta_lots"], inr(g["delta_rupees_1pct"]), _num(x)))
+        x = lim.get("max_net_gamma_lots_1pct")
+        if x and abs(g["gamma_lots_1pct"]) > x + 1e-9 and \
+                abs(g["gamma_lots_1pct"]) > abs(b.get("gamma_lots_1pct") or 0) + 1e-9:
+            out.append("greeks: %s gamma would move the delta %+.2f lots per 1%% move, over your %s"
+                       % (u, g["gamma_lots_1pct"], _num(x)))
+    ta, tb = (after or {}).get("total") or {}, (before or {}).get("total") or {}
+    x = lim.get("max_net_vega")
+    if x and abs(ta.get("vega", 0)) > x + PAISA and abs(ta.get("vega", 0)) > abs(tb.get("vega", 0)) + PAISA:
+        out.append("greeks: net vega would be %s per vol point (a 10-point IV move = %s), over your %s"
+                   % (inr(ta["vega"]), inr(abs(ta["vega"]) * 10), inr(x)))
+    x = lim.get("max_theta_paid_per_day")
+    if x and ta.get("theta", 0) < -x - PAISA and ta.get("theta", 0) < tb.get("theta", 0) - PAISA:
+        out.append("greeks: the book would pay %s a day in time decay (theta), over your %s"
+                   % (inr(-ta["theta"]), inr(x)))
+    return out
+
+
+def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=None, price_times=None, extra=None):
     """Pure function. Returns {"results": [...], "pass": n, "block": n, "warnings": [...], ...}.
 
     now          aware datetime (default: the real clock); its IST date is "today"
-    price_times  {SYM: aware time of that price}; None = every price counts as fresh"""
+    price_times  {SYM: aware time of that price}; None = every price counts as fresh
+    extra        the F&O and behaviour inputs, all optional: {"basket": orders.json's basket flag (every F&O
+                 order in the file is one position), "strategy": trader/strategy.json, "options":
+                 trader/options.json (or a list), "trades": trader/state/trades.json, "kill":
+                 trader/state/kill.json, "ban": set of banned underlyings today or None (unknown), "ban_note",
+                 "lots": parse_lots() output or None, "lots_note"}"""
+    extra = extra or {}
     c = merged_config(cfg)
     prices = {str(k).upper(): float(v) for k, v in (prices or {}).items() if _f(v)}
     now = (now or parse_now(None)).astimezone(IST)
@@ -840,6 +1842,8 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
     done_today = placed_today(state, today)
     count_today = len(done_today)
     entries_today = [r for r in done_today if rec_is_entry(r)]
+    groups_today = {(r.get("basket_id") or (r.get("order") or {}).get("basket_id") or r.get("fingerprint") or id(r))
+                    for r in entries_today}
     loss_today = 0.0
     for r in entries_today:
         ml = _f(r.get("max_loss"))
@@ -848,21 +1852,66 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                             "loss" % (r.get("side"), r.get("symbol")))
         else:
             loss_today += ml
-    placed_keys = {(str(r.get("symbol", "")).upper(), str(r.get("side", "")).upper()) for r in done_today}
+    placed_keys = set()
+    premium_today = 0.0
+    for r in done_today:
+        o = r.get("order") if isinstance(r.get("order"), dict) else {}
+        if o and is_fno(o):
+            k, _ = contract_of(o, c)
+            if k:
+                placed_keys.add((contract_key(k), str(r.get("side", "")).upper()))
+                if k["instrument"] == "OPT" and str(r.get("side", "")).upper() == "BUY":
+                    premium_today += (_f(o.get("price")) or 0.0) * (_f(r.get("qty")) or 0.0)
+        else:
+            placed_keys.add((str(r.get("symbol", "")).upper(), str(r.get("side", "")).upper()))
     win_reasons, win_warns = window_check(now, c)
     fno_list = c["_fno"] if "_fno" in c else load_fno_stocks(c)[0]
     windows = {}
 
-    def window_for(sym):
-        seg = segment_of(sym, fno_list) if sym else "EQ"
+    def window_for(sym, seg=None):
+        seg = seg or (segment_of(sym, fno_list) if sym else "EQ")
         if seg not in windows:
             windows[seg] = window_check(now, c, seg)[0]
         return windows[seg]
     seen, results = set(), []
-    batch_entries, batch_loss = 0, 0.0
-    if not c.get("paper", True):
+    run = {"entries": 0, "loss": 0.0, "premium": 0.0, "book": [], "groups": 0}
+    live_broker = not c.get("paper", True) or str(c.get("broker") or "paper").lower() != "paper"
+    if live_broker:
         top_warn.append("LIVE account (\"paper\": false): these orders would use real money")
     top_warn.extend(win_warns)
+
+    # behaviour, the kill switch and the order rate: locks on new entries, never on exits
+    breakers = circuit_breakers(c, extra.get("trades"), today, now, capital or acct["cash"])
+    kill = kill_active(extra.get("kill"), today)
+    locks = []
+    if kill:
+        locks.append("kill: the kill switch is on since %s IST (%s): no new entries today; exits still pass"
+                     % (str(kill.get("at", ""))[11:16], kill.get("reason") or "no reason given"))
+    locks.extend(breakers["locks"])
+    per_second, rate_warn = order_rate(c)
+    if rate_warn:
+        top_warn.append(rate_warn)
+    sent = [parse_time(r.get("at")) for r in done_today]
+    rate_ok, rate_wait = rate_gate(sent, now, per_second)
+    rate_reason = None if rate_ok else ("rate: %d orders went to the broker in the last second (limit %d a second, "
+                                        "below SEBI's %d): wait %.1f s" % (per_second, per_second, SEBI_ORDER_RATE,
+                                                                            rate_wait))
+
+    def api_rule(o, label):
+        """A live broker takes LIMIT orders, or MARKET / SL-M with market protection (SEBI's API rules)."""
+        if not live_broker:
+            return []
+        out = []
+        otype = str(o.get("order_type") or "MARKET").upper()
+        prot = _f(o.get("market_protection"))
+        if otype in ("MARKET", "SL-M") and not (prot and prot > 0):
+            out.append("api: a %s order through a live broker API needs market protection (\"market_protection\": "
+                       "a percent above 0) or a LIMIT price (%s)" % (otype, label))
+        sl = o.get("stop_loss") if isinstance(o.get("stop_loss"), dict) else None
+        if sl and str(sl.get("order_type", "")).upper() == "SL-M" and not (_f(sl.get("market_protection")) or prot):
+            out.append("api: the SL-M stop_loss needs market protection through a live broker API, or use an SL stop "
+                       "with a limit price (%s)" % label)
+        return out
 
     def fresh(sym):
         if sym not in prices:
@@ -875,7 +1924,347 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
         age = (now - t).total_seconds()
         return prices[sym] if -60 <= age <= FRESH_MINUTES * 60 else None
 
+    # ------------------------------------------------ F&O baskets: every leg of one basket is one position
+    allow_fno = bool(c.get("allow_fno"))
+    mk = market_inputs(extra.get("strategy"), extra.get("options"))
+    lots = extra.get("lots")
+    ban = extra.get("ban")
+    lim = fno_limits(c)
+    rate = risk_rate(c)
+    on = today
+    holdings_book, book_errors = ([], [])
+    open_keys = {}
+    if allow_fno:
+        holdings_book, book_errors = open_book(portfolio, now, mk, prices, c, lots)
+        for p in fno_positions(portfolio, c):
+            if p["contract"]:
+                key = contract_key(p["contract"])
+                q0, l0 = open_keys.get(key, (0.0, None))
+                open_keys[key] = (q0 + p["qty"], p["lot_size"] or l0 or lot_for(lots, p["contract"]["underlying"],
+                                                                               p["contract"]["expiry"]))
+        if fno_positions(portfolio, c) and not (portfolio or {}).get("margin_blocked") and \
+                not (portfolio or {}).get("margin_used"):
+            top_warn.append("portfolio.json has open F&O positions but no margin_blocked: their margin is not "
+                            "counted against your cash")
+    open_margin = _f((portfolio or {}).get("margin_blocked")) or _f((portfolio or {}).get("margin_used")) or 0.0
+    groups, group_of, done = {}, {}, {}
+    for j, o in enumerate(orders):
+        if allow_fno and isinstance(o, dict) and is_fno(o):
+            gid = "file" if extra.get("basket") else (o.get("basket_id") or ("one", j))
+            groups.setdefault(gid, []).append(j)
+            group_of[j] = gid
+
+    def basket(idxs):
+        members = [(j, orders[j]) for j in idxs]
+        legs, per = [], {}
+        for j, o in members:
+            R = {"reasons": [], "warns": [], "info": []}
+            per[j] = R
+            side = str(o.get("side", "")).strip().upper()
+            otype = str(o.get("order_type") or "MARKET").strip().upper()
+            validity = str(o.get("validity") or "DAY").strip().upper()
+            product = str(o.get("product") or "NRML").strip().upper()
+            exch = str(o.get("exchange") or "NFO").strip().upper()
+            q = _f(o.get("qty"))
+            if side not in ("BUY", "SELL"):
+                R["reasons"].append("format: side must be BUY or SELL, got %r" % o.get("side"))
+            if q is None or q <= 0 or abs(q - round(q)) > 1e-9:
+                R["reasons"].append("format: qty must be a whole number of units above 0, got %r" % o.get("qty"))
+                q = None
+            if otype not in ORDER_TYPES:
+                R["reasons"].append("format: unknown order_type %r (MARKET, LIMIT, SL, SL-M)" % otype)
+            if validity not in VALIDITY:
+                R["reasons"].append("format: unknown validity %r (DAY or IOC)" % validity)
+            if otype in ("LIMIT", "SL") and (_f(o.get("price")) or 0) <= 0:
+                R["reasons"].append("format: a %s order needs a positive price" % otype)
+            if otype in ("SL", "SL-M") and (_f(o.get("trigger_price")) or 0) <= 0:
+                R["reasons"].append("format: a %s order needs a positive trigger_price" % otype)
+            if exch != "NFO":
+                R["reasons"].append("exchange: %s; this pack trades NSE futures and options on NFO only" % exch)
+            if product not in ("NRML", "MIS"):
+                R["reasons"].append("product: %s is not NRML (carry forward) or MIS (intraday) for F&O" % product)
+            k, why = contract_of(o, c)
+            if why:
+                R["reasons"].append(why)
+            tick = float(c["tick_size"]) if c.get("tick_size") not in (None, "", "auto") else OPTION_TICK
+            for name, v in (("price", o.get("price") if otype in ("LIMIT", "SL") else None),
+                            ("trigger_price", o.get("trigger_price")),
+                            ("stop_loss trigger", (o.get("stop_loss") or {}).get("trigger_price")
+                             if isinstance(o.get("stop_loss"), dict) else None)):
+                fv = _f(v)
+                if fv and fv > 0 and not on_tick(fv, tick):
+                    R["reasons"].append("tick: %s %s is not a multiple of the %s F&O tick" % (name, v, _p(tick)))
+            lot = None
+            if k:
+                if not TICKER.match(k["underlying"]):
+                    R["reasons"].append("ticker: %r is not an NSE underlying" % k["underlying"])
+                if k["expiry"] < today or (k["expiry"] == today and now.time() >= EXPIRY_TIME):
+                    R["reasons"].append("expiry: %s expired on %s" % (contract_label(k), k["expiry"]))
+                file_lot = lot_for(lots, k["underlying"], k["expiry"])
+                own = int(_f(o.get("lot_size")) or 0) or None
+                lot = file_lot or own
+                if file_lot and own and file_lot != own:
+                    R["reasons"].append("lot: the order says a lot of %d; NSE's fo_mktlots.csv says %d for %s %s"
+                                        % (own, file_lot, k["underlying"], k["expiry"][:7]))
+                if lot is None:
+                    R["reasons"].append("lot: no lot size for %s %s (NSE's fo_mktlots.csv: check.py refresh)"
+                                        % (k["underlying"], k["expiry"][:7]))
+                elif q is not None and int(round(q)) % lot:
+                    R["reasons"].append("lot: qty %d is not a multiple of the %s lot of %d (%s lots)"
+                                        % (int(q), k["underlying"], lot, _num(q / float(lot))))
+                elif q is not None and _f(o.get("lots")) and int(_f(o["lots"])) * lot != int(round(q)):
+                    R["reasons"].append("lot: %s lots x %d is not the qty %d" % (_num(o["lots"]), lot, int(q)))
+                if file_lot is None and own:
+                    R["warns"].append("lot size %d is the order's own; NSE's fo_mktlots.csv was not available (%s)"
+                                      % (own, extra.get("lots_note") or "check.py refresh"))
+            signed = (q if side == "BUY" else -q) if (q and side in ("BUY", "SELL")) else None
+            kind = "entry"
+            if k and signed:
+                held = open_keys.get(contract_key(k), (0.0, None))[0]
+                if held and held * signed < 0 and abs(signed) <= abs(held) + 1e-9:
+                    kind = "exit"
+            entry = _f(o.get("price")) if otype in ("LIMIT", "SL") else None
+            leg = None
+            if k and signed:
+                leg, why = book_leg(k, signed, entry, now, mk, prices, rate, lot, _f(o.get("iv")), _f(o.get("forward")))
+                if leg is None:
+                    R["reasons"].append("price: " + why)
+                else:
+                    if entry is None:
+                        R["warns"].append("a %s order: valued at the model price %s (a market order can fill worse)"
+                                          % (otype, _p(leg["entry"])))
+                    R["warns"].extend(leg["notes"])
+            key = (contract_key(k), side) if k else None
+            if key and key in seen:
+                R.setdefault("later", []).append("duplicate: a second %s %s in this batch" % (side, contract_label(k)))
+            if key and key in placed_keys:
+                R.setdefault("later", []).append("duplicate: a %s %s was already placed today"
+                                                 % (side, contract_label(k)))
+            R.setdefault("later", []).extend(api_rule(o, "leg %s" % (o.get("leg") or j + 1)))
+            legs.append({"j": j, "order": o, "contract": k, "leg": leg, "kind": kind, "qty": q, "side": side,
+                         "product": product, "lot": lot, "entry": entry})
+        entry_legs = [x for x in legs if x["kind"] == "entry"]
+        kind = "entry" if entry_legs else "exit"
+        bl = [x["leg"] for x in entry_legs if x["leg"]]
+        valued = len(bl) == len(entry_legs)
+        later, info = [], []
+        warns = ["F&O order: derivatives can lose more than you put in; the margin and scenario numbers are "
+                 "estimates, so check your broker's basket margin too"]
+        summary = {"id": fingerprint({"basket": [fingerprint(orders[j]) for j in idxs]}), "legs": [j + 1 for j in idxs],
+                   "kind": kind}
+        unders = sorted({x["contract"]["underlying"] for x in legs if x["contract"]})
+        u = unders[0] if unders else "?"
+        if len(unders) > 1:
+            later.append("basket: %s are different underlyings; one basket is one underlying" % ", ".join(unders))
+        later.extend(locks)
+        if u in breakers["revenge"]:
+            rv = breakers["revenge"][u]
+            (later if str(c.get("revenge_trade") or "block").lower() == "block" else warns).append(rv)
+        if rate_reason:
+            later.append(rate_reason)
+        later.extend(window_for(u, "DERIV"))
+        if unders and unders[0] not in INDICES:
+            if ban is None:
+                if c.get("require_ban_list", True):
+                    later.append("ban: NSE's F&O ban list for %s is not known (%s); a stock in the ban takes no new "
+                                 "positions. check.py refresh fetches it" % (today, extra.get("ban_note") or "no file"))
+                else:
+                    warns.append("NSE's F&O ban list for %s is not known: check %s is not in it" % (today, u))
+            elif u in ban:
+                later.append("ban: %s is in NSE's F&O ban for %s (open interest over 95%% of its market-wide limit): "
+                             "no new positions, only closing ones" % (u, today))
+        cap_t = int(c.get("max_trades_per_day") or 0)
+        if cap_t and len(groups_today) + run["entries"] >= cap_t:
+            later.append("trades: %d entries placed today plus %d passed earlier in this batch; your limit is %d a day "
+                         "(a basket counts as one)" % (len(groups_today), run["entries"], cap_t))
+        passed_so_far = sum(1 for r in results if r["verdict"] == "PASS")
+        cap_n = int(c.get("max_orders_per_day") or 0)
+        if cap_n and count_today + passed_so_far + len(idxs) > cap_n:
+            later.append("daily limit: %d placed today plus %d passed earlier in this batch plus %d legs here; your "
+                         "limit is %d orders a day" % (count_today, passed_so_far, len(idxs), cap_n))
+        loss = None
+        paid = sum(l["entry"] * l["qty"] for l in bl if l["instrument"] == "OPT" and l["qty"] > 0)
+        received = sum(-l["entry"] * l["qty"] for l in bl if l["instrument"] == "OPT" and l["qty"] < 0)
+        margin_use, margin = None, None
+        if bl and valued and len(unders) == 1:
+            defined = defined_risk(bl)
+            maxloss, at, exact = expiry_extremes(bl, c, on)
+            shorts = any(l["qty"] < 0 for l in bl)
+            rule = _risk_rule([x["order"] for x in entry_legs])
+            summary.update({"defined_risk": defined, "max_loss_at_expiry": round_paise(maxloss)
+                            if maxloss is not None else None, "unlimited_loss": maxloss is None,
+                            "max_loss_at": round_paise(at) if at else None, "exact": exact})
+            how = None
+            if defined and maxloss is not None:
+                if c.get("defined_risk_counts_as_stop", True):
+                    loss, how = round_paise(maxloss), "defined risk: the most it can lose at expiry, charges included"
+                else:
+                    loss, how = stop_rule_loss(bl, [x["order"] for x in entry_legs], rule, c, on)
+                    if loss is None:
+                        later.append("stop: %s (\"defined_risk_counts_as_stop\": false, so a defined-risk basket "
+                                     "needs a risk_rule too)" % how)
+            else:
+                naked = shorts
+                if naked and not c.get("allow_naked_short"):
+                    later.append("naked: the %s basket has short legs not covered by bought ones (a loss %s); naked "
+                                 "shorts are off (\"allow_naked_short\": false)" % (
+                                     u, "without limit" if maxloss is None else "far past the premium"))
+                loss, how = stop_rule_loss(bl, [x["order"] for x in entry_legs], rule, c, on)
+                if loss is None:
+                    if naked or c.get("require_stop", True):
+                        later.append("stop: the %s basket is not defined-risk and has %s. Add \"risk_rule\": "
+                                     "{\"max_loss\": RUPEES} or {\"stop_underlying\": {\"above\": X, \"below\": Y}} "
+                                     "to every leg, or an SL-M stop_loss on each short leg" % (u, how))
+                    else:
+                        warns.append("no stop: the loss is not capped")
+                        loss = round_paise(maxloss) if maxloss is not None else None
+                elif maxloss is not None:
+                    loss = min(loss, round_paise(maxloss))
+            summary.update({"loss_used": loss, "loss_from": how})
+            cap = _f(c.get("max_loss_per_trade"))
+            if cap and loss is not None and loss > cap + PAISA:
+                later.append("loss: the %s basket can lose %s (%s), over your %s max loss per trade"
+                             % (u, inr(loss), how, inr(cap)))
+            daily = _f(c.get("max_daily_loss"))
+            if daily and loss is not None:
+                used = loss_today + run["loss"]
+                if used + loss > daily + PAISA:
+                    later.append("daily loss: %s already at risk today plus %s for this basket = %s, over your %s "
+                                 "daily loss limit" % (inr(used), inr(loss), inr(used + loss), inr(daily)))
+            x = lim["max_premium_per_trade"]
+            if x and paid > x + PAISA:
+                later.append("premium: %s of premium paid in this basket, over your %s per trade (max_premium_per_trade)"
+                             % (inr(paid), inr(x)))
+            x = lim["max_premium_per_day"]
+            if x and paid and premium_today + run["premium"] + paid > x + PAISA:
+                later.append("premium: %s paid today plus %s here = %s, over your %s a day (max_premium_per_day)"
+                             % (inr(premium_today + run["premium"]), inr(paid),
+                                inr(premium_today + run["premium"] + paid), inr(x)))
+            # lots per underlying: open + passed in this batch + this basket
+            net = {}
+            for key, (q0, l0) in open_keys.items():
+                net[key] = (q0, l0)
+            for l in run["book"] + [x["leg"] for x in legs if x["leg"]]:
+                key = contract_key(l["contract"])
+                q0, l0 = net.get(key, (0.0, None))
+                net[key] = (q0 + l["qty"], l0 or l["lot_size"])
+            sl = side_lots(net).get(u) or {}
+            x = lim["max_lots_per_underlying"]
+            worst_side = max(sl.items(), key=lambda kv: kv[1]) if sl else None
+            summary["lots_after"] = {b: round(v, 3) for b, v in sl.items()}
+            if x and worst_side and worst_side[1] > x + 1e-9:
+                later.append("lots: %s would hold %s lots of %s (open + this batch), over your %s lots per underlying"
+                             % (u, _num(round(worst_side[1], 3)), worst_side[0], _num(x)))
+            # margin against the cash left after the buffer
+            margin_use, margin = basket_margin(bl, today, c, extra.get("strategy"),
+                                               bool(c.get("margin_use_upper_bound", True)))
+            base = capital or (acct["cash"] + sum(acct["values"].values()))
+            buffer_rs = base * float(c.get("cash_buffer_pct") or 0) / 100.0
+            avail = acct["cash"] - open_margin - buffer_rs
+            margin.update({"available": round_paise(avail), "cash": round_paise(acct["cash"]),
+                           "open_margin": round_paise(open_margin), "buffer": round_paise(buffer_rs)})
+            summary["margin"] = margin
+            if margin_use > avail + PAISA:
+                later.append("margin: the basket needs about %s (%s, %s) but only %s is free after your %s%% cash "
+                             "buffer%s" % (inr(margin_use), margin["used_is"], margin["source"], inr(max(avail, 0)),
+                                           _num(c.get("cash_buffer_pct") or 0),
+                                           (" and %s already blocked" % inr(open_margin)) if open_margin else ""))
+            if today in [l["expiry"] for l in bl]:
+                warns.append("expiry day for %s: %s%s" % (
+                    ", ".join(sorted({contract_label(l["contract"]) for l in bl if l["expiry"] == today})),
+                    "2%% more margin (ELM) on index shorts expiring today (%s)" % inr(margin["expiry_day_elm"])
+                    if margin.get("expiry_day_elm") else "gamma is extreme and Greeks are unreliable in the last hours",
+                    "; no calendar-spread benefit: each expiry is margined on its own (%s)"
+                    % inr(margin["without_calendar_benefit"]) if margin.get("calendar_benefit") is False else ""))
+        elif entry_legs and not valued:
+            later.append("price: some legs could not be valued, so the basket's loss, margin and scenarios are unknown")
+        # the whole book: Greeks and the scenario grid, before and after this basket
+        if book_errors:
+            later.append("scenario: %s; the portfolio's risk is unknown, so no new F&O entries" % "; ".join(book_errors))
+        all_new = [x["leg"] for x in legs if x["leg"]]
+        if all_new and valued and len(unders) == 1:
+            before = holdings_book + run["book"]
+            after = before + all_new
+            gb = book_greeks(before) if before else None
+            ga = book_greeks(after)
+            later.extend(greek_breaches(gb, ga, lim))
+            grid_b = scenario_grid(before, now, c, mk) if before else None
+            grid_a = scenario_grid(after, now, c, mk)
+            wa, wb = grid_a["worst"], (grid_b or {}).get("worst")
+            x = lim["max_scenario_loss"]
+            if x and wa and wa["pnl"] < -x - PAISA and (wb is None or wa["pnl"] < wb["pnl"] - PAISA):
+                later.append("scenario: %s" % scenario_words(wa, x))
+            summary.update({"greeks_after": ga, "worst_scenario_before": wb, "worst_scenario_after": wa})
+            info.append("portfolio after this basket: %s; worst scenario %s" % (
+                ", ".join("%s delta %+.2f lots, vega %s, theta %s/day" % (uu, g["delta_lots"], inr(g["vega"]),
+                                                                           inr(g["theta"]))
+                          for uu, g in sorted(ga["by_underlying"].items())),
+                scenario_words(wa)))
+        if loss is not None:
+            info.insert(0, "basket of %d leg%s on %s, %s: can lose %s (%s)%s" % (
+                len(idxs), "" if len(idxs) == 1 else "s", u, "defined risk" if summary.get("defined_risk") else
+                "NOT defined risk", inr(loss), summary.get("loss_from"),
+                (" (limit %s)" % inr(c["max_loss_per_trade"])) if _f(c.get("max_loss_per_trade")) else ""))
+        if margin:
+            info.insert(1 if loss is not None else 0, "margin about %s (%s, %s), %s free; premium paid %s, received %s"
+                        % (inr(margin_use), margin["used_is"], margin["source"], inr(max(margin["available"], 0)),
+                           inr(paid), inr(received)))
+        summary.update({"premium_paid": round_paise(paid), "premium_received": round_paise(received)})
+        # verdicts: all or nothing
+        own_block = [x["j"] for x in legs if per[x["j"]]["reasons"]]
+        out = {}
+        share = round_paise((loss or 0.0) / len(idxs)) if loss is not None else None
+        for n, x in enumerate(legs):
+            j, o, R = x["j"], x["order"], per[x["j"]]
+            reasons, wl = list(R["reasons"]), list(R["warns"]) + list(warns)
+            group = later + R.get("later", [])
+            if kind == "entry":
+                reasons.extend(group)
+            else:
+                wl.extend("exit, not blocked: " + w for w in group)
+            others = [m + 1 for m in own_block if m != j]
+            if others:
+                reasons.append("basket: leg%s %s %s blocked, and a basket is placed whole or not at all" % (
+                    "s" if len(others) > 1 else "", ", ".join("#%d" % m for m in others),
+                    "are" if len(others) > 1 else "is"))
+            lines = list(info) if n == 0 else ["leg %d of %d of the basket in #%d" % (n + 1, len(idxs), idxs[0] + 1)]
+            l = x["leg"]
+            ml = share
+            if share is not None and n == len(legs) - 1:
+                ml = round_paise(loss - share * (len(idxs) - 1))
+            out[j] = {
+                "index": j + 1, "symbol": (x["contract"] or {}).get("underlying") or str(o.get("symbol", "")).upper(),
+                "side": x["side"], "kind": kind, "product": x["product"],
+                "qty": int(x["qty"]) if x["qty"] is not None else o.get("qty"),
+                "lots": round(x["qty"] / float(x["lot"]), 3) if x["qty"] and x["lot"] else None,
+                "segment": (x["contract"] or {}).get("instrument"),
+                "contract": contract_label(x["contract"]) if x["contract"] else None,
+                "value": round_paise(l["entry"] * abs(l["qty"])) if l else None,
+                "entry_ref": round_paise(l["entry"]) if l else None,
+                "entry_ref_from": ("limit" if x["entry"] is not None else "model") if l else None,
+                "stop": None, "target": None, "risk_per_share": None, "max_loss": ml, "charges": None,
+                "max_loss_with_charges": ml, "reward_risk": None, "fingerprint": fingerprint(o),
+                "basket_id": summary["id"], "basket": summary,
+                "verdict": "BLOCK" if reasons else "PASS", "reasons": reasons, "warnings": wl, "info": lines}
+        if all(r["verdict"] == "PASS" for r in out.values()):
+            if kind == "entry":
+                run["entries"] += 1
+                run["loss"] += loss or 0.0
+                run["premium"] += paid
+                if margin_use:
+                    acct["cash"] -= margin_use
+            run["book"].extend(x["leg"] for x in legs if x["leg"])
+            for x in legs:
+                if x["contract"]:
+                    seen.add((contract_key(x["contract"]), x["side"]))
+        return out
+
     for i, o in enumerate(orders, 1):
+        if (i - 1) in group_of:
+            if (i - 1) not in done:
+                done.update(basket(groups[group_of[i - 1]]))
+            results.append(done[i - 1])
+            continue
         reasons, warns, info, later = [], [], [], []      # later: entry-only, a warning for an exit
         o = o if isinstance(o, dict) else {}
         sym = str(o.get("symbol", "")).strip().upper()
@@ -1072,14 +2461,14 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                                      % _num(min_rr))
             daily = _f(c.get("max_daily_loss"))
             if daily and max_loss is not None:
-                used = loss_today + batch_loss
+                used = loss_today + run["loss"]
                 if used + max_loss > daily + PAISA:
                     later.append("daily loss: %s already at risk today plus %s for this one = %s, over your %s "
                                  "daily loss limit" % (inr(used), inr(max_loss), inr(used + max_loss), inr(daily)))
             cap_t = int(c.get("max_trades_per_day") or 0)
-            if cap_t and len(entries_today) + batch_entries >= cap_t:
+            if cap_t and len(groups_today) + run["entries"] >= cap_t:
                 later.append("trades: %d entries placed today plus %d passed earlier in this batch; your limit "
-                             "is %d a day" % (len(entries_today), batch_entries, cap_t))
+                             "is %d a day" % (len(groups_today), run["entries"], cap_t))
             later.extend(window_for(sym))
             if stop and ref and risk_ps:
                 info.append("entry %s (%s), stop %s, target %s: risk %s a share"
@@ -1092,8 +2481,8 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                                (" (min %s)" % _num(c["min_reward_risk"])) if _f(c.get("min_reward_risk")) else ""))
             if daily or cap_t:
                 info.append("today before this: %d of %s trades, %s of %s daily loss"
-                            % (len(entries_today) + batch_entries, cap_t or "unlimited",
-                               inr(loss_today + batch_loss), inr(daily) if daily else "no limit on"))
+                            % (len(groups_today) + run["entries"], cap_t or "unlimited",
+                               inr(loss_today + run["loss"]), inr(daily) if daily else "no limit on"))
 
         # duplicates and the daily order limit
         key = (sym, side)
@@ -1107,6 +2496,14 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
             later.append("daily limit: %d placed today plus %d passed earlier in this batch; your limit is %d a day"
                          % (count_today, passed_so_far, cap_n))
         seen.add(key)
+        # the kill switch, the circuit-breakers, the order rate and a live broker's API rules
+        later.extend(locks)
+        if sym in breakers["revenge"]:
+            (later if str(c.get("revenge_trade") or "block").lower() == "block" else warns).append(
+                breakers["revenge"][sym])
+        if rate_reason:
+            later.append(rate_reason)
+        later.extend(api_rule(o, sym or "?"))
 
         if kind == "entry":
             reasons.extend(later)
@@ -1116,8 +2513,8 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
         verdict = "BLOCK" if reasons else "PASS"
         if verdict == "PASS" and q is not None:
             if kind == "entry":
-                batch_entries += 1
-                batch_loss += max_loss or 0.0
+                run["entries"] += 1
+                run["loss"] += max_loss or 0.0
             if side == "BUY":
                 if value is not None:
                     acct["cash"] -= value
@@ -1147,19 +2544,71 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
         "block": sum(1 for r in results if r["verdict"] == "BLOCK"),
         "warnings": top_warn,
         "cash_after": round_paise(acct["cash"]),
-        "today": {"orders_placed": count_today, "entries_placed": len(entries_today),
-                  "loss_at_risk": round_paise(loss_today)},
+        "today": {"orders_placed": count_today, "entries_placed": len(groups_today),
+                  "loss_at_risk": round_paise(loss_today), "premium_paid": round_paise(premium_today)},
+        "kill": {"active": bool(kill), "since": (kill or {}).get("at"), "reason": (kill or {}).get("reason")},
+        "breakers": dict(breakers["state"], locks=breakers["locks"], revenge=breakers["revenge"],
+                         limits={k: c.get(k) for k in ("max_consecutive_losses", "max_daily_drawdown_pct",
+                                                        "cooloff_after_stop_min", "revenge_window_min",
+                                                        "revenge_trade", "max_trades_per_day")}),
+        "rate": {"per_second": per_second, "hard_cap": ORDER_RATE_HARD_CAP, "sebi_threshold": SEBI_ORDER_RATE,
+                 "ok_now": rate_ok},
+        "fno": {"allowed": allow_fno, "ban_note": extra.get("ban_note"), "lots_note": extra.get("lots_note"),
+                "banned_today": sorted(ban) if isinstance(ban, (set, list, tuple)) else None},
+        "portfolio": portfolio_risk(holdings_book + run["book"], now, c, mk, book_errors)
+        if (allow_fno and (holdings_book or run["book"] or book_errors)) else None,
     }
+
+
+def grid_lines(grid, indent="  "):
+    """The scenario grid as a small text table (rupees after charges)."""
+    if not grid:
+        return []
+    head = indent + "%-22s" % "spot \\ IV" + "".join("%13s" % ("%+g vol" % v) for v in grid["iv_shifts"])
+    out = [head]
+    for row in grid["rows"]:
+        moves = ", ".join("%+.2f%%" % x for _, x in sorted(row["move_pct"].items()))
+        out.append(indent + "%-22s" % ("%+g sigma (%s)" % (row["sigma"], moves))[:22] +
+                   "".join("%13s" % inr(v).replace("₹", "") for v in row["pnl"]))
+    return out
+
+
+def portfolio_lines(port):
+    if not port:
+        return []
+    lines = []
+    for e in port.get("errors") or []:
+        lines.append("  ! " + e)
+    if not port.get("greeks"):
+        return lines
+    for u, g in sorted(port["greeks"]["by_underlying"].items()):
+        lines.append("  %s: delta %+.2f lots (%s per 1%% move), gamma %+.3f lots per 1%%, vega %s per vol point, "
+                     "theta %s a day" % (u, g["delta_lots"], inr(g["delta_rupees_1pct"]), g["gamma_lots_1pct"],
+                                         inr(g["vega"]), inr(g["theta"])))
+    s = port["scenarios"]
+    lim = port["limits"]
+    lines.append("  scenarios over %s session(s), P&L after charges (sigma: %s):" % (
+        _num(s["horizon_days"]), ", ".join("%s %.2f%%" % (u, v) for u, v in sorted(s["sigma_pct"].items()))))
+    lines.extend(grid_lines(s, "    "))
+    lines.append("  worst: %s (limit %s)" % (scenario_words(s["worst"]),
+                                             inr(lim["max_scenario_loss"]) if lim.get("max_scenario_loss") else "off"))
+    return lines
 
 
 def report(res):
     lines = []
     for w in res["warnings"]:
         lines.append("WARNING: " + w)
-    if res["warnings"]:
+    if (res.get("kill") or {}).get("active"):
+        lines.append("KILL SWITCH ON since %s (%s): every new entry is blocked today; exits still pass."
+                     % (str(res["kill"].get("since") or "")[11:16], res["kill"].get("reason")))
+    for x in (res.get("breakers") or {}).get("locks") or []:
+        lines.append("LOCKED: " + x)
+    if res["warnings"] or (res.get("kill") or {}).get("active") or (res.get("breakers") or {}).get("locks"):
         lines.append("")
     for r in res["results"]:
-        lines.append("%-5s #%d %s %s %s (%s), %s" % (r["verdict"], r["index"], r["side"], r["qty"], r["symbol"],
+        what = r.get("contract") or r["symbol"]
+        lines.append("%-5s #%d %s %s %s (%s), %s" % (r["verdict"], r["index"], r["side"], r["qty"], what,
                                                          r["product"], r["kind"]))
         for x in r.get("info", []):
             lines.append("          " + x)
@@ -1167,6 +2616,10 @@ def report(res):
             lines.append("        - " + x)
         for x in r["warnings"]:
             lines.append("        ~ " + x)
+    if res.get("portfolio"):
+        lines.append("")
+        lines.append("F&O book (open positions + the orders that passed):")
+        lines.extend(portfolio_lines(res["portfolio"]))
     lines.append("")
     lines.append("%d passed, %d blocked at %s IST. Cash after the passed orders: %s (%s account)."
                  % (res["pass"], res["block"], res["now_ist"], inr(res["cash_after"]),
@@ -1213,16 +2666,235 @@ def utf8_console():
                 pass
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(description="Check proposed orders against your limits (trader-risk).")
+def write_json(path, doc):
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    os.replace(tmp, path)
+
+
+def tdir_of(config):
+    return os.path.dirname(config) or "."
+
+
+def gather(a, orders, doc, cfg, today, fetch):
+    """The F&O and behaviour inputs from the trader/ folder (and NSE when fetch is True and needed)."""
+    tdir = tdir_of(a.config)
+    c = merged_config(cfg)
+    portfolio = read_json(a.portfolio, "portfolio", required=False)
+    stock_fno = c.get("allow_fno") and any(
+        (contract_of(o, c)[0] or {}).get("kind") == "stock" for o in orders if isinstance(o, dict) and is_fno(o))
+    any_fno = c.get("allow_fno") and (any(isinstance(o, dict) and is_fno(o) for o in orders) or
+                                      bool(fno_positions(portfolio, c)))
+    ban, ban_note = load_ban(os.path.join(tdir, "fo_secban.json"), today, bool(fetch and stock_fno))
+    lots, lots_note = load_lots(os.path.join(tdir, "fo_mktlots.csv"), bool(fetch and any_fno), today)
+    return portfolio, {
+        "basket": bool(isinstance(doc, dict) and doc.get("basket")),
+        "strategy": read_json(os.path.join(tdir, "strategy.json"), "strategy", required=False),
+        "options": read_json(os.path.join(tdir, "options.json"), "option chain", required=False),
+        "trades": read_json(a.trades, "trades log", required=False),
+        "kill": read_json(a.kill, "kill switch", required=False),
+        "ban": ban, "ban_note": ban_note, "lots": lots, "lots_note": lots_note}
+
+
+def _paths(ap):
     ap.add_argument("--orders", default="trader/orders.json")
     ap.add_argument("--config", default="trader/config.json")
     ap.add_argument("--portfolio", default="trader/portfolio.json",
                     help="your account; if missing, a fresh account funded with the capital")
     ap.add_argument("--prices", default="trader/prices.json")
     ap.add_argument("--state", default="trader/state/broker.json", help="what trader-broker placed today")
+    ap.add_argument("--trades", default="trader/state/trades.json", help="fills with realised P&L (circuit-breakers)")
+    ap.add_argument("--kill", default="trader/state/kill.json", help="the kill switch")
     ap.add_argument("--now", help="pretend it is this IST time, e.g. \"2026-10-29 09:40\"")
     ap.add_argument("--today", help="YYYY-MM-DD (default: today in IST)")
+    ap.add_argument("--offline", action="store_true", help="never ask NSE for the ban list or lot sizes")
+
+
+def cmd_kill(argv):
+    ap = argparse.ArgumentParser(prog="check.py kill", description="Kill switch: block every new entry today.")
+    _paths(ap)
+    ap.add_argument("--reason", help="why, in your words")
+    ap.add_argument("--flatten", action="store_true", help="also build exit tickets with trader-broker's flatten")
+    ap.add_argument("--include-cnc", action="store_true", help="with --flatten: delivery holdings too")
+    ap.add_argument("--plan", default="trader/plan.json")
+    a = ap.parse_args(argv)
+    now = parse_now(a.now)
+    kill = read_json(a.kill, "kill switch", required=False)
+    doc = kill_on(kill, now, a.reason)
+    write_json(a.kill, doc)
+    print("KILL SWITCH ON for %s from %s IST (%s). Every new entry is blocked today; exits still pass. "
+          "Lift it with: check.py unkill" % (doc["date"], now.strftime("%H:%M"), doc["reason"]))
+    if not a.flatten:
+        print("Open positions are untouched. check.py kill --flatten builds exit tickets for them.")
+        return 0
+    ticket = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trader-broker", "ticket.py")
+    if not os.path.isfile(ticket):
+        print("trader-broker is not next to this skill: run its flatten yourself (ticket.py flatten).")
+        return 1
+    import subprocess
+    cmd = [sys.executable, ticket, "flatten", "--orders", a.orders, "--portfolio", a.portfolio, "--config", a.config,
+           "--plan", a.plan] + (["--now", a.now] if a.now else []) + (["--include-cnc"] if a.include_cnc else [])
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out = (p.stdout or b"").decode("utf-8", "replace") + (p.stderr or b"").decode("utf-8", "replace")
+    sys.stdout.write(out if out.endswith("\n") or not out else out + "\n")
+    cfg = read_json(a.config, "config", required=False) or {}
+    fno = fno_positions(read_json(a.portfolio, "portfolio", required=False), cfg)
+    if fno:
+        print("F&O positions to close by hand (trader-broker's flatten covers cash shares): %s." % ", ".join(
+            "%s %+d" % (contract_label(p["contract"]) if p["contract"] else p["name"], int(p["qty"])) for p in fno))
+    print("The exit tickets still go through check.py and your typed yes, one by one.")
+    return 0 if p.returncode == 0 else 1
+
+
+def cmd_unkill(argv, ask=None):
+    ap = argparse.ArgumentParser(prog="check.py unkill", description="Lift today's kill switch (typed confirmation).")
+    ap.add_argument("--kill", default="trader/state/kill.json")
+    ap.add_argument("--yes-text", help="the confirmation, typed by you: the word unkill")
+    ap.add_argument("--now")
+    a = ap.parse_args(argv)
+    now = parse_now(a.now)
+    kill = read_json(a.kill, "kill switch", required=False)
+    typed = a.yes_text
+    if typed is None:
+        if not kill_active(kill, now.date().isoformat()):
+            print("The kill switch is not on today: nothing to lift.")
+            return 0
+        if not sys.stdin.isatty() and ask is None:
+            raise RiskError("no terminal to ask in: pass --yes-text with the word unkill, typed by you")
+        typed = (ask or input)("The kill switch has been on since %s IST (%s). Type unkill to lift it: " % (
+            str(kill.get("at", ""))[11:16], kill.get("reason")))
+    doc, why = kill_off(kill, now, typed)
+    if doc is None:
+        print(why)
+        return 1
+    write_json(a.kill, doc)
+    print("Kill switch lifted at %s IST. New entries are checked by every rule again (the circuit-breakers too)."
+          % now.strftime("%H:%M"))
+    return 0
+
+
+def cmd_refresh(argv):
+    ap = argparse.ArgumentParser(prog="check.py refresh", description="Fetch NSE's F&O ban list and lot sizes.")
+    ap.add_argument("--config", default="trader/config.json")
+    ap.add_argument("--now")
+    a = ap.parse_args(argv)
+    today = parse_now(a.now).date().isoformat()
+    tdir = tdir_of(a.config)
+    ban, note = load_ban(os.path.join(tdir, "fo_secban.json"), today, True)
+    print(note)
+    lots, lnote = load_lots(os.path.join(tdir, "fo_mktlots.csv"), True, today)
+    print(lnote + ("; %d underlyings" % len(lots) if lots else ""))
+    return 0 if ban is not None and lots else 1
+
+
+def cmd_scenarios(argv):
+    ap = argparse.ArgumentParser(prog="check.py scenarios",
+                                 description="Greeks and the scenario grid of your F&O book (read only).")
+    _paths(ap)
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args(argv)
+    now = parse_now(a.now)
+    today = a.today or now.date().isoformat()
+    cfg = read_json(a.config, "config", required=False) or {}
+    doc = read_json(a.orders, "orders", required=False)
+    orders = (doc.get("orders", []) if isinstance(doc, dict) else doc) or []
+    portfolio, extra = gather(a, orders, doc, cfg, today, False)
+    res = scenarios(cfg, portfolio, load_prices(read_json(a.prices, "prices", required=False) or {})[0], now,
+                    extra, orders)
+    if a.json:
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+        return 0
+    for name, key in (("Open F&O positions", "open"), ("Open positions + every F&O proposal in orders.json",
+                                                       "with_proposals")):
+        print(name + ":")
+        port = res[key]
+        lines = portfolio_lines(port)
+        print("\n".join(lines) if lines else "  none")
+    print("Education and tooling, not financial advice.")
+    return 0
+
+
+def scenarios(cfg, portfolio, prices, now, extra=None, orders=None):
+    """Read only: the F&O book's Greeks and scenario grid, open positions alone and with every F&O proposal
+    (as if it filled), plus the kill switch and circuit-breaker state. For the UI and the MCP server."""
+    extra = extra or {}
+    c = merged_config(cfg)
+    today = now.date().isoformat()
+    mk = market_inputs(extra.get("strategy"), extra.get("options"))
+    book, errors = open_book(portfolio, now, mk, prices or {}, c, extra.get("lots"))
+    prop, perr = [], []
+    for o in orders or []:
+        if not (isinstance(o, dict) and is_fno(o)):
+            continue
+        k, why = contract_of(o, c)
+        q = _f(o.get("qty"))
+        if not k or not q:
+            perr.append("order %s: %s" % (o.get("leg") or o.get("symbol"), why or "no qty"))
+            continue
+        signed = q if str(o.get("side", "")).upper() == "BUY" else -q
+        lot = lot_for(extra.get("lots"), k["underlying"], k["expiry"]) or int(_f(o.get("lot_size")) or 0) or None
+        leg, why = book_leg(k, signed, _f(o.get("price")), now, mk, prices or {}, risk_rate(c), lot,
+                            _f(o.get("iv")), _f(o.get("forward")))
+        if leg is None:
+            perr.append(why)
+        else:
+            prop.append(leg)
+    capital = _f(c.get("capital")) or 0.0
+    return {"now_ist": now.strftime("%Y-%m-%d %H:%M"), "open": portfolio_risk(book, now, c, mk, errors),
+            "with_proposals": portfolio_risk(book + prop, now, c, mk, errors + perr),
+            "kill": kill_active(extra.get("kill"), today),
+            "breakers": circuit_breakers(c, extra.get("trades"), today, now, capital),
+            "rate": {"per_second": order_rate(c)[0], "hard_cap": ORDER_RATE_HARD_CAP, "sebi_threshold": SEBI_ORDER_RATE},
+            "disclaimer": "Estimates from a model (Black-76 at today's IV), not a forecast. Education and tooling, "
+                          "not financial advice."}
+
+
+def cmd_rate_gate(argv):
+    ap = argparse.ArgumentParser(prog="check.py rate-gate",
+                                 description="May one more order go to the broker now? (for broker adapters)")
+    ap.add_argument("--config", default="trader/config.json")
+    ap.add_argument("--log", default="trader/state/rate.json", help="when orders were sent")
+    ap.add_argument("--record", action="store_true", help="when allowed, record this send")
+    a = ap.parse_args(argv)
+    c = merged_config(read_json(a.config, "config", required=False) or {})
+    per, warn = order_rate(c)
+    now = datetime.datetime.now(IST)
+    log = read_json(a.log, "order-rate log", required=False) or {}
+    sent = [parse_time(t) for t in log.get("sent") or []]
+    ok, wait = rate_gate(sent, now, per)
+    if warn:
+        print("WARNING: " + warn)
+    if not ok:
+        print("WAIT %.3f s: %d orders a second is your limit (SEBI registers algos above %d)" % (wait, per,
+                                                                                               SEBI_ORDER_RATE))
+        return 1
+    if a.record:
+        keep = [t.isoformat() for t in sent if t and (now - t).total_seconds() < 5] + [now.isoformat()]
+        write_json(a.log, {"sent": keep, "per_second": per})
+    print("OK: send now (%d a second)" % per)
+    return 0
+
+
+COMMANDS = {"kill": cmd_kill, "unkill": cmd_unkill, "refresh": cmd_refresh, "scenarios": cmd_scenarios,
+            "rate-gate": cmd_rate_gate}
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in COMMANDS:
+        try:
+            return COMMANDS[argv[0]](argv[1:])
+        except (RiskError, RulesError) as e:
+            print("check.py: %s" % e, file=sys.stderr)
+            return 1
+    ap = argparse.ArgumentParser(description="Check proposed orders against your limits (trader-risk). Also: "
+                                             "check.py kill | unkill | scenarios | refresh | rate-gate.")
+    _paths(ap)
     ap.add_argument("--out", default="trader/state/risk.json", help="where the verdicts are recorded")
     ap.add_argument("--no-write", action="store_true", help="do not record the verdicts")
     ap.add_argument("--json", action="store_true")
@@ -1231,33 +2903,27 @@ def main(argv=None):
         now = parse_now(a.now)
         if a.today and not re.match(r"^\d{4}-\d{2}-\d{2}$", a.today):
             raise RiskError("--today wants a date like 2026-10-29")
+        today = a.today or now.date().isoformat()
         doc = read_json(a.orders, "orders file (run trader-budget first)")
         orders = doc.get("orders", doc) if isinstance(doc, dict) else doc
         if not isinstance(orders, list) or not orders:
             raise RiskError("no orders in %s" % a.orders)
         cfg = read_json(a.config, "config", required=False) or {}
-        cache = os.path.join(os.path.dirname(a.config) or ".", "fno_stocks.json")
+        cache = os.path.join(tdir_of(a.config), "fno_stocks.json")
         cfg["_fno"] = load_fno_stocks(cfg, cache, fetch=False)[0]
-        portfolio = read_json(a.portfolio, "portfolio", required=False)
+        portfolio, extra = gather(a, orders, doc, cfg, today, not a.offline)
         pdoc = read_json(a.prices, "prices", required=False) or {}
         prices, times = load_prices(pdoc)
         state = read_json(a.state, "broker state", required=False)
-        res = check(orders, cfg, portfolio, prices, state, a.today, now, times)
+        res = check(orders, cfg, portfolio, prices, state, a.today, now, times, extra)
         if pdoc.get("as_of"):
             res["prices_as_of"] = pdoc["as_of"]
         if not a.no_write:
-            d = os.path.dirname(a.out)
-            if d:
-                os.makedirs(d, exist_ok=True)
             rec = dict(res)
             rec["checked_at"] = datetime.datetime.now(datetime.timezone.utc).replace(
                 microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
             rec["orders_file"] = a.orders
-            tmp = a.out + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(rec, fh, indent=2, ensure_ascii=False)
-                fh.write("\n")
-            os.replace(tmp, a.out)
+            write_json(a.out, rec)
     except (RiskError, RulesError) as e:
         print("check.py: %s" % e, file=sys.stderr)
         return 1
