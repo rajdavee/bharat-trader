@@ -1,0 +1,11 @@
+{
+ "id": "yahoo-spark",
+ "url": "https://query2.finance.yahoo.com/v7/finance/spark?symbols=RELIANCE.NS,%5ENSEI&range=1d&interval=5m",
+ "fetched_at": "2026-11-01T02:48:00+05:30",
+ "status": 429,
+ "content_type": "text/html",
+ "elapsed": 0.312,
+ "error": null,
+ "body": "Edge: Too Many Requests",
+ "note": "real: query2 spark with a curl User-Agent, HTTP 429 'Edge: Too Many Requests'"
+}

@@ -30,7 +30,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 28 tools and 5 prompts from
+4. Restart the client. It should list 29 tools and 5 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -109,6 +109,7 @@ message.
 | `broker_status` | **Broker connection.** The live broker connection, read only and without network: the config's broker and mode, for Upstox, Zerodha Kite and Dhan which BT_* environment variables are set (true/false, never the values), what each API can do, the plan notes and the last static-IP preflight. Places nothing. | none | read-only |
 | `broker_holdings` | **Broker holdings.** Delivery holdings read from the live broker's API (Upstox, Zerodha Kite or Dhan): symbol, qty, average, last price, P&L. Read only; needs the user's own token in the server's environment. | `broker`? | read-only; network |
 | `broker_positions` | **Broker positions.** Today's positions read from the live broker's API: symbol, exchange, product, qty, average, P&L. Read only; needs the user's own token in the server's environment. | `broker`? | read-only; network |
+| `doctor` | **Data sources self-test.** Probe every free data source the tools read (NSE equity list, market status, holidays, announcements, board meetings, results, bulk/block deals, PIT, option chain and contract info, lot sizes, F&O list, India VIX history; Yahoo chart, spark and headlines), one polite request each (about 30 s): ok, slow, changed, down or blocked, since when, the tools affected and the fallback in use. Freshness follows the NSE calendar in IST. Read only. | `only`? | read-only; network |
 <!-- tools:end -->
 
 `?` marks an optional argument. Every tool also carries MCP annotations:
@@ -121,8 +122,9 @@ would block (SPAN-style, with `error_pct`); `margin.max_loss` is the exact
 max loss at expiry and is not the margin. To paper-trade a strategy the user writes a proposal
 with `strategy.py ... --orders` or the local UI's "Send to paper", then the
 same flow below: `risk_check`, and `paper_order_confirm` for each leg with
-the user's own typed yes. `doctor` is not on main yet; `mcp/toolkit.py` has a
-marked hook for it.
+the user's own typed yes. `doctor` runs trader-doctor's self-test read only:
+it reads `trader/doctor.json` for "since" but does not update it (the
+command line and the UI do).
 
 ### The paper order flow
 

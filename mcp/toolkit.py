@@ -959,8 +959,18 @@ def t_strategy_price(kit, a, call):
     return _strategy(kit, "strategy_price", {"legs": a.get("legs")}, a)
 
 
-# HOOK: doctor (issue #12) is not on main yet. When it lands, add a read-only `doctor` tool that runs
-# its self-test with --json.
+def t_doctor(kit, a, call):
+    """trader-doctor's self-test, read only: the history in trader/doctor.json is read, not updated."""
+    argv = ["--json", "--no-write", "--history", kit.p("doctor.json")]
+    if a.get("only"):
+        argv += ["--only", a["only"]]
+    if kit.offline:
+        argv += kit.off_args("doctor", "trader-doctor")
+    report, _ = kit.run_json("doctor", argv + kit.now_args("doctor"))
+    bad = [r for r in report.get("sources") or [] if r.get("status") in ("changed", "down", "blocked")]
+    notes = ["%s: %s (%s). Fallback: %s." % (r["name"], r["status"], r["detail"], r.get("fallback_used")
+                                              or r["fallback"]) for r in bad]
+    return report, notes or ["Every data source answered as the tools expect (%s)." % report.get("market")]
 
 
 # ---------------------------------------------------------------- the tool table
@@ -1247,6 +1257,15 @@ def build_tools():
                   "Today's positions read from the live broker's API: symbol, exchange, product, qty, average, P&L. "
                   "Read only; needs the user's own token in the server's environment.",
                   t_broker_positions, broker_arg, data=rows_data))
+    T.append(tool("doctor", "Data sources self-test",
+                  "Probe every free data source the tools read (NSE equity list, market status, holidays, "
+                  "announcements, board meetings, results, bulk/block deals, PIT, option chain and contract info, "
+                  "lot sizes, F&O list, India VIX history; Yahoo chart, spark and headlines), one polite request "
+                  "each (about 30 s): ok, slow, changed, down or blocked, since when, the tools affected and the "
+                  "fallback in use. Freshness follows the NSE calendar in IST. Read only.", t_doctor,
+                  {"only": S("string", "probe only NSE or only Yahoo", enum=["nse", "yahoo"])},
+                  data=obj({"summary": ANY_OBJ, "sources": ANY_LIST, "market": S("string")},
+                           ["summary", "sources"], extra=True)))
     return T
 
 
