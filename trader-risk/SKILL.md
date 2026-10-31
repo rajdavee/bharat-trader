@@ -83,7 +83,7 @@ batch that is fine order by order but breaks a limit together is caught.
 | reward:risk | (entries) (target minus entry) / (entry minus stop) under `min_reward_risk` |
 | daily loss | (entries) the max losses of today's entries plus this one over `max_daily_loss` |
 | trades | (entries) `max_trades_per_day` entries already placed today |
-| window | (entries) before `no_entries_before` (09:30) or after `no_entries_after` (14:45) IST, or NSE is closed |
+| window | (entries) before `no_entries_before` (09:30) or after `no_entries_after` (14:45) IST, later than 15 minutes before the stock's safe flat-by, during an F&O stock's closing auction, or NSE is closed |
 | duplicate | (entries) the same symbol and side twice in one batch, or already placed today |
 | daily limit | (entries) `max_orders_per_day` orders already placed today |
 
@@ -100,7 +100,15 @@ How the numbers work:
 - **Daily loss** counts the full max loss (charges included) of every entry
   placed today, win or lose, as trader-broker logged it.
 - **The market**: NSE's normal session is 09:15 to 15:30 IST, Monday to
-  Friday. The 09:00 to 09:08 pre-open is not used. The 2026 NSE trading
+  Friday. The pre-open (09:00 to 09:08, 09:10 from 7 Sep 2026) is not used.
+- **F&O stocks**: a stock in NSE's F&O list (`fno_stocks` in the config, else
+  trader/fno_stocks.json from the scanner or the entry timer; with neither,
+  every stock counts as one) stops continuous trading at 15:15 from 3 Aug
+  2026 (15:30 from 7 Dec 2026) for the Closing Auction Session. No new entry
+  passes during the auction, nor later than 15 minutes before the safe
+  flat-by: 5 minutes before the earlier of continuous trading's end and your
+  `broker_profile`'s MIS square-off. The block says which. This holds even
+  with the entry window switched off. The 2026 NSE trading
   holidays are built in; add any others to `"extra_holidays"`
   (`["2026-12-31"]`). A day in `"special_sessions"` (`[{"date": "2026-11-08",
   "open": "18:00", "close": "19:00", "name": "Muhurat trading"}]`, timing as

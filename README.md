@@ -11,8 +11,10 @@ ever placed without your yes.
 ![No dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)
 
 - **Free.** No signup, no API key, no paid data. Public NSE data and Yahoo Finance.
-- **Built for India.** IST session 09:15–15:30, NSE holidays, ₹ with lakh/crore
-  grouping, MIS square-off, tick sizes, STT, stamp duty and GST in every number.
+- **Built for India.** IST session 09:15–15:30, the closing auction for F&O
+  stocks (dated, with NSE's circulars), NSE holidays, ₹ with lakh/crore
+  grouping, your broker's MIS square-off, tick sizes, STT, stamp duty and GST
+  in every number.
 - **Plain Python.** Standard library only, Python 3.8+. Every tool runs by hand too.
 - **Safe by default.** Paper trading. A risk check on every order. Your typed yes, every time.
 
@@ -82,7 +84,8 @@ With an agent, just ask: *"scan NSE for breakouts"*, *"any news on Reliance?"*,
 09:15  open          entry watch                            opening range forms (09:15–09:30)
 09:30  entries open  entry triggers → exit → timemachine → budget → risk → broker (your yes)
        in trade      alerts: stop · target · flat-by
-15:10  flat-by       broker flatten                         before MIS auto square-off
+15:10  flat-by       broker flatten                         before MIS auto square-off (earlier with broker_profile)
+15:15  F&O stocks    closing auction to 15:35                continuous trading ends (15:30 from 7 Dec 2026)
 15:30  close
 ```
 

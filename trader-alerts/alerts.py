@@ -26,6 +26,9 @@ Rule types:
   opening_bell    the NSE normal session opened today (09:15 IST; rings once per trading day)
   pre_open        the pre-open session started (09:00 IST); rings once per trading
                   day, only if a check runs before the open
+  closing_auction continuous trading ended for F&O stocks and the Closing Auction
+                  Session began (15:15 IST from 2026-08-03, 15:30 from 2026-12-07);
+                  rings once per trading day, while the auction runs
   time            the IST clock passed "at" (HH:MM) on a trading day (rings once per trading day)
 
 A rule with "date" is only watched on that IST date (rules from a plan are for
@@ -41,7 +44,10 @@ Quotes (free, delayed, unofficial; for alerts only, never for timing an order):
   DIR/yahoo-<SYMBOL>.json (or .json.gz) instead.
 
 NSE calendar: Capital Market segment, normal session 09:15-15:30 IST Mon-Fri,
-pre-open 09:00-09:08, IST = UTC+05:30 all year (no daylight saving). The 2026
+pre-open from 09:00 (order entry to 09:08, to 09:10 from 2026-09-07), IST =
+UTC+05:30 all year (no daylight saving). F&O stocks end continuous trading
+early and close in the Closing Auction Session: the dated table SESSION_RULES
+holds every timing with its NSE/SEBI source. The 2026
 trading holidays are built in (from NSE's holiday master). trader/config.json
 can add "extra_holidays": ["YYYY-MM-DD"] and "special_sessions":
 [{"date": "2026-11-08", "open": "18:00", "close": "19:00", "name": "Muhurat"}]
@@ -99,11 +105,268 @@ NSE_HOLIDAYS = {
     "2026-12-25": "Christmas",
 }
 CALENDAR_YEARS = (2026,)
-PRE_OPEN = datetime.time(9, 0)
-PRE_OPEN_END = datetime.time(9, 8)
-OPEN = datetime.time(9, 15)
-CLOSE = datetime.time(15, 30)
 DEFAULT_FLAT_BY = "15:10"
+
+
+# ---------------------------------------------------------------- dated market rules (same in entry, exit, alerts, risk, timemachine, scanner, broker)
+# Every row holds from its effective_from date (IST) until the next row starts.
+# Times are IST. Segments: "EQ" a cash-market stock with no derivatives, "EQ_FNO"
+# a cash-market stock in NSE's F&O list (the Closing Auction Session applies to
+# it from 2026-08-03), "DERIV" futures and options. The sources are in
+# docs/data-sources.md; when NSE changes a timing, add a row, never edit one.
+
+SESSION_RULES = [
+    {"effective_from": "2000-01-01",
+     "pre_open": {"start": "09:00", "market_orders_until": "09:08", "random_close": ["09:07", "09:08"],
+                  "matching": ["09:08", "09:12"]},
+     "open": "09:15",
+     "continuous_end": {"EQ": "15:30", "EQ_FNO": "15:30", "DERIV": "15:30"},
+     "cas": None,
+     "post_close": ["15:40", "16:00"],
+     "source": "NSE/CMTR/74969 (1 Jul 2026, 'current' pre-open times); NSE/FAOP/74467 (29 May 2026, "
+               "derivatives close moved from 15:30)"},
+    {"effective_from": "2026-08-03",
+     "pre_open": {"start": "09:00", "market_orders_until": "09:08", "random_close": ["09:07", "09:08"],
+                  "matching": ["09:08", "09:12"]},
+     "open": "09:15",
+     "continuous_end": {"EQ": "15:30", "EQ_FNO": "15:15", "DERIV": "15:40"},
+     "cas": {"start": "15:15", "orders_from": "15:20", "limit_only_from": "15:25", "random_close": ["15:28", "15:30"],
+             "end": "15:35"},
+     "post_close": ["15:50", "16:00"],
+     "source": "SEBI circular 16 Jan 2026 para 4.2 and 6.1 (NSE/CMTR/72394); NSE/FAOP/74467; go-live NSE/CMTR/75479 "
+               "and NSE/FAOP/75472 (30 Jul 2026)"},
+    {"effective_from": "2026-09-07",
+     "pre_open": {"start": "09:00", "market_orders_until": "09:05", "random_close": ["09:08", "09:10"],
+                  "matching": ["09:10", "09:12"]},
+     "open": "09:15",
+     "continuous_end": {"EQ": "15:30", "EQ_FNO": "15:15", "DERIV": "15:40"},
+     "cas": {"start": "15:15", "orders_from": "15:20", "limit_only_from": "15:25", "random_close": ["15:28", "15:30"],
+             "end": "15:35"},
+     "post_close": ["15:50", "16:00"],
+     "source": "SEBI circular 16 Jan 2026 para 5 and 6.2 (NSE/CMTR/72394); NSE/CMTR/74969 (1 Jul 2026); "
+               "NSE/CMTR/76187 (4 Sep 2026)"},
+    {"effective_from": "2026-12-07",
+     "pre_open": {"start": "09:00", "market_orders_until": "09:05", "random_close": ["09:08", "09:10"],
+                  "matching": ["09:10", "09:12"]},
+     "open": "09:15",
+     "continuous_end": {"EQ": "15:30", "EQ_FNO": "15:30", "DERIV": "15:45"},
+     "cas": {"start": "15:30", "orders_from": "15:31", "limit_only_from": "15:36", "random_close": ["15:38", "15:40"],
+             "end": "15:40"},
+     "expiring_index_derivatives_end": "15:30",
+     "post_close": ["15:50", "16:00"],
+     "source": "SEBI circular HO/47/11/11(3)2025-MRD-POD2/I/23843/2026 (15 Oct 2026) para 4.2 and 6.1; "
+               "Zerodha bulletin 16 Oct 2026"},
+]
+
+# Brokers' MIS auto square-off, IST, by segment. A date before a broker's first
+# row uses that first row. Brokers move these without much notice: check yours.
+BROKER_SQUARE_OFF = {
+    "zerodha": [
+        {"effective_from": "2026-08-03", "EQ_FNO": "15:10", "EQ": "15:25", "DERIV": "15:26",
+         "source": "Zerodha product update 10 Aug 2026 (CAS stocks were 15:10)"},
+        {"effective_from": "2026-08-10", "EQ_FNO": "15:12", "EQ": "15:25", "DERIV": "15:26",
+         "source": "support.zerodha.com intraday-auto-square-off-timings (read 1 Nov 2026)"}],
+    "upstox": [
+        {"effective_from": "2026-08-03", "EQ_FNO": "15:05", "EQ": "15:20", "DERIV": "15:20",
+         "source": "upstox.com announcement 4 Sep 2026 (old times)"},
+        {"effective_from": "2026-09-11", "EQ_FNO": "15:10", "EQ": "15:25", "DERIV": "15:25",
+         "source": "upstox.com announcement 4 Sep 2026, effective 11 Sep 2026"}],
+    "dhan": [
+        {"effective_from": "2026-08-03", "EQ_FNO": "15:10", "EQ": "15:10", "DERIV": "15:25",
+         "source": "dhan.co support: what-are-the-dhan-intraday-auto-square-off-timings (read 1 Nov 2026)"}],
+    "angel": [
+        {"effective_from": "2026-08-03", "EQ_FNO": "15:10", "EQ": "15:10", "DERIV": "15:20",
+         "source": "smartapi.angelone.in forum post 19209 (CAS changes from 3 Aug 2026)"}],
+    "groww": [
+        {"effective_from": "2026-08-03", "EQ_FNO": "15:05", "EQ": "15:20", "DERIV": "15:20",
+         "source": "groww.in/p/risk-policy (read 1 Nov 2026)"}],
+}
+BROKER_PROFILES = tuple(sorted(BROKER_SQUARE_OFF)) + ("custom",)
+SEGMENTS = ("EQ", "EQ_FNO", "DERIV")
+RULES_DEFAULT_FLAT_BY = "15:10"   # the config's default flat_by
+SQUARE_OFF_MARGIN_MIN = 5    # flat by at least this long before the broker's square-off
+ENTRY_LEAD_MIN = 15          # and stop new entries this long before the flat-by
+FNO_LIST_URL = "https://www.nseindia.com/api/master-quote"
+FNO_LIST_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like "
+                                  "Gecko) Chrome/130 Safari/537.36",
+                    "Accept": "application/json", "Referer": "https://www.nseindia.com/"}
+
+
+class RulesError(ValueError):
+    pass
+
+
+def _rule_time(text, what="time"):
+    try:
+        h, m = str(text).strip().split(":")
+        return datetime.time(int(h), int(m))
+    except (ValueError, TypeError):
+        raise RulesError("%s wants an IST time like 15:10, not %r" % (what, text))
+
+
+def _rule_day(d):
+    return d if isinstance(d, str) else d.isoformat()
+
+
+def _rule_minus(t, minutes):
+    dt = datetime.datetime.combine(datetime.date(2000, 1, 3), t) - datetime.timedelta(minutes=minutes)
+    return dt.time()
+
+
+def _dated_row(rows, d):
+    day = _rule_day(d)
+    pick = rows[0]
+    for row in rows:
+        if row["effective_from"] <= day:
+            pick = row
+    return pick
+
+
+def session_for(d, segment="EQ"):
+    """The NSE session rules that hold on date d for one segment, as datetime.time values:
+    pre_open (start, order entry end), open, continuous_end (the last continuous-trading
+    minute), close (when the segment's day is over: the auction's end for EQ_FNO under CAS),
+    cas (dict or None), post_close (start, end), rule_from and source."""
+    seg = str(segment or "EQ").upper()
+    if seg not in SEGMENTS:
+        raise RulesError("segment is one of %s, not %r" % (", ".join(SEGMENTS), segment))
+    row = _dated_row(SESSION_RULES, d)
+    cts_end = _rule_time(row["continuous_end"][seg])
+    cas = None
+    if seg == "EQ_FNO" and row.get("cas"):
+        cas = {k: ([_rule_time(x) for x in v] if isinstance(v, list) else _rule_time(v))
+               for k, v in row["cas"].items()}
+    po = row["pre_open"]
+    return {"date": _rule_day(d), "segment": seg, "rule_from": row["effective_from"], "source": row["source"],
+            "pre_open": (_rule_time(po["start"]), _rule_time(po["random_close"][1])),
+            "pre_open_market_orders_until": _rule_time(po["market_orders_until"]),
+            "open": _rule_time(row["open"]), "continuous_end": cts_end,
+            "close": cas["end"] if cas else cts_end, "cas": cas,
+            "post_close": tuple(_rule_time(x) for x in row["post_close"])}
+
+
+def segment_of(symbol, fno_stocks):
+    """EQ_FNO when the stock is in the F&O list. With no list at all, EQ_FNO too:
+    its earlier close is the safe side to be wrong on."""
+    if fno_stocks is None:
+        return "EQ_FNO"
+    return "EQ_FNO" if str(symbol or "").strip().upper() in fno_stocks else "EQ"
+
+
+def square_off_for(d, segment, cfg):
+    """(time, "zerodha: source") of the broker's MIS auto square-off, or (None, "") with no profile."""
+    cfg = cfg or {}
+    name = str(cfg.get("broker_profile") or "").strip().lower()
+    if not name:
+        return None, ""
+    seg = str(segment or "EQ").upper()
+    if name == "custom":
+        custom = cfg.get("square_off") or {}
+        if not isinstance(custom, dict) or not custom.get(seg):
+            raise RulesError('broker_profile "custom" needs "square_off": {"EQ": "15:20", "EQ_FNO": "15:10", '
+                             '"DERIV": "15:25"} (your broker\'s MIS square-off times, IST)')
+        return _rule_time(custom[seg], "square_off %s" % seg), "custom: square_off in your config"
+    if name not in BROKER_SQUARE_OFF:
+        raise RulesError("broker_profile is one of %s, not %r" % (", ".join(BROKER_PROFILES), name))
+    row = _dated_row(BROKER_SQUARE_OFF[name], d)
+    return _rule_time(row[seg]), "%s: %s" % (name, row["source"])
+
+
+def safe_flat_by(d, segment, cfg):
+    """(flat_by time, note). The latest safe time is the earlier of continuous trading's
+    end and the broker's square-off, each less the margin (5 minutes). flat_by "auto"
+    takes it; flat_by (15:10 when missing) later than it is pulled in, with a note."""
+    cfg = cfg or {}
+    margin = int(cfg.get("square_off_margin_min", SQUARE_OFF_MARGIN_MIN) or 0)
+    s = session_for(d, segment)
+    safe, why = _rule_minus(s["continuous_end"], margin), "continuous trading ends %s" % s["continuous_end"].strftime("%H:%M")
+    sq, src = square_off_for(d, segment, cfg)
+    if sq is not None and _rule_minus(sq, margin) < safe:
+        safe, why = _rule_minus(sq, margin), "%s squares off MIS at %s" % (src.split(":")[0], sq.strftime("%H:%M"))
+    want = cfg.get("flat_by") or RULES_DEFAULT_FLAT_BY
+    if want == "auto":
+        return safe, "%s (%d min before: %s)" % (safe.strftime("%H:%M"), margin, why)
+    t = _rule_time(want, "flat_by")
+    if t > safe:
+        return safe, "flat_by %s is too late on %s for this stock: %s, so flat by %s" % (
+            t.strftime("%H:%M"), _rule_day(d), why, safe.strftime("%H:%M"))
+    return t, ""
+
+
+def entry_cutoff(d, segment, cfg):
+    """The last time for a new entry: no_entries_after, but at least ENTRY_LEAD_MIN before the safe flat-by."""
+    cfg = cfg or {}
+    flat, _ = safe_flat_by(d, segment, cfg)
+    late = _rule_minus(flat, ENTRY_LEAD_MIN)
+    want = cfg.get("no_entries_after")
+    t = _rule_time(want, "no_entries_after") if want else late
+    return min(t, late)
+
+
+def parse_fno_list(text):
+    """NSE master-quote JSON (a list of F&O underlying symbols) -> set of symbols."""
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        raise RulesError("the NSE F&O list is not JSON")
+    if isinstance(doc, dict):
+        doc = doc.get("symbols") or doc.get("data") or []
+    syms = {str(x).strip().upper() for x in doc if isinstance(x, str) and x.strip()}
+    if len(syms) < 50:
+        raise RulesError("the NSE F&O list has only %d symbols: not trusting it" % len(syms))
+    return syms
+
+
+def fetch_fno_stocks(timeout=20):
+    """NSE's F&O underlying list, live. One polite request; raises RulesError on failure."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(FNO_LIST_URL, headers=FNO_LIST_HEADERS)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return parse_fno_list(r.read().decode("utf-8", "replace"))
+    except (urllib.error.URLError, OSError) as e:
+        raise RulesError("could not fetch the NSE F&O list (%s)" % (getattr(e, "reason", None) or e))
+
+
+def load_fno_stocks(cfg=None, cache_path=None, fetch=False, today=None):
+    """(set of F&O stock symbols or None, note). The config's "fno_stocks" list wins.
+    Else the cache (trader/fno_stocks.json), refreshed from NSE at most once a day when
+    fetch is True. None means unknown: callers then treat every stock as EQ_FNO."""
+    cfg = cfg or {}
+    own = cfg.get("fno_stocks")
+    if isinstance(own, list) and own:
+        return {str(x).strip().upper() for x in own}, "F&O list from fno_stocks in your config"
+    today = _rule_day(today or datetime.date.today())
+    cached, fetched = None, None
+    if cache_path and os.path.exists(cache_path):
+        try:
+            with open(cache_path, encoding="utf-8") as fh:
+                doc = json.load(fh)
+            cached, fetched = {str(x).upper() for x in doc.get("symbols") or []} or None, doc.get("fetched")
+        except (OSError, ValueError, AttributeError):
+            cached = None
+    if fetch and (cached is None or fetched != today):
+        try:
+            syms = fetch_fno_stocks()
+        except RulesError as e:
+            if cached is not None:
+                return cached, "F&O list cached %s (%s)" % (fetched, e)
+            return None, "%s: treating every stock as an F&O stock (earlier close)" % e
+        if cache_path:
+            try:
+                os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
+                with open(cache_path, "w", encoding="utf-8") as fh:
+                    json.dump({"source": FNO_LIST_URL, "fetched": today, "symbols": sorted(syms)}, fh, indent=0)
+                    fh.write("\n")
+            except OSError:
+                pass
+        return syms, "F&O list from NSE, %s (%d stocks)" % (today, len(syms))
+    if cached is not None:
+        return cached, "F&O list cached %s (%d stocks)" % (fetched, len(cached))
+    return None, "no F&O list (trader/fno_stocks.json): treating every stock as an F&O stock (earlier close)"
+
+# ---------------------------------------------------------------- end of dated market rules
 
 
 class AlertError(Exception):
@@ -222,7 +485,8 @@ class Calendar(object):
         ok, _ = self.trading_day(d)
         if not ok:
             return None
-        return PRE_OPEN, OPEN, CLOSE, None
+        s = session_for(d, "EQ")
+        return s["pre_open"][0], s["open"], s["close"], None
 
 
 def market_status(now_utc, cal=None):
@@ -241,6 +505,15 @@ def market_status(now_utc, cal=None):
         pre, o, c, special = s
         st.update({"pre_open": pre.strftime("%H:%M"), "opens": o.strftime("%H:%M"), "closes": c.strftime("%H:%M"),
                    "special_session": special})
+        po_end = _rule_minus(o, 7)
+        if not special:
+            rules, fno, der = session_for(d, "EQ"), session_for(d, "EQ_FNO"), session_for(d, "DERIV")
+            po_end = rules["pre_open"][1]
+            st.update({"pre_open_entry_until": po_end.strftime("%H:%M"),
+                       "fno_stocks_continuous_until": fno["continuous_end"].strftime("%H:%M"),
+                       "closing_auction": [fno["cas"]["start"].strftime("%H:%M"), fno["cas"]["end"].strftime("%H:%M")]
+                       if fno["cas"] else None,
+                       "derivatives_close": der["close"].strftime("%H:%M"), "rules_from": fno["rule_from"]})
         now = local.time()
         if o <= now < c:
             st["open"], st["phase"] = True, "open"
@@ -248,7 +521,7 @@ def market_status(now_utc, cal=None):
         elif pre <= now < o:
             st["phase"] = "pre-open"
             st["reason"] = ("pre-open session (order entry until %s, normal session from %s)"
-                            % (_minus(o, 7).strftime("%H:%M"), o.strftime("%H:%M")))
+                            % (po_end.strftime("%H:%M"), o.strftime("%H:%M")))
         elif now < pre:
             st["reason"] = "before the pre-open"
         else:
@@ -471,8 +744,8 @@ def load_calendar(path):
 
 # ---------------------------------------------------------------- rules
 
-RULE_TYPES = {"above", "below", "stop", "target", "pct_move", "opening_bell", "pre_open", "time"}
-NO_QUOTE = {"opening_bell", "pre_open", "time"}
+RULE_TYPES = {"above", "below", "stop", "target", "pct_move", "opening_bell", "pre_open", "closing_auction", "time"}
+NO_QUOTE = {"opening_bell", "pre_open", "closing_auction", "time"}
 
 
 def validate(rule):
@@ -539,6 +812,15 @@ def evaluate(rules, quotes, status, state, now_utc):
                               "(%s IST); the normal session opens at %s." % (status["now_ist"][11:], status["opens"])})
                 rung[rid] = stamp
             continue
+        if typ == "closing_auction":
+            cas = status.get("closing_auction")
+            if (cas and _hhmm(cas[0]) <= local.time() < _hhmm(cas[1])
+                    and not _rang_today(rung.get(rid), today)):
+                rings.append({"id": rid, "symbol": "", "message": "Closing auction: continuous trading in F&O stocks "
+                              "ended at %s IST; the auction runs to %s (limit and market orders, no stop-loss "
+                              "orders). Other stocks trade to %s." % (cas[0], cas[1], status["closes"])})
+                rung[rid] = stamp
+            continue
         if typ == "time":
             at = _hhmm(r.get("at"))
             if status.get("opens") and local.time() >= at and not _rang_today(rung.get(rid), today):
@@ -595,9 +877,11 @@ def _n(x):
     return str(int(x)) if x == int(x) else "%.2f" % x
 
 
-def rules_from_plan(plan, cfg_flat_by=None):
+def rules_from_plan(plan, cfg_flat_by=None, cfg=None, fno_stocks=None):
     """trader/plan.json -> a stop alert, a target alert and a flat-by time alert, for the plan's day.
-    A short plan (side sell/short) gets its stop above and its target below."""
+    A short plan (side sell/short) gets its stop above and its target below. With the plan's
+    date, the flat-by is never later than the safe one for that day (safe_flat_by: continuous
+    trading's end for an F&O stock, the broker_profile's square-off, less 5 minutes)."""
     if not isinstance(plan, dict) or not plan.get("symbol"):
         raise AlertError("the plan has no symbol (run trader-exit first)")
     sym = normalise(plan["symbol"])
@@ -614,8 +898,15 @@ def rules_from_plan(plan, cfg_flat_by=None):
     flat = plan.get("flat_by") or cfg_flat_by or DEFAULT_FLAT_BY
     if _hhmm(flat) is None:
         raise AlertError("the plan's flat_by %r is not a time like 15:10" % flat)
-    out.append({"id": "%s-flat-by" % sym.lower(), "symbol": sym, "type": "time", "at": flat,
-                "label": "flat by %s" % flat})
+    note = ""
+    if plan.get("date") and re.match(r"^\d{4}-\d{2}-\d{2}$", str(plan["date"])):
+        seg = segment_of(sym, fno_stocks)
+        safe, note = safe_flat_by(str(plan["date"]), seg, dict(cfg or {}, flat_by=flat))
+        flat = safe.strftime("%H:%M")
+    rule = {"id": "%s-flat-by" % sym.lower(), "symbol": sym, "type": "time", "at": flat, "label": "flat by %s" % flat}
+    if note:
+        rule["note"] = note
+    out.append(rule)
     if plan.get("date"):
         for r in out:
             r["date"] = str(plan["date"])
@@ -676,6 +967,10 @@ def cmd_clock(a):
             print("Today's session: pre-open %s, normal %s to %s IST%s." % (
                 st["pre_open"], st["opens"], st["closes"],
                 (" (%s)" % st["special_session"]) if st.get("special_session") else ""))
+            if st.get("closing_auction"):
+                print("F&O stocks: continuous trading to %s, then the closing auction %s to %s IST. "
+                      "F&O contracts trade to %s." % (st["fno_stocks_continuous_until"], st["closing_auction"][0],
+                                                     st["closing_auction"][1], st["derivatives_close"]))
         if not st["open"] and st.get("next_open"):
             print("Next open: %s IST." % st["next_open"])
         if st.get("warning"):
@@ -766,8 +1061,10 @@ def cmd_add(a):
         plan = _read(a.plan, None)
         if plan is None:
             raise AlertError("no plan at %s (run trader-exit first)" % a.plan)
-        cfg = _read(a.config, {}) if a.config else {}
-        new = rules_from_plan(plan, (cfg or {}).get("flat_by"))
+        cfg = (_read(a.config, {}) if a.config else {}) or {}
+        cache = os.path.join(os.path.dirname(a.config or "trader/config.json") or ".", "fno_stocks.json")
+        fno, _ = load_fno_stocks(cfg, cache, fetch=False)
+        new = rules_from_plan(plan, cfg.get("flat_by"), cfg, fno)
         ids = {r["id"] for r in new}
         doc["rules"] = [r for r in doc["rules"] if r.get("id") not in ids] + new
         state = _read(a.state, {})
@@ -785,6 +1082,8 @@ def cmd_add(a):
         rule = {"id": a.id or "opening-bell", "type": "opening_bell"}
     elif a.pre_open:
         rule = {"id": a.id or "pre-open", "type": "pre_open"}
+    elif a.closing_auction:
+        rule = {"id": a.id or "closing-auction", "type": "closing_auction"}
     elif a.at:
         if _hhmm(a.at) is None:
             raise AlertError("--at wants an IST time like 15:10")
@@ -794,7 +1093,8 @@ def cmd_add(a):
             rule["symbol"] = normalise(a.symbol)
     else:
         if not a.symbol:
-            raise AlertError("--symbol is required (or --from-plan, --at, --opening-bell, --pre-open)")
+            raise AlertError("--symbol is required (or --from-plan, --at, --opening-bell, --pre-open, "
+                             "--closing-auction)")
         sym = normalise(a.symbol)
         if a.above is not None:
             rule = {"type": "above", "price": a.above}
@@ -903,6 +1203,8 @@ def main(argv=None):
     g.add_argument("--pct", type=float)
     g.add_argument("--opening-bell", action="store_true", help="ring when NSE opens (09:15 IST)")
     g.add_argument("--pre-open", action="store_true", help="ring when the pre-open starts (09:00 IST)")
+    g.add_argument("--closing-auction", action="store_true",
+                   help="ring when F&O stocks leave continuous trading for the closing auction")
     g.add_argument("--at", metavar="HH:MM", help="a time alert, IST")
     g.add_argument("--from-plan", action="store_true", help="stop, target and flat-by from the plan")
     p.add_argument("--plan", default="trader/plan.json")
@@ -926,7 +1228,7 @@ def main(argv=None):
     try:
         return {"clock": cmd_clock, "quote": cmd_quote, "check": cmd_check, "add": cmd_add,
                 "list": cmd_list, "reset": cmd_reset}[a.cmd](a)
-    except AlertError as e:
+    except (AlertError, RulesError) as e:
         print("alerts.py: %s" % e, file=sys.stderr)
         return 1
 

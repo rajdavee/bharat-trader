@@ -34,6 +34,7 @@ skills folder (where this SKILL.md lives).
 ```bash
 python3 "<skill dir>/size.py" init                                # asks, in a terminal
 python3 "<skill dir>/size.py" init --capital 100000 --risk-pct 1 --max-trades 3 --product MIS --yes
+python3 "<skill dir>/size.py" init --capital 100000 --broker-profile zerodha --yes   # your broker's MIS square-off times
 python3 "<skill dir>/size.py"                                     # trader/plan.json + trader/config.json
 python3 "<skill dir>/size.py" --write                             # write trader/orders.json
 python3 "<skill dir>/size.py" --market --write                    # a MARKET entry instead of LIMIT
@@ -75,6 +76,19 @@ Everything else is derived and printed in plain words:
 | `max_orders_per_day` | the larger of 10 and 3 x trades | 10 |
 | `cash_buffer_pct`, `min_order_value`, `min_reward_risk` | defaults | 10%, ₹500, 1.5 |
 | `no_entries_before` / `no_entries_after` / `flat_by` | defaults, IST | 09:30 / 14:45 / 15:10 |
+| `broker_profile` | `--broker-profile` (zerodha, upstox, dhan, angel, groww; empty by default) | "" |
+
+With a `broker_profile`, the session tools flat by 5 minutes before that
+broker's MIS square-off when it is earlier than `flat_by` (Groww squares off
+F&O stocks at 15:05, so 15:00). An F&O stock's continuous trading also ends
+early for the Closing Auction Session (15:15 from 3 Aug 2026, 15:30 from 7
+Dec 2026). See docs/configuration.md for `custom` times, `fno_stocks` and
+`square_off_margin_min`.
+
+The charges helper here also prices futures and options (`segment` "FUT" or
+"OPT") with NSE's dated rates, including the 2026 STT (0.05% futures, 0.15%
+of the option premium, 0.15% of the intrinsic value on exercise). Sizing in
+this pack is still cash equities only.
 
 `init` never overwrites an existing config: it refuses unless `--force` is
 given. It refuses a risk above 5% a trade. Keep `"paper": true` until the

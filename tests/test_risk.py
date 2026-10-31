@@ -247,7 +247,8 @@ class Window(unittest.TestCase):
 
     def test_market_closed(self):
         for now, words in (("2026-10-29 09:05", "market is closed"),          # pre-open is not used
-                           ("2026-10-29 15:30", "market is closed"),
+                           ("2026-10-29 15:35", "market is closed"),
+                           ("2026-10-29 15:30", "the closing auction runs to 15:35"),   # RELIANCE is in F&O
                            ("2026-10-31 10:00", "weekend"),
                            ("2026-11-10 10:00", "Diwali-Balipratipada"),
                            ("2026-10-20 10:00", "Dussehra"),
