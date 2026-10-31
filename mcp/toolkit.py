@@ -545,7 +545,9 @@ def _risk_record(kit):
         raise ToolError("no trader/orders.json to check: make tickets with paper_order_draft")
     argv = ["--orders", kit.p("orders.json"), "--config", kit.p("config.json"), "--portfolio", kit.p("portfolio.json"),
             "--prices", kit.p("prices.json"), "--state", kit.p("state", "broker.json"),
-            "--out", kit.p("state", "risk.json"), "--json"] + kit.ctx.now_args()
+            "--trades", kit.p("state", "trades.json"), "--kill", kit.p("state", "kill.json"),
+            "--out", kit.p("state", "risk.json"), "--json"] + (["--offline"] if kit.ctx.offline else []) + \
+        kit.ctx.now_args()
     data, err = kit.run_json("risk", argv)
     return data, err
 
@@ -556,7 +558,24 @@ def t_risk_check(kit, a, call):
         return data, [err or None, "Recorded in trader/state/risk.json: the paper broker accepts these verdicts today."]
     view = api.r_risk(kit.ctx, {}, None)
     view.pop("disclaimer", None)
-    return view, ["A preview, not recorded. Call with record: true to record the verdicts."]
+    view.pop("scenarios", None)           # risk_scenarios has the F&O book
+    notes = ["A preview, not recorded. Call with record: true to record the verdicts."]
+    if (view.get("kill") or {}).get("active"):
+        notes.append("The kill switch is ON today: every new entry is blocked; exits still pass. Only the user lifts "
+                     "it (check.py unkill, or the local UI, with the typed word unkill).")
+    if ((view.get("breakers") or {}).get("locks")):
+        notes.append("A circuit-breaker locks new entries: %s" % "; ".join(view["breakers"]["locks"]))
+    return view, notes
+
+
+def t_risk_scenarios(kit, a, call):
+    view = api.r_risk(kit.ctx, {}, None)
+    sc = view["scenarios"]
+    which = a.get("book") or "with_proposals"
+    out = {"now_ist": sc["now_ist"], "book": which, "risk": sc.get(which), "limits": view["fno_limits"],
+           "kill": view["kill"], "breakers": sc["breakers"], "rate": sc["rate"]}
+    return out, [sc["disclaimer"], "Read only: nothing is written. The Greeks and the grid are a Black-76 model at "
+                                   "today's IV; P&L is after charges."]
 
 
 def t_paper_orders_show(kit, a, call):
@@ -920,7 +939,8 @@ def _strategy(kit, tool, body, a):
              "calendar's far leg, the SPAN-style margin and both probabilities are models.",
              "To paper-trade it, the user writes a proposal with the CLI (strategy.py ... --orders) or the local UI "
              "(Send to paper); then risk_check and paper_order_confirm, one leg at a time with their typed yes. "
-             "Until trader-risk has F&O rules it blocks option legs unless the config allows F&O."]
+             "trader-risk checks the legs as ONE basket (lots, ban list, premium, margin, Greeks, scenarios) and "
+             "blocks them all unless the config allows F&O (allow_fno)."]
     return doc, notes
 
 
@@ -1036,11 +1056,22 @@ def build_tools():
                   data=obj({"sizing": ANY_OBJ}, ["sizing"], extra=True), network=False))
     T.append(tool("risk_check", "Risk check",
                   "trader-risk on trader/orders.json: every order against your limits (size, loss at stop + charges, "
-                  "reward:risk, daily loss, trades, entry window, duplicates). A preview by default; record: true "
+                  "reward:risk, daily loss, trades, entry window, duplicates), the kill switch, the circuit-breakers "
+                  "(losing streak, daily drawdown, cooling-off, revenge trades) and the order rate; F&O legs as one "
+                  "basket (lots, ban list, premium, margin, Greeks, scenarios). A preview by default; record: true "
                   "records the verdicts the paper broker needs.", t_risk_check,
                   {"record": S("boolean", "record the verdicts in trader/state/risk.json")},
                   data=ANY_OBJ, annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
                   network=False))
+    T.append(tool("risk_scenarios", "Risk scenarios",
+                  "The F&O book's net Greeks (delta lots, gamma, vega, theta) and its P&L after charges on a grid of "
+                  "spot +/-1/2/3 sigma x IV +/-5/10 vol, against your limits; open positions alone or with every F&O "
+                  "proposal in trader/orders.json. Also the kill switch and circuit-breaker state. Read only.",
+                  t_risk_scenarios,
+                  {"book": S("string", "open: open positions only; with_proposals (default): plus every F&O "
+                                       "proposal as if filled", enum=["open", "with_proposals"])},
+                  data=obj({"risk": ANY_OBJ, "limits": ANY_LIST, "kill": ANY_OBJ}, ["risk", "limits", "kill"],
+                           extra=True), network=False))
     T.append(tool("paper_orders_show", "Paper order tickets",
                   "The order tickets in trader/orders.json, in plain words, each with its trader-risk status and "
                   "fingerprint.", t_paper_orders_show, {},

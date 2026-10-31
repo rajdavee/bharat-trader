@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Pre-trade risk check for trader-risk (NSE cash market). Standard library only, no network.
+"""Pre-trade risk check for trader-risk (NSE cash market and F&O). Standard library only; the network only
+for NSE's F&O ban list and lot sizes (cached, once a day; --offline never asks).
 
 Reads the proposed orders (trader/orders.json) and checks every one against
 your rules (trader/config.json), your account (trader/portfolio.json),
@@ -56,6 +57,43 @@ What blocks an entry (on top):
               broker_profile; see entry_cutoff)
   duplicate   the same symbol and side twice in this batch or placed today
   daily limit max_orders_per_day orders placed today
+  kill        the kill switch is on for today (check.py kill)
+  breaker     max_consecutive_losses losing trades in a row today, or a realised loss of
+              max_daily_drawdown_pct of capital; cooling-off: cooloff_after_stop_min minutes
+              after a stop filled; revenge: re-entering a symbol within revenge_window_min of a
+              loss (blocks, or a warning with "revenge_trade": "warn")
+  rate        max_orders_per_second orders already went in the last second (default 3,
+              never above 9: SEBI registers algos above 10 a second)
+  api         a live broker ("paper": false): MARKET / SL-M need market_protection, else LIMIT
+
+F&O ("allow_fno": true). The legs of one basket (orders.json "basket": true, or a shared
+basket_id) are checked as ONE position and pass or block together:
+
+  contract    an NFO contract: symbol + expiry + strike + option_type (trader-strategy's
+              fields) or a trading symbol like NIFTY26NOV23000CE; not expired
+  lot         qty a multiple of the lot for that expiry month (NSE fo_mktlots.csv)
+  ban         a stock underlying in NSE's F&O ban list for today (fo_secban) takes no new
+              positions; with no list known the entry blocks (require_ban_list)
+  stop        defined risk (every short covered by a long) counts as the stop
+              (defined_risk_counts_as_stop); otherwise a risk_rule (max_loss or
+              stop_underlying) or SL / SL-M stops on every short leg
+  naked       uncovered short options need "allow_naked_short": true AND a stop rule
+  loss        the basket's max loss (at expiry for defined risk, at the stop otherwise),
+              charges included, against max_loss_per_trade and max_daily_loss
+  premium     net premium paid against max_premium_per_trade / max_premium_per_day
+  lots        max_lots_per_underlying per side (open positions + this batch)
+  margin      the SPAN-style margin (trader-strategy's estimate when trader/strategy.json is
+              this basket), its upper bound, against the cash left after cash_buffer_pct and
+              margin already blocked. On expiry day: 2% more ELM on index shorts expiring
+              today and no calendar-spread benefit
+  greeks      the book's net delta (lots), gamma, vega and theta after this basket over
+              max_net_delta_lots, max_net_gamma_lots_1pct, max_net_vega, max_theta_paid_per_day,
+              unless the basket reduces it (a hedge always passes)
+  scenario    the book's worst P&L after charges on the grid spot +/-1/2/3 sigma x IV
+              +/-5/10 vol over max_scenario_loss; the reason names the scenario
+
+Also:  check.py kill [--reason ...] [--flatten]   check.py unkill   check.py scenarios
+       check.py refresh (NSE ban list + lot sizes)  check.py rate-gate (for broker adapters)
 
 Exit code 0 when every order passes, 1 when any order is blocked.
 The verdicts go to trader/state/risk.json with a fingerprint of each order,
@@ -118,6 +156,30 @@ DEFAULTS = {
     "extra_holidays": [],
     "special_sessions": [],
     "fno_stocks": [],
+    # behaviour (trader-risk only): locks on new entries, never on exits
+    "max_consecutive_losses": 3,
+    "max_daily_drawdown_pct": 3,
+    "cooloff_after_stop_min": 15,
+    "revenge_window_min": 15,
+    "revenge_trade": "block",
+    "max_orders_per_second": 3,
+    # F&O (trader-risk only; with "allow_fno": true). null = the default in fno_limits(), 0 = off
+    "allow_naked_short": False,
+    "defined_risk_counts_as_stop": True,
+    "require_ban_list": True,
+    "margin_use_upper_bound": True,
+    "max_premium_per_trade": None,
+    "max_premium_per_day": None,
+    "max_lots_per_underlying": None,
+    "max_net_delta_lots": None,
+    "max_net_gamma_lots_1pct": None,
+    "max_net_vega": None,
+    "max_theta_paid_per_day": None,
+    "max_scenario_loss": None,
+    "scenario_sigmas": [1, 2, 3],
+    "scenario_iv_shifts": [5, 10],
+    "scenario_horizon_days": 1,
+    "span": {},
 }
 
 
@@ -1240,6 +1302,12 @@ def book_leg(k, qty, entry, now, mk, prices, rate, lot=None, iv=None, forward=No
         F = F * live / m["spot"]
     if not F and live:
         F, src = live, "trader/prices.json (spot as the forward)"
+    if not F and k["instrument"] == "FUT" and mark:
+        F, src = mark, "the future's own last price"
+    if not F:
+        other = [x for (uu, _), x in sorted(mk.items()) if uu == k["underlying"] and x.get("spot")]
+        if other:
+            F, src = other[0]["spot"], "%s spot as the forward" % (other[0].get("source") or "the chain")
     if not F:
         return None, ("no price for %s: write a fresh chain (trader-options: options.py %s --write) or a strategy "
                       "(trader-strategy --write)" % (k["underlying"], k["underlying"]))
@@ -1247,7 +1315,7 @@ def book_leg(k, qty, entry, now, mk, prices, rate, lot=None, iv=None, forward=No
     leg = {"label": label or contract_label(k), "contract": k, "underlying": k["underlying"], "kind": k["kind"],
            "instrument": k["instrument"], "option_type": k.get("option_type"), "strike": k.get("strike"),
            "expiry": k["expiry"], "qty": float(qty), "lot_size": lot, "F": F, "T": T, "rate": rate,
-           "open": is_open, "source": src, "notes": []}
+           "open": is_open, "source": src, "asof": m.get("asof") if src == m.get("source") else None, "notes": []}
     if k["instrument"] == "OPT":
         sig = iv or m["ivs"].get((k["option_type"], _f(k["strike"]))) if m else iv
         if not sig and T > 0:
@@ -1436,7 +1504,17 @@ def expiry_extremes(legs, cfg, on):
         slope = sum(l["qty"] for l in legs if l["instrument"] == "FUT" or l["option_type"] == "CE")
         if slope < -1e-9:
             return None, None, True
-        pts = sorted({0.0, F0} | {l["strike"] for l in legs if l["strike"]} | {3.0 * F0})
+        # the gross payoff is straight between strikes, so its extremes sit at a strike or at the edge of
+        # the range; searched over the strikes +/- 3.5 standard deviations (trader-strategy's chart range):
+        # far beyond it the STT on a deep in-the-money exercise keeps growing, which is not a real risk
+        import math
+        ivs = [l["iv"] for l in legs if l["instrument"] == "OPT" and l["iv"]]
+        T = max(next(l["T"] for l in legs if l["expiry"] == near), 1.0 / 365)
+        sd = (sum(ivs) / len(ivs) if ivs else 15.0) / 100.0 * math.sqrt(T)
+        strikes = [l["strike"] for l in legs if l["strike"]]
+        lo_x = max(0.0, min(strikes + [F0]) * (1.0 - 3.5 * sd))
+        hi_x = max(strikes + [F0]) * (1.0 + 3.5 * sd)
+        pts = sorted({lo_x, F0, hi_x} | set(strikes))
         lo = min((pnl(x), x) for x in pts)
         return max(0.0, -lo[0]), lo[1], True
     if not defined_risk(legs):
@@ -1444,7 +1522,7 @@ def expiry_extremes(legs, cfg, on):
     h = next(l["T"] for l in legs if l["expiry"] == near)
     worst, at = 0.0, None
     for i in range(241):
-        rel = 0.25 * (12.0 ** (i / 240.0)) - 1.0          # 0.25 x to 3 x the forward
+        rel = 0.5 * (3.0 ** (i / 240.0)) - 1.0           # 0.5 x to 1.5 x the forward
         for dv in (0.0, -5.0):
             v = book_pnl(legs, {legs[0]["underlying"]: rel}, dv, h, cfg, on)
             if v < worst:
@@ -1702,6 +1780,48 @@ def kill_off(kill, now, typed):
     log.append({"at": now.isoformat(timespec="seconds"), "action": "unkill", "typed": typed})
     doc.update({"active": False, "lifted_at": now.isoformat(timespec="seconds"), "log": log[-50:]})
     return doc, None
+
+def revoke_entries(risk_doc, kill):
+    """trader/state/risk.json with every recorded entry PASS turned into a BLOCK by the kill switch, so a
+    verdict recorded before the kill cannot be confirmed after it. Exits keep their verdict. -> (doc, n)."""
+    if not isinstance(risk_doc, dict) or not isinstance(risk_doc.get("results"), list):
+        return risk_doc, 0
+    doc, n = dict(risk_doc), 0
+    why = "kill: the kill switch went on at %s IST (%s): no new entries today; exits still pass" % (
+        str(kill.get("at", ""))[11:16], kill.get("reason") or "no reason given")
+    rows = []
+    for r in doc["results"]:
+        if isinstance(r, dict) and r.get("verdict") == "PASS" and r.get("kind", "entry") == "entry":
+            r = dict(r, verdict="BLOCK", reasons=list(r.get("reasons") or []) + [why])
+            n += 1
+        rows.append(r)
+    doc["results"] = rows
+    doc["pass"] = sum(1 for r in rows if isinstance(r, dict) and r.get("verdict") == "PASS")
+    doc["block"] = sum(1 for r in rows if isinstance(r, dict) and r.get("verdict") == "BLOCK")
+    doc["kill"] = {"active": True, "since": kill.get("at"), "reason": kill.get("reason")}
+    return doc, n
+
+
+def fno_exit_orders(portfolio, cfg=None):
+    """Closing tickets for every open F&O position (the kill switch's --flatten): short legs first, so a
+    hedge is never removed before the leg it covers. MARKET exits; through a live broker's API a market order
+    needs market protection, which the check reports as a warning (an exit is never blocked)."""
+    rows = []
+    for p in fno_positions(portfolio, cfg):
+        k = p["contract"]
+        if not k:
+            continue
+        o = {"symbol": k["underlying"], "exchange": "NFO", "segment": k["instrument"],
+             "instrument": ("OPTIDX" if k["kind"] == "index" else "OPTSTK") if k["instrument"] == "OPT"
+             else ("FUTIDX" if k["kind"] == "index" else "FUTSTK"),
+             "expiry": k["expiry"], "strike": k["strike"], "option_type": k["option_type"],
+             "side": "BUY" if p["qty"] < 0 else "SELL", "qty": int(abs(p["qty"])), "product": "NRML",
+             "order_type": "MARKET", "price": None, "validity": "DAY",
+             "why": "kill switch: closes the open %s position (%+d)" % (contract_label(k), int(p["qty"]))}
+        if p.get("lot_size"):
+            o["lot_size"] = p["lot_size"]
+        rows.append((0 if p["qty"] < 0 else 1, o))
+    return [o for _, o in sorted(rows, key=lambda x: x[0])]
 
 # ---------------------------------------------------------------- end of the F&O and behaviour rules
 
@@ -2050,6 +2170,11 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
         later, info = [], []
         warns = ["F&O order: derivatives can lose more than you put in; the margin and scenario numbers are "
                  "estimates, so check your broker's basket margin too"]
+        old_chain = sorted({str(l["asof"])[:16].replace("T", " ") for l in bl
+                            if l.get("asof") and str(l["asof"])[:10] != today})
+        if old_chain:
+            warns.append("priced from a chain of %s, not today: refresh it (trader-options --write, trader-strategy "
+                         "--write) before trading" % ", ".join(old_chain))
         summary = {"id": fingerprint({"basket": [fingerprint(orders[j]) for j in idxs]}), "legs": [j + 1 for j in idxs],
                    "kind": kind}
         unders = sorted({x["contract"]["underlying"] for x in legs if x["contract"]})
@@ -2085,6 +2210,7 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
         loss = None
         paid = sum(l["entry"] * l["qty"] for l in bl if l["instrument"] == "OPT" and l["qty"] > 0)
         received = sum(-l["entry"] * l["qty"] for l in bl if l["instrument"] == "OPT" and l["qty"] < 0)
+        debit = max(0.0, paid - received)       # the premium budget counts the net premium paid
         margin_use, margin = None, None
         if bl and valued and len(unders) == 1:
             defined = defined_risk(bl)
@@ -2097,7 +2223,7 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
             how = None
             if defined and maxloss is not None:
                 if c.get("defined_risk_counts_as_stop", True):
-                    loss, how = round_paise(maxloss), "defined risk: the most it can lose at expiry, charges included"
+                    loss, how = round_paise(maxloss), "the most it can lose at expiry, charges included"
                 else:
                     loss, how = stop_rule_loss(bl, [x["order"] for x in entry_legs], rule, c, on)
                     if loss is None:
@@ -2132,14 +2258,14 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                     later.append("daily loss: %s already at risk today plus %s for this basket = %s, over your %s "
                                  "daily loss limit" % (inr(used), inr(loss), inr(used + loss), inr(daily)))
             x = lim["max_premium_per_trade"]
-            if x and paid > x + PAISA:
-                later.append("premium: %s of premium paid in this basket, over your %s per trade (max_premium_per_trade)"
-                             % (inr(paid), inr(x)))
+            if x and debit > x + PAISA:
+                later.append("premium: %s net premium paid for this basket (%s paid, %s received), over your %s per "
+                             "trade (max_premium_per_trade)" % (inr(debit), inr(paid), inr(received), inr(x)))
             x = lim["max_premium_per_day"]
-            if x and paid and premium_today + run["premium"] + paid > x + PAISA:
+            if x and debit and premium_today + run["premium"] + debit > x + PAISA:
                 later.append("premium: %s paid today plus %s here = %s, over your %s a day (max_premium_per_day)"
-                             % (inr(premium_today + run["premium"]), inr(paid),
-                                inr(premium_today + run["premium"] + paid), inr(x)))
+                             % (inr(premium_today + run["premium"]), inr(debit),
+                                inr(premium_today + run["premium"] + debit), inr(x)))
             # lots per underlying: open + passed in this batch + this basket
             net = {}
             for key, (q0, l0) in open_keys.items():
@@ -2250,7 +2376,7 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
             if kind == "entry":
                 run["entries"] += 1
                 run["loss"] += loss or 0.0
-                run["premium"] += paid
+                run["premium"] += debit
                 if margin_use:
                     acct["cash"] -= margin_use
             run["book"].extend(x["leg"] for x in legs if x["leg"])
@@ -2681,24 +2807,31 @@ def tdir_of(config):
     return os.path.dirname(config) or "."
 
 
-def gather(a, orders, doc, cfg, today, fetch):
-    """The F&O and behaviour inputs from the trader/ folder (and NSE when fetch is True and needed)."""
-    tdir = tdir_of(a.config)
+def gather_inputs(tdir, orders, doc, cfg, today, fetch=False, portfolio_path=None, trades_path=None,
+                  kill_path=None):
+    """(portfolio, extra): the F&O and behaviour inputs check() takes, read from a trader/ folder (and NSE's
+    ban list and lot sizes when fetch is True and an F&O order or position needs them). The UI and the MCP
+    server call this too, with fetch=False."""
     c = merged_config(cfg)
-    portfolio = read_json(a.portfolio, "portfolio", required=False)
-    stock_fno = c.get("allow_fno") and any(
-        (contract_of(o, c)[0] or {}).get("kind") == "stock" for o in orders if isinstance(o, dict) and is_fno(o))
-    any_fno = c.get("allow_fno") and (any(isinstance(o, dict) and is_fno(o) for o in orders) or
-                                      bool(fno_positions(portfolio, c)))
+    portfolio = read_json(portfolio_path or os.path.join(tdir, "portfolio.json"), "portfolio", required=False)
+    orders = [o for o in (orders or []) if isinstance(o, dict)]
+    stock_fno = c.get("allow_fno") and any((contract_of(o, c)[0] or {}).get("kind") == "stock"
+                                           for o in orders if is_fno(o))
+    any_fno = c.get("allow_fno") and (any(is_fno(o) for o in orders) or bool(fno_positions(portfolio, c)))
     ban, ban_note = load_ban(os.path.join(tdir, "fo_secban.json"), today, bool(fetch and stock_fno))
     lots, lots_note = load_lots(os.path.join(tdir, "fo_mktlots.csv"), bool(fetch and any_fno), today)
     return portfolio, {
         "basket": bool(isinstance(doc, dict) and doc.get("basket")),
         "strategy": read_json(os.path.join(tdir, "strategy.json"), "strategy", required=False),
         "options": read_json(os.path.join(tdir, "options.json"), "option chain", required=False),
-        "trades": read_json(a.trades, "trades log", required=False),
-        "kill": read_json(a.kill, "kill switch", required=False),
+        "trades": read_json(trades_path or os.path.join(tdir, "state", "trades.json"), "trades log", required=False),
+        "kill": read_json(kill_path or os.path.join(tdir, "state", "kill.json"), "kill switch", required=False),
         "ban": ban, "ban_note": ban_note, "lots": lots, "lots_note": lots_note}
+
+
+def gather(a, orders, doc, cfg, today, fetch):
+    """gather_inputs() for the command line's paths."""
+    return gather_inputs(tdir_of(a.config), orders, doc, cfg, today, fetch, a.portfolio, a.trades, a.kill)
 
 
 def _paths(ap):
@@ -2722,6 +2855,7 @@ def cmd_kill(argv):
     ap.add_argument("--flatten", action="store_true", help="also build exit tickets with trader-broker's flatten")
     ap.add_argument("--include-cnc", action="store_true", help="with --flatten: delivery holdings too")
     ap.add_argument("--plan", default="trader/plan.json")
+    ap.add_argument("--risk", default="trader/state/risk.json", help="the recorded verdicts (entry PASSes revoked)")
     a = ap.parse_args(argv)
     now = parse_now(a.now)
     kill = read_json(a.kill, "kill switch", required=False)
@@ -2729,26 +2863,68 @@ def cmd_kill(argv):
     write_json(a.kill, doc)
     print("KILL SWITCH ON for %s from %s IST (%s). Every new entry is blocked today; exits still pass. "
           "Lift it with: check.py unkill" % (doc["date"], now.strftime("%H:%M"), doc["reason"]))
+    rec = read_json(a.risk, "risk verdicts", required=False)
+    if rec:
+        rec, n = revoke_entries(rec, doc)
+        if n:
+            write_json(a.risk, rec)
+            print("Revoked %d recorded entry PASS%s in %s: they cannot be confirmed now." % (
+                n, "" if n == 1 else "es", a.risk))
     if not a.flatten:
         print("Open positions are untouched. check.py kill --flatten builds exit tickets for them.")
         return 0
     ticket = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "trader-broker", "ticket.py")
-    if not os.path.isfile(ticket):
-        print("trader-broker is not next to this skill: run its flatten yourself (ticket.py flatten).")
-        return 1
-    import subprocess
-    cmd = [sys.executable, ticket, "flatten", "--orders", a.orders, "--portfolio", a.portfolio, "--config", a.config,
-           "--plan", a.plan] + (["--now", a.now] if a.now else []) + (["--include-cnc"] if a.include_cnc else [])
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    out = (p.stdout or b"").decode("utf-8", "replace") + (p.stderr or b"").decode("utf-8", "replace")
-    sys.stdout.write(out if out.endswith("\n") or not out else out + "\n")
     cfg = read_json(a.config, "config", required=False) or {}
-    fno = fno_positions(read_json(a.portfolio, "portfolio", required=False), cfg)
+    portfolio = read_json(a.portfolio, "portfolio", required=False)
+    fno = fno_exit_orders(portfolio, cfg)
+    rc = 0
+    if os.path.isfile(ticket):
+        import subprocess
+        cmd = [sys.executable, ticket, "flatten", "--orders", a.orders, "--portfolio", a.portfolio, "--config",
+               a.config, "--plan", a.plan] + (["--now", a.now] if a.now else []) + \
+            (["--include-cnc"] if a.include_cnc else [])
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out = (p.stdout or b"").decode("utf-8", "replace") + (p.stderr or b"").decode("utf-8", "replace")
+        keys = {str(x["name"]).upper() for x in fno_positions(portfolio, cfg) if FNO.match(str(x["name"]).upper())}
+        if p.returncode and fno and "nothing to flatten" in out:
+            out = "No cash positions to flatten.\n"
+        elif p.returncode:
+            rc = 1
+        elif keys:
+            # trader-broker's flatten knows cash shares only: an F&O position keyed by its trading symbol
+            # must not become a cash SELL ticket; it gets its own exit ticket below
+            body = read_json(a.orders, "orders", required=False)
+            if isinstance(body, dict) and isinstance(body.get("orders"), list):
+                keep = [o for o in body["orders"] if str(o.get("symbol", "")).upper() not in keys]
+                if len(keep) != len(body["orders"]):
+                    body["orders"] = keep
+                    write_json(a.orders, body)
+            out = "".join(l for l in out.splitlines(True) if not any(k in l for k in keys)) or \
+                "No cash positions to flatten.\n"
+        sys.stdout.write(out if out.endswith("\n") or not out else out + "\n")
+    else:
+        print("trader-broker is not next to this skill: run its flatten yourself (ticket.py flatten) for cash shares.")
+        rc = 1
     if fno:
-        print("F&O positions to close by hand (trader-broker's flatten covers cash shares): %s." % ", ".join(
-            "%s %+d" % (contract_label(p["contract"]) if p["contract"] else p["name"], int(p["qty"])) for p in fno))
+        body = read_json(a.orders, "orders", required=False) if rc == 0 and os.path.isfile(a.orders) else None
+        if not (isinstance(body, dict) and body.get("created_by") == "trader-broker" and
+                str(body.get("source", "")).startswith("ticket.py flatten")):
+            body = {"created_by": "trader-risk",
+                    "created_at": now.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "status": "proposed", "paper": True, "orders": [],
+                    "note": "Kill-switch exit tickets. Nothing is placed until trader-risk passes each one and you "
+                            "say yes to it.", "source": "check.py kill --flatten on %s" % doc["date"]}
+        body["orders"] = list(body.get("orders") or []) + fno
+        write_json(a.orders, body)
+        for o in fno:
+            print("Close: %s %d %s %s (%s)." % (o["side"], o["qty"], o["symbol"],
+                                                "FUT %s" % o["expiry"] if o["segment"] == "FUT" else
+                                                "%s %s %s" % (_num(o["strike"]), o["option_type"], o["expiry"]),
+                                                "short legs first" if o["side"] == "BUY" else "after the shorts"))
+        print("Wrote %d F&O exit ticket%s to %s. The paper broker takes F&O fills from paper v2; until then "
+              "close them at your broker." % (len(fno), "" if len(fno) == 1 else "s", a.orders))
     print("The exit tickets still go through check.py and your typed yes, one by one.")
-    return 0 if p.returncode == 0 else 1
+    return rc
 
 
 def cmd_unkill(argv, ask=None):

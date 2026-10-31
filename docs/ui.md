@@ -29,7 +29,7 @@ Ctrl-C stops the server cleanly.
 | Chart | Candles and volume at 1m, 5m or 1d; EMA 9 and 21; session VWAP; the opening-range band; the plan's entry, stop and target; trader-entry's breakout status | Yahoo bars through trader-scanner's `yahoo_get`, parsed and evaluated by trader-entry; `trader/plan.json` |
 | Scanner | `trader/watchlist.json` with setups, RSI, turnover, and delayed quotes for the 10 most traded hits | trader-scanner; trader-alerts quotes |
 | Portfolio | Paper cash, positions marked to a delayed price, P&L if closed now after charges, working stop/target legs, order tickets, fills and the decisions log | trader-broker `load_portfolio`, `apply_fill`, `side_charges`, `ticket_json` |
-| Risk | Your limits, the verdicts trader-risk recorded, and a fresh preview (not recorded) | trader-risk `check` |
+| Risk | The kill switch (on, with optional flatten; lifted only with the typed word `unkill`), the circuit-breakers, the F&O book's Greeks gauges against your limits and its scenario heatmap (spot +/-1/2/3 sigma x IV +/-5/10 vol, after charges), your limits, the verdicts trader-risk recorded, and a fresh preview (not recorded) | trader-risk `check`, `scenarios`, `kill`, `unkill` |
 | Settings | Every `trader/config.json` key with its meaning from [configuration.md](configuration.md); validate and save | the skills' own parsers (see below) |
 | Option chain | The chain by expiry with ITM shading, OI bars, OI change, volume, our IV, a Greeks toggle; spot and forward, ATM IV, expected move, straddle, PCR, max pain, call and put walls; the IV smile and the max-pain curve; today's OI build-up | trader-options `fetch_*`, `analyse`, `smile`, `max_pain`, `oi_buildup`, `expiry_table` |
 | Strategy | Template picker or custom legs, a legs editor, the payoff chart (expiry and a chosen date, gross and after charges, spot, forward, breakevens, the 1-SD band), net Greeks, margin with its method and error, PoP textbook vs simulated with EV and 5% tail, IV-shift scenarios, charges, and Send to paper (a proposal) | trader-strategy `template_specs`, `parse_legs`, `resolve_legs`, `evaluate`, `write_orders` |
@@ -74,6 +74,8 @@ free endpoints again.
 | GET | `/api/doctor` | the last data self-test from `trader/doctor.json` (the header's Data badge) |
 | GET | `/api/stream` | Server-Sent Events: `status`, `prices`, `alerts` |
 | POST | `/api/risk/check` | `check.py`: record verdicts in `trader/state/risk.json` |
+| POST | `/api/risk/kill` | `check.py kill`: `{"reason"?, "flatten"?}`; no new entries today, recorded entry PASSes revoked |
+| POST | `/api/risk/unkill` | `check.py unkill`: `{"typed": "unkill"}`, word for word |
 | POST | `/api/prices/refresh` | `alerts.py quote --holdings --write` |
 | POST | `/api/orders/confirm` | `ticket.py confirm` with your typed reply |
 | POST | `/api/orders/decline` | `ticket.py decline` |
@@ -85,8 +87,10 @@ free endpoints again.
 | POST | `/api/doctor/run` | `doctor.py --json`: probe every data source now (about 30 s) and update `trader/doctor.json`; offline it replays `<offline>/doctor/` |
 
 Send to paper never places anything: the proposal goes through Run risk check
-and a typed yes per leg on the Portfolio page, like any other order. Until
-trader-risk has F&O rules it blocks option legs unless `allow_fno` is on.
+and a typed yes per leg on the Portfolio page, like any other order.
+trader-risk blocks option legs unless `allow_fno` is on; with it on, it
+checks the legs as one basket (lots, ban list, premium, margin, Greeks,
+scenarios).
 Payoff, smile and max-pain charts are drawn by `ui/static/js/plot.js` on a
 canvas (no library, no inline styles).
 

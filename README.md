@@ -31,7 +31,7 @@ ever placed without your yes.
 | `trader-exit` | Sets the stop and target before you enter, rounded to the tick, with reward:risk before and after charges. |
 | `trader-timemachine` | Replays the rest of the session 10,000 times from the stock's own last 60 days, plus every past day the setup fired. Honest odds. |
 | `trader-budget` | `init` builds your risk config from your capital. Sizes each trade so the loss at the stop, charges included, fits your limit. |
-| `trader-risk` | PASS or BLOCK for every order: stop, max loss, daily loss, trades per day, entry window, market hours, position size, cash. |
+| `trader-risk` | PASS or BLOCK for every order: stop, max loss, daily loss, trades per day, entry window, market hours, position size, cash; F&O baskets as one position (lots, ban list, expiry day, margin, Greeks, scenarios); circuit-breakers, order rate and a kill switch. |
 | `trader-broker` | Paper broker: plain-language tickets, records your yes, simulates fills with charges, flattens before square-off. |
 | `trader-alerts` | Rings on your stop, your target, the opening bell and your flat-by time. Knows the NSE calendar. |
 | `trader-analyst` | Quarterly results straight from NSE XBRL filings: revenue, margins, profit, EPS, YoY and QoQ, in ₹ crore. |
@@ -71,6 +71,8 @@ python3 trader-exit/exit.py plan --stop or-mid --target 2R --write
 python3 trader-timemachine/timemachine.py run --write
 python3 trader-budget/size.py --write                  # -> trader/orders.json
 python3 trader-risk/check.py                           # PASS / BLOCK
+python3 trader-risk/check.py scenarios                 # F&O Greeks and the spot x IV scenario grid
+python3 trader-risk/check.py kill --reason "on tilt"   # no new entries today (unkill to lift)
 python3 trader-broker/ticket.py show                   # the paper ticket
 python3 trader-alerts/alerts.py add --from-plan        # stop, target, flat by 15:10
 python3 trader-analyst/facts.py TCS                    # last quarters from NSE filings
@@ -96,7 +98,7 @@ See [docs/ui.md](docs/ui.md).
 ## Use it from your AI assistant (MCP)
 
 `mcp/server.py` is a standard-library [MCP](https://modelcontextprotocol.io/)
-server: connect any MCP-compatible AI assistant and it can call 26 tools
+server: connect any MCP-compatible AI assistant and it can call 27 tools
 (market status, scans, news, entry and exit plans, the time machine, sizing,
 risk, the paper broker, option chains, results, insider deals, the strategy lab, the
 data self-test) and 5 prompts
