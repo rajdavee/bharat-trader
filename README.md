@@ -101,12 +101,11 @@ Python 3.8–3.13, Linux, macOS and Windows.
 
 ## Roadmap
 
-- Broker adapters: Zerodha Kite, Upstox, Dhan, Angel One (sandbox or paper first).
-- 2027 NSE holiday calendar once NSE publishes it.
-- BSE coverage.
-- More setups: VWAP reclaim, gap-and-go, previous-day high/low.
-- Index and sector context in the scanner and the Time Machine.
-- F&O support behind explicit opt-in.
+Next up (v0.2.0): F&O options analytics, a strategy builder with after-charges
+payoffs and honest odds, multi-broker paper trading, broker adapters (Upstox,
+Zerodha Kite, Dhan), risk v2 and a local web UI. See
+[docs/roadmap.md](docs/roadmap.md) and the
+[v0.2.0 milestone](https://github.com/rajdavee/bharat-trader/milestone/1).
 
 Ideas and pull requests welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
