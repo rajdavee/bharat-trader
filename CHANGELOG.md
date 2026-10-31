@@ -6,315 +6,137 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-xx
+
+NSE F&O, an honest Strategy Lab, live broker adapters behind gates, a local
+web UI, an MCP server and an agent team. Still standard library only, still
+paper by default.
+
 ### Added
-- Agent team (`agents/`, issue #17): six personas as portable markdown files
-  (frontmatter `name`, `description`, `tools`, `skills`, `mcp-tools`,
-  `metadata`) with a mandate, a routine of exact skill commands and MCP tools,
-  hard limits, hand-offs, a never-do list and a report format:
-  intraday-trader and swing-trader (Strategy Lab WATCH or PROMOTE rules only),
-  options-seller (defined-risk credit structures at IV rank 50+, margin,
-  Greeks and expiry-day rules), researcher (hypotheses into trader-lab, never
-  trades), risk-officer (final veto: trader-risk, `check.py scenarios`,
-  breakers, the kill switch with the user's agreement) and journal-coach
-  (weekly review from the paper logs). None can place a live order.
-- Persona tag: `--persona NAME` on `trader-budget/size.py` and on
-  `trader-strategy/strategy.py build ... --orders`, and a `persona` argument
-  on the MCP tools `paper_order_draft` and `lab_forward`. It rides in each
-  order's `plan` note (not sent, not part of the fingerprint) and is logged
-  in `trader/state/personas.json`.
-- Persona scorecards, read only, rebuilt from `trader/state/trades.json`:
-  closed trades, P&L after every charge, profit factor, expectancy,
-  drawdown, losing streaks, tickets drafted, confirmed and declined, and
-  flags for overtrading, revenge trades, late MIS exits and off-ticket fills.
-  On the UI's Agents page (`g t`, `GET /api/agents`) and the MCP tool
-  `persona_scorecards` (31 tools).
-- MCP prompts `persona_intraday_trader`, `persona_options_seller`,
-  `persona_swing_trader`, `persona_researcher`, `persona_risk_officer` and
-  `persona_journal_coach`: the persona's instructions plus the current
-  context from `trader/` (session, limits, lab verdicts, its scorecard).
-- `docs/agents.md`, `agents/README.md`, and `tests/test_agents.py`: every
-  persona's frontmatter, every skill, tool, command, flag, lab spec, template
-  and config key it names checked against the repo, the scorecards on a
-  fixture trades log, and an offline flow scan -> lab check -> tagged paper
-  draft -> risk -> ticket with nothing placed.
-- `trader-risk` v2 (F&O, behaviour, kill switch). With `allow_fno`, the legs
-  of one basket (orders.json `basket`, or a shared `basket_id`) are checked
-  as ONE position and pass or block together, so a hedged iron condor passes
-  where the same four legs one by one are naked shorts. NFO contracts from
-  trader-strategy's fields or a trading symbol; lot multiples per expiry
-  month from NSE's `fo_mktlots.csv`; NSE's F&O ban list (`fo_secban`, dated
-  file then the current one, cached in `trader/fo_secban.json`; unknown =
-  block, `require_ban_list`); expiry day: 2% more ELM on short index options
-  expiring today and no calendar-spread benefit; premium budget
-  (`max_premium_per_trade`/`_per_day`, net premium); lots per underlying;
-  margin (trader-strategy's estimate when `trader/strategy.json` is the
-  basket, else the same SPAN-style method) against the cash after the buffer
-  and margin already blocked; defined risk counts as the stop
-  (`defined_risk_counts_as_stop`), else a `risk_rule` (`max_loss` or
-  `stop_underlying`) or SL stops; naked shorts need `allow_naked_short` plus
-  a stop rule. Portfolio net delta (lots), gamma, vega and theta limits over
-  open positions + the batch (a hedge always passes), and a scenario grid of
-  spot +/-1/2/3 sigma x IV +/-5/10 vol after charges with `max_scenario_loss`
-  (the reason names the scenario). Circuit-breakers on new entries, never
-  exits: a losing streak (`max_consecutive_losses`), a daily drawdown
-  (`max_daily_drawdown_pct`), cooling-off after a stop, a revenge-trade
-  flag. Order rate `order_rate_per_sec` (3, hard cap 9, under SEBI's 10 a
-  second) and `check.py rate-gate`; with a live broker whose adapter has no
-  market protection (Dhan), MARKET / SL-M orders block. Kill switch: `check.py kill [--reason] [--flatten]`
-  blocks new entries for the day, revokes recorded entry PASSes and can
-  write exit tickets (trader-broker's flatten for cash, short F&O legs before
-  long ones); `check.py unkill` needs the typed word. Also `check.py
-  scenarios` (read only) and `check.py refresh`. Keys in
-  `docs/configuration.md`.
-- Local UI risk panel: kill switch (on, flatten, unkill with the typed
-  word), circuit-breaker state, Greeks gauges against the limits and the
-  scenario heatmap; routes `/api/risk/kill`, `/api/risk/unkill`, and
-  `/api/risk` now carries the F&O book. MCP: `risk_check` covers the new
-  rules and the read-only `risk_scenarios` tool shows the Greeks and the
-  grid.
-- Live broker adapters in `trader-broker/adapters/` (standard library only):
-  Upstox (v2 and v3), Zerodha Kite Connect v3 and Dhan v2, one contract in
-  `base.py` with capability flags (profile, funds, holdings, positions,
-  orders, quotes, history, instruments, basket margin, GTT/OCO, sandbox,
-  order placement), the broker-neutral shapes, normalised errors (token
-  expired, IP not whitelisted, rate limited, insufficient funds, rejected,
-  not in your plan, broker down), a token-bucket rate limiter (orders 3 a
-  second by default, never above 9) and timeouts with retries for reads
-  only. Instrument masters with symbol mapping, NFO included (Kite
-  `NIFTY26N0925000CE`, Upstox `NSE_FO|40037`, Dhan `40037`), joined on NSE's
-  exchange token. Refs #10.
-- `ticket.py accounts`, `funds`, `holdings`, `positions`, `orders` and
-  `instruments` read your real account (`--broker`, `--json`); `login
-  <broker>` is a one-shot 127.0.0.1 browser login that checks `state` and
-  prints `export BT_<BROKER>_ACCESS_TOKEN=...` for your shell (never written
-  to disk); `preflight <broker>` checks the public IP (two echo services must
-  agree) against `static_ip` and the IPs Upstox and Dhan have on record, the
-  token's daily cutoff and one harmless call, and explains SEBI's static-IP
-  and daily-2FA rules in plain words.
-- Live orders, off by default: `ticket.py place --index N` sends one order
-  only when the config broker is that broker, `"paper": false`,
-  `"live_enabled": {"<broker>": true}`, trader-risk passed that exact order
-  today, your typed yes for it is recorded and today's preflight passed with
-  the token in use. With a live config `confirm` only records the yes. One
-  yes, one order; orders are never retried; MARKET and SL-M only with the
-  broker's market protection (Kite, Upstox); `--leg stop|target` after the
-  fill, one exit leg at a time; `cancel`. New config keys `live_enabled`,
-  `static_ip`, `order_rate_per_sec`.
-- Local UI: broker connection on Settings (`/api/broker`: which `BT_*`
-  variables are set, never their values; the last preflight) and your
-  broker's holdings and positions on Portfolio
-  (`/api/broker/holdings`, `/api/broker/positions`), read only. MCP: three
-  read-only tools, `broker_status`, `broker_holdings`, `broker_positions`
-  ; still no order tool.
-- `tests/test_broker_adapters.py`: one contract suite for all three adapters
-  against a local stub HTTP server replaying doc-derived, secret-free
-  fixtures and real instrument-master slices; every live-order gate tested
-  on its own; login, preflight and scrubbing tests; opt-in Upstox and Dhan
-  sandbox smoke tests (`BT_SANDBOX=1`). `docs/brokers.md`: setup per broker,
-  static IP, daily login, sandboxes, plans and costs as of 1 Nov 2026.
-- `trader-strategy`: option strategy builder on the real NSE chain.
-  Templates for bull/bear call and put spreads, long/short straddles and
-  strangles, iron condor, iron fly, call/put butterflies (broken wing with
-  `--skip`), ratio spreads, covered call, protective put and calendars, plus
-  custom legs picked by strike, ATM offset, delta or premium. Payoff at expiry
-  and at any date (Black-76, IV per leg, IV shift), breakevens, max profit and
-  loss with unlimited sides detected, net premium and Greeks, the same curve
-  after the dated 2026 F&O charges (STT on exercise for in-the-money longs)
-  with the breakeven shift and an STT-on-exercise warning; margin required
-  (what a broker would block: a SPAN-style estimate, scan risk on the whole
-  position plus exposure on every short leg, +/-15% index, +/-35% stock,
-  checked against NSE's SPAN file; the premium for bought options only),
-  with the exact max loss and the return on margin shown apart from it; probability of profit textbook
-  (lognormal at IV) vs a seeded bootstrap of the underlying's own daily and
-  five-minute returns with IV-shift scenarios, expected value and 5% tail
-  after charges. `--write` saves `trader/strategy.json`
-  (`bharat-trader/strategy/1`); `--orders` writes broker-neutral NFO
-  proposals for trader-risk and the paper broker. Works copied alone from a
-  trader-options JSON file. See `docs/options.md`.
-- Local UI: the Option chain page (ITM shading, OI bars, OI change, IV, Greeks
-  toggle, PCR, max pain, walls, expected move, IV smile, expiry picker, why
-  panels) and the Strategy builder page (templates, legs editor, payoff gross
-  vs after charges with spot and breakevens, today vs expiry, Greeks, margin
-  required with method and error, max loss and return on margin, PoP textbook vs simulated, Send to paper as a
-  proposal through trader-risk and a typed yes). Routes `/api/options`,
-  `/api/strategy`, `/api/strategy/price`, `/api/strategy/draft`.
-- MCP tools `strategy_build` and `strategy_price` (read only).
-- `mcp/server.py`: an MCP server, standard library only, so any
-  MCP-compatible AI assistant can use bharat-trader. JSON-RPC 2.0 over stdio
-  (logs to stderr only) and optional streamable HTTP on 127.0.0.1 (Host and
-  Origin checks). MCP revision 2026-07-28 (per-request `_meta`,
-  `server/discover`, multi round-trip elicitation, `resultType`, cache hints)
-  plus the handshake-based 2025-11-25, 2025-06-18 and 2025-03-26. 23 tools
-  over the skills' own functions and commands (market status, daily and ORB
-  scans, news, entry check, exit plan, time machine, sizing, risk check,
-  paper tickets, draft and confirm, portfolio, option chain and summary,
-  results, bulk/block deals, PIT disclosures, config, and the strategy lab:
-  `lab_list`, `lab_run` with progress and a time budget, `lab_report`,
-  `lab_forward`, which drafts paper tickets only through `paper_order_draft`)
-  with input and output
-  schemas, structured results and annotations; `trader/*.json` as resources;
-  5 prompts. No live-order tool: `paper_order_confirm` needs the exact
-  risk-PASS fingerprint and the user's typed yes (elicitation when the client
-  supports it). Rate limited; writes only under `<workdir>/trader/`;
-  `--offline DIR` with a per-tool manifest (`tests/fixtures/mcp`). See
-  `docs/mcp.md`.
-- Dated market rules (`SESSION_RULES`, with the NSE or SEBI circular for each
-  row) in entry, exit, alerts, risk, timemachine, scanner and broker, read
-  through `session_for(date, segment)`: the Closing Auction Session for F&O
-  stocks from 2026-08-03 (continuous trading to 15:15, auction to 15:35) and
-  its revision from 2026-12-07 (to 15:30, auction 15:30-15:40), F&O contracts
-  to 15:40 (15:45 from 2026-12-07), and the revised pre-open from 2026-09-07
-  (order entry to 09:10, market orders until 09:05).
-- NSE's F&O stock list (`nseindia.com/api/master-quote`), cached in
-  `trader/fno_stocks.json` and refreshed once a day by online runs, or
-  `fno_stocks` in the config. With no list every stock is treated as an F&O
-  stock (the earlier close).
-- Broker MIS square-off profiles: `broker_profile` zerodha, upstox, dhan,
-  angel, groww or custom (`square_off`), dated, with sources; `size.py init
-  --broker-profile`. The flat-by is never later than 5 minutes
-  (`square_off_margin_min`) before the earlier of the square-off and
-  continuous trading's end, and entries stop 15 minutes before that.
-- `alerts.py add --closing-auction`: a bell when F&O stocks enter the
-  auction. `clock` prints the day's auction and F&O close.
-- F&O charges in the shared charges helper: `round_trip_charges(...,
-  segment="OPT" | "FUT", on=date, exercised=False)` with a dated table
-  (STT from 2026-04-01: 0.15% of the option premium sold, 0.15% of the
-  intrinsic value on exercise, 0.05% on futures sold; NSE transaction charge
-  with IPFT, SEBI fee, stamp duty, GST), overridable with `fno_charges`.
-  Equity results are unchanged.
-
-- `trader-lab` (#16, phase 1): the Strategy Lab. Strategies are plain JSON
-  specs in a small safe rule vocabulary (SMA, EMA, RSI, ATR, VWAP, opening
-  range, previous-day high/low/close, gap %, comparisons, crosses, time
-  windows; nothing is eval'd). A bar-by-bar backtest with no look-ahead
-  (signal on the close, fill at the next open plus slippage), the shared
-  Indian charges on every trade, trader-budget's sizing, one position per
-  stock, MIS flat by the dated safe flat-by (closing auction, broker
-  square-off) and trader-risk's day limits. Robustness: rolling walk-forward,
-  parameter-grid neighbourhood, seeded Monte Carlo reshuffles and bootstrap
-  bands, the deflated Sharpe ratio, the probability of backtest overfitting
-  (CSCV), India VIX and NIFTY trend regimes, costs at 1.5x and 2x.
-  Pre-registered gates give REJECT, WATCH or PROMOTE, with an automatic
-  DEMOTE when the rolling paper forward record decays. `lab.py list | show |
-  validate | run | report | compare | forward`; `forward` drafts trader-exit
-  shaped plans for trader-budget and trader-risk and never places anything.
-  Six library specs (ORB 15m with VWAP, VWAP reclaim, gap fade,
-  previous-day-high breakout, RSI(2) on NIFTY 50 names, 20-day breakout
-  swing): all six are rejected on the fixture data. Writes
-  `trader/lab/<name>/{spec.json, results.json, scorecard.md, equity.csv}`.
-  An `OPTIONS_HOOK` for trader-strategy. Method and limits in `docs/lab.md`.
-
-- `trader-doctor/doctor.py`: a self-test of every data source the tools read
-  (#12). One polite request each to NSE (EQUITY_L, marketStatus, holiday
-  master, corporate announcements, board meetings, integrated-filing results,
-  bulk.csv, block.csv, the deals history, PIT, option contract info and
-  option-chain-v3, fo_mktlots, master-quote, India VIX history) and Yahoo
-  (chart for RELIANCE.NS and ^NSEI, spark, headlines RSS). Checks the shape
-  the tools read, freshness against the NSE calendar in IST (a weekend
-  answer from the last session is fresh) and units; prints ok, slow,
-  changed, down or blocked with since when, the tools affected and the
-  fallback in use (Yahoo query1 is tried when query2 fails). History in
-  `trader/doctor.json`; `--json`, `--only nse|yahoo`, `--offline DIR`
-  (repeatable) and `--record DIR`; exit code 1 on any failure. Backs off
-  5 s on NSE 403/429 and stops asking NSE after a second block.
-- UI: a "Data" badge in the header (the last self-test; click to run it),
-  `GET /api/doctor` and `POST /api/doctor/run`. MCP: the read-only `doctor`
-  tool.
-- Paper broker v2, NSE F&O on paper (#8): options and futures in whole lots,
-  NRML and MIS, positions kept per strategy in signed units. A multi-leg
-  proposal from trader-strategy is ONE basket ticket (`ticket.py show`: every
-  leg, net premium, margin, max loss at expiry with charges, charges) and one
-  typed yes (`confirm --basket`, only when trader-risk passed every leg
-  today); `fill --basket` fills every leg or none, buys first (hedge first).
-  Margin is blocked per strategy (trader-strategy's estimate less the premium
-  paid, or a SPAN-style estimate here, futures included) and released as legs
-  close, with a cash/margin `ledger`. Fill realism: spread-based slippage from
-  the chain's bid/ask (`paper_spread_share`) or `paper_slippage_bps`, MARKET
-  orders turned into a protected LIMIT (`market_protection_pct`, as brokers do
-  for API orders), rejection outside NSE's price band (`trader/bands.csv`,
-  the F&O contract master), optional seeded part fills for single-leg tickets
-  (`paper_partial_fills`). `ticket.py mtm` marks positions to
-  `trader/options.json` with Black-76 Greeks from trader-options, per leg,
-  strategy and portfolio, and the payoff at expiry. `ticket.py adjust` (roll a
-  leg, close a leg, add a hedge, close all) writes a new basket ticket that
-  goes through risk and a yes. `ticket.py settle` settles at NSE's final
-  settlement price (FOSett_prce or the F&O bhavcopy of the expiry day):
-  cash-settled index options, STT on exercise for in-the-money longs, expired
-  legs, futures; a physical-settlement warning for stock options.
-- Broker charge profiles for paper fills (zerodha, upstox, dhan, angel, groww,
-  custom), chosen by the existing `broker_profile`; sources and dates in
-  `ticket.py` and docs/options.md.
-- Shadow mode: `"shadow": true` records a paper twin for every live order
-  `ticket.py place` sends (trader/state/shadow.json; the live order is not
-  changed); `ticket.py shadow-report` puts each next to its live fill.
-- UI: the portfolio page shows F&O by strategy (marks, P&L, Greeks, margin,
-  payoff at expiry) with adjust and close buttons that only write a proposal,
-  and a basket ticket with one yes form; `GET /api/fno`, `POST
-  /api/fno/adjust`. MCP: `portfolio_status` carries the F&O book; new
-  read-only `paper_mtm`.
-
+- **`trader-options`** (#18): the NSE option chain (v3 API) with the
+  exchange's expiries and lot sizes per expiry month; the forward from
+  put-call parity; our own Black-76 IV (bracketed Newton) and Greeks; PCR by
+  OI and volume, max pain, call/put walls, OI build-up, ATM straddle and
+  expected move, IV smile and 25-delta skew, IV rank and percentile from
+  India VIX; stale-spot warnings. `--write` saves `trader/options.json`.
+- **`trader-strategy`** (#26): strategy builder on the real chain (spreads,
+  straddles, strangles, iron condor and fly, butterflies incl. broken wing,
+  ratios, covered call, protective put, calendars, custom legs by strike, ATM
+  offset, delta or premium). Payoff at expiry and at any date, breakevens,
+  max profit and loss, net Greeks; the same after the dated 2026 F&O charges
+  with an STT-on-exercise warning; margin required as a SPAN-style estimate
+  with its error (checked against NSE's SPAN file), shown apart from the
+  exact max loss; probability of profit textbook vs a seeded bootstrap with
+  IV shifts, EV and the 5% tail. `--write`, and `--orders` for broker-neutral
+  NFO proposals.
+- **`trader-lab`** (#25): the Strategy Lab. JSON strategy specs in a safe
+  rule vocabulary; a bar-by-bar backtest with no look-ahead, Indian charges,
+  slippage, trader-budget's sizing and trader-risk's day limits; walk-forward,
+  parameter neighbourhood, Monte Carlo, deflated Sharpe ratio, probability of
+  backtest overfitting (CSCV), VIX and trend regimes, 1.5x/2x costs.
+  Pre-registered gates give REJECT, WATCH or PROMOTE, with DEMOTE when the
+  paper forward record decays. Six library specs (all rejected on the
+  fixture data). `lab.py list | show | validate | run | report | compare | forward`.
+- **`trader-doctor`** (#28): a self-test of every NSE and Yahoo source the
+  tools read: ok, slow, changed, down or blocked, since when, the tools
+  affected and the fallback in use; holiday-aware freshness in IST;
+  `--offline`, `--record`, exit code 1 on failure.
+- **Dated market rules** (#20): `SESSION_RULES` with the NSE or SEBI circular
+  per row, read through `session_for(date, segment)` in every timed skill:
+  the closing auction for F&O stocks from 2026-08-03 and its revision from
+  2026-12-07, the F&O close, the revised pre-open; NSE's F&O stock list
+  (cached daily); broker MIS square-off profiles (`broker_profile`, `size.py
+  init --broker-profile`); `alerts.py add --closing-auction`.
+- **F&O charges** in the shared charges helper: `round_trip_charges(...,
+  segment="OPT" | "FUT", on=date, exercised=False)` with a dated table (STT
+  from 2026-04-01 including 0.15% of intrinsic value on exercise), overridable
+  with `fno_charges`; broker charge profiles for paper fills.
+- **Risk v2** (#30): an F&O basket checked as ONE position (lot multiples
+  from `fo_mktlots.csv`, NSE's ban list, expiry-day ELM, premium budget, lots
+  per underlying, margin against free cash, defined risk as the stop, naked
+  shorts only with a stop rule); portfolio delta, gamma, vega and theta
+  limits and a spot x IV scenario grid after charges; circuit-breakers
+  (losing streak, daily drawdown, cooling-off, revenge flag) on new entries
+  only; an order-rate limit (default 3 a second, cap 9); a kill switch
+  (`check.py kill [--flatten]`, `unkill` with the typed word); `check.py
+  scenarios`, `refresh`, `rate-gate`.
+- **Paper broker v2** (#31): NSE options and futures in whole lots, NRML and
+  MIS; a multi-leg proposal is one basket ticket with one typed yes, filled
+  all or nothing, hedge first; margin blocked per strategy with a cash/margin
+  ledger; spread-based slippage, market protection, price bands, optional
+  seeded part fills; `ticket.py mtm` with Black-76 Greeks; `adjust` (roll,
+  close a leg, add a hedge, close all) through risk and a new yes; `settle`
+  at NSE's final settlement price with STT on exercise; shadow mode and
+  `shadow-report` for live orders.
+- **Live broker adapters** (#29): Upstox (v2/v3), Zerodha Kite Connect v3
+  and Dhan v2 behind one contract with capability flags, normalised errors,
+  rate limiting and instrument masters with NFO symbol mapping. Read-only
+  `ticket.py accounts | funds | holdings | positions | orders | instruments`;
+  `login` (one-shot 127.0.0.1 browser login, token printed for your shell,
+  never written to disk); `preflight` (static IP, token cutoff, one harmless
+  call). A live order only from `ticket.py place` after six gates: config
+  broker, `"paper": false`, `live_enabled`, risk PASS for that exact order,
+  your recorded yes, today's preflight. Opt-in sandbox smoke tests.
+- **Local web UI** (#19, #26, #29, #30, #31): `python3 ui/serve.py --open`.
+  Dashboard, candlestick charts with the plan's levels, scanner and
+  watchlist, option chain, strategy builder with payoff charts, paper
+  portfolio with F&O by strategy and basket tickets, broker holdings and
+  positions (read only), risk panel with the kill switch, Greeks gauges and
+  scenario heatmap, agent team, data badge and a validated settings editor.
+  One route table over the skills' own functions; a "why" panel for every key
+  number; Server-Sent Events; 127.0.0.1 only with Host/Origin checks, CSRF
+  tokens and a strict CSP; `--offline` demo on saved real data. TradingView
+  Lightweight Charts 5.2.1 (Apache-2.0) vendored unmodified.
+- **MCP server** (#24): `mcp/server.py`, standard library only, so any
+  MCP-compatible AI assistant can use the pack. 32 tools, `trader/*.json`
+  resources and 11 prompts; stdio and loopback streamable HTTP; MCP revision
+  2026-07-28 plus 2025-11-25, 2025-06-18 and 2025-03-26. No live-order tool:
+  `paper_order_confirm` needs the exact risk-PASS fingerprint and the user's
+  own yes (elicitation when supported). Rate limited; writes only under
+  `<workdir>/trader/`; `--offline` with a per-tool manifest.
+- **Agent team** (#17): six personas in `agents/` (intraday trader, swing
+  trader, options seller, researcher, risk officer, journal coach) with
+  portable frontmatter, routines of exact commands and MCP tools, hard limits
+  and report formats; `--persona` tags on proposals; persona scorecards after
+  charges with behaviour flags on the UI's Agents page and the
+  `persona_scorecards` tool; one MCP prompt per persona.
+- **Docs** (#13): `docs/getting-started.md` (the first 30 minutes),
+  `docs/README.md` (an index), `docs/options.md`, `docs/brokers.md`,
+  `docs/ui.md`, `docs/mcp.md`, `docs/agents.md`, `docs/lab.md`; a README with
+  a feature overview, three quick starts, an honest comparison table and
+  screenshots; `tests/test_docs.py` checks that every documented command
+  parses with every flag and every relative link resolves.
 
 ### Changed
-- `trader/portfolio.json` has a schema (`bharat-trader/portfolio/2`): cash,
-  share positions, `fno_positions`, `strategies`, `margin_blocked` and
-  `ledger`. Older files are migrated on read; the first write keeps the old
-  file as `portfolio.json.v1.bak`.
-- With `broker_profile` set, paper fills of shares also use that broker's
-  brokerage (for example zero on Zerodha delivery); without it, nothing changes.
-- `ticket.py flatten` names open F&O strategies and the `adjust --close-all`
-  that closes each as one basket (its own tickets stay shares only).
-- A skill may keep helper modules in one subfolder (a package its entry
-  script loads by path), still standard library and self-contained; the repo
-  tests check it.
-- The UI's settings page can no longer change `broker`, `paper` or
-  `live_enabled` (going live is your own edit of the file), and its confirm,
-  like the MCP server's `paper_order_confirm`, refuses a live config.
+- `trader/portfolio.json` has a schema (`bharat-trader/portfolio/2`) with
+  F&O positions, strategies, blocked margin and a ledger; older files are
+  migrated on read and kept as `portfolio.json.v1.bak`.
 - Entry, exit, risk, alerts, timemachine, scanner and broker end an F&O
-  stock's session at continuous trading's end and pull a too-late flat-by in,
-  with a note. trader-risk blocks entries during the closing auction.
-- Tests never go online: `tests/_load.py` swaps the F&O list fetch for a
-  stub, and `tests/test_repo.py` keeps the rules and F&O charge blocks
-  identical in every copy and checks the charges by segment. It now includes
-  trader-lab (order path, Safety block, charges, rules) and checks the lab's
-  sizing against trader-budget's.
-- `trader-options`: NSE option chain (v3 API) with expiries from the exchange's
-  list and lot sizes per expiry month from `fo_mktlots.csv`. Forward from
-  put-call parity, Black-76 implied volatility (bracketed Newton solver, `null`
-  for untradeable quotes) and Greeks (theta per calendar day, vega per vol
-  point), PCR by OI and volume, max pain, call/put walls, OI build-up, ATM
-  straddle and expected move, IV smile and 25-delta skew, IV rank and
-  percentile from India VIX history, stale-spot warnings after 15:30.
-  `--write` saves `trader/options.json` (schema `bharat-trader/options/1`).
-- Config key `risk_free_rate` (default 0.0557).
-- Local web UI, `python3 ui/serve.py --open` (#11, foundation): dashboard (NSE
-  status, NIFTY 50 / BANK NIFTY / INDIA VIX, today's paper P&L, plan, alerts),
-  candlestick chart with volume, EMA, session VWAP, opening-range band and the
-  plan's entry/stop/target (1m, 5m, 1d), scanner and watchlist, paper portfolio
-  and order tickets (risk check, typed yes, decline, paper fill), risk panel and
-  a validated settings editor. Option chain and strategy builder pages describe
-  what v0.2 will show.
-- Every number comes from the skills' own functions through one route table
-  (`ui/api.py`); a "why" panel shows each key number's formula, inputs, source
-  and time. Live updates over Server-Sent Events.
-- Local-first security: binds 127.0.0.1, Host and Origin checks, per-session
-  CSRF token on every write, strict Content-Security-Policy, no CORS, nothing
-  loaded from the internet. `--offline DIR` serves saved real data for demos.
-- TradingView Lightweight Charts 5.2.1 (Apache-2.0) vendored unmodified in
-  `ui/static/vendor/` with its LICENSE, NOTICE and SHA-256.
+  stock's session at continuous trading's end and pull a too-late flat-by
+  in, with a note; trader-risk blocks entries during the closing auction.
+- With `broker_profile` set, paper fills of shares use that broker's
+  brokerage; without it, nothing changes.
+- `ticket.py flatten` names open F&O strategies and the `adjust --close-all`
+  that closes each.
+- The UI's settings page cannot change `broker`, `paper` or `live_enabled`,
+  and the UI's confirm, like `paper_order_confirm`, refuses a live config.
+- A skill may keep helper modules in one subfolder (standard library, still
+  self-contained); `tests/test_repo.py` checks it, and keeps the rules, F&O
+  charge tables and the lab's sizing in sync across copies.
+- New config keys: `allow_fno` and the F&O, Greeks, scenario and breaker
+  limits, `risk_free_rate`, `broker_profile`, `live_enabled`, `static_ip`,
+  `order_rate_per_sec`, `shadow` and the paper-fill keys. See
+  `docs/configuration.md`.
 
 ### Fixed
-- `scan.py orb` found few or no usable charts later in the day, worst on
-  Yahoo's 5-day data for a past session (#23). Yahoo's spark answer leaves out
-  a 5-minute close that lies on the straight line between its neighbours, so
-  the "every bar is there" check failed. Stage 1 now puts those bars back on
-  that line between two bars of the same session; stage 2 still checks each
-  candidate on the full v8 chart, where a missing bar still makes it unusable.
-- Equity exchange transaction charge default is now 0.00307% (#22), the NSE
-  transaction charge plus the IPFT contribution per NSE/FA/73061 (27 Feb
-  2026), in every copy of the charges helper, `config.example.json` and
-  `size.py init`. It was 0.00297%, which left out the ₹10 a crore IPFT part.
-  The worked examples move by a few paise: 42 RELIANCE at the stop now costs
-  ₹52.11 in charges (was ₹52.00). The dated F&O rates are unchanged.
+- `scan.py orb` found few or no usable charts later in the day (#23, #27):
+  Yahoo's spark answer leaves out a 5-minute close that lies on the straight
+  line between its neighbours; stage 1 now restores those bars, and stage 2
+  still checks each candidate on the full chart.
+- Equity exchange transaction charge default is now 0.00307% (#22, #36): NSE's
+  charge plus the IPFT contribution (NSE/FA/73061, 27 Feb 2026), in every copy
+  of the charges helper, `config.example.json` and `size.py init`. Worked
+  examples move by a few paise; the dated F&O rates are unchanged.
 
 ## [0.1.0] - 2026-10-29
 
@@ -333,5 +155,6 @@ All notable changes are documented here. The format follows
   risk checks.
 - Paper broker with broker-neutral order tickets (entry, SL-M stop, LIMIT target).
 
-[Unreleased]: https://github.com/rajdavee/bharat-trader/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/rajdavee/bharat-trader/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/rajdavee/bharat-trader/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/rajdavee/bharat-trader/releases/tag/v0.1.0

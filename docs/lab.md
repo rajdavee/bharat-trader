@@ -181,7 +181,9 @@ bhavcopy through `trader-strategy`. The contract: a spec with
 `"kind": "options"` is handed to `lab.OPTIONS_HOOK(spec, data=..., context=...)`,
 which returns a results dict in this same shape (`full`, `walk_forward`,
 `grid`, `dsr`, `pbo`, `gates`, ...). Until trader-strategy registers the hook,
-such a spec is refused.
+such a spec is refused; that work is
+[#35](https://github.com/rajdavee/bharat-trader/issues/35), with a local F&O
+bhavcopy archive for the history.
 
 ## Using it from code
 
