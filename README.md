@@ -36,6 +36,7 @@ ever placed without your yes.
 | `trader-alerts` | Rings on your stop, your target, the opening bell and your flat-by time. Knows the NSE calendar. |
 | `trader-analyst` | Quarterly results straight from NSE XBRL filings: revenue, margins, profit, EPS, YoY and QoQ, in ₹ crore. |
 | `trader-insider` | NSE bulk and block deals and SEBI insider-trading (PIT) disclosures, flagged when they touch stocks you hold or watch. |
+| `trader-options` | NSE option chain with our own Black-76 IV and Greeks off the put-call-parity forward: PCR, max pain, call/put walls, OI build-up, straddle and expected move, IV smile and IV rank from India VIX. |
 
 ## Install
 
@@ -71,6 +72,8 @@ python3 trader-broker/ticket.py show                   # the paper ticket
 python3 trader-alerts/alerts.py add --from-plan        # stop, target, flat by 15:10
 python3 trader-analyst/facts.py TCS                    # last quarters from NSE filings
 python3 trader-insider/insider.py deals                # today's bulk and block deals
+python3 trader-options/options.py chain NIFTY          # option chain, IV, Greeks, PCR, max pain
+python3 trader-options/options.py iv NIFTY             # IV smile, skew, IV rank from India VIX
 ```
 
 With an agent, just ask: *"scan NSE for breakouts"*, *"any news on Reliance?"*,

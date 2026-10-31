@@ -78,6 +78,7 @@ For each stock and day the tools work out:
 | `allow_fno` | false | Futures and options symbols. |
 | `min_price`, `min_turnover` | 50, 100000000 | Scanner liquidity filter: last close in ₹ and median daily turnover in ₹ (₹10 crore). |
 | `insider_watch_clients` | `[]` | Names to highlight in bulk/block deals. |
+| `risk_free_rate` | 0.0557 | Rate for option pricing (decimal; `5.57` is read as 5.57%). Default: the 91-day T-bill cut-off yield at the 08-Oct-2026 auction. Under Black-76 it only discounts, so small errors barely move IV. |
 
 ## Charges
 

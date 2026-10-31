@@ -19,6 +19,10 @@ of these are official APIs with stability guarantees: when one changes, open a
 | `nsearchives.nseindia.com/content/equities/bulk.csv`, `block.csv` | insider | The latest day's bulk and block deals. |
 | `nseindia.com/api/historicalOR/bulk-block-short-deals` | insider | Bulk and block deals over a date range (`&csv=true` for every row). |
 | `nseindia.com/api/corporates-pit-gg` | insider | SEBI PIT insider-trading disclosures (one row per filing; details are in the linked XBRL). |
+| `nseindia.com/api/option-chain-contract-info?symbol=X` | options | The exchange's expiry list and strikes for one underlying. |
+| `nseindia.com/api/option-chain-v3?type=Indices\|Equity&symbol=X&expiry=DD-Mon-YYYY` | options | One expiry's option chain. OI and volume in contracts. |
+| `nsearchives.nseindia.com/content/fo/fo_mktlots.csv` | options | F&O lot size per underlying per expiry month. |
+| `nseindia.com/api/historicalOR/vixhistory`, `nseindia.com/api/allIndices` | options | India VIX history (70 rows a call) and the live value. |
 | `nseindia.com/api/holiday-master?type=trading` | maintainers | Source of the holiday table shipped in the tools. |
 | `nseindia.com/api/master-quote` | scanner, entry, exit, timemachine (cached in `trader/fno_stocks.json`; read by alerts, risk, broker) | NSE's F&O underlying list: a JSON array of stock symbols (218 on 2026-11-01). These stocks close in the Closing Auction Session. Fetched at most once a day, only by a run that is online anyway. |
 
@@ -97,6 +101,8 @@ reads `charges` from the config. F&O rates are a dated table, `FNO_CHARGES`;
 | Brokerage (a typical discount broker) | ₹20 per executed order | lower of 0.03% and ₹20 per order | | same; set yours in `fno_charges` |
 
 An exercised option has no sell order: the exercise leg pays STT only.
+- **Option chain v3** returns only the expiry asked for. A wrong expiry returns HTTP 200 with no rows and spot 0. `openInterest` and `totalTradedVolume` are in contracts (x lot = units), while the bhavcopy's open interest is in shares. `optionType` is always null. NSE's `impliedVolatility` disagrees between calls and puts and is 0 for skipped strikes; `trader-options` computes its own.
+- **Spot after 15:30.** The cash index stops at 15:30 while equity derivatives trade until 15:40, so the chain's `underlyingValue` is stale against option prices in that window.
 
 ## Calendar
 
