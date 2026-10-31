@@ -39,6 +39,8 @@ of these are official APIs with stability guarantees: when one changes, open a
 - **Banks** use a separate XBRL template (bank flag `B`); the analyst shows NII, operating profit and provisions instead of EBITDA.
 - **The historical bulk-deals JSON caps at 70 rows**; the CSV form returns all of them. NSE's bulk list repeats block trades; they are kept once, labelled block.
 - **PIT holding percentages** in the XBRL are fractions (0.3049 = 30.49 %). Some filers enter the per-share price as the value; those rows are flagged and left out of totals.
+- **Option chain v3** returns only the expiry asked for. A wrong expiry returns HTTP 200 with no rows and spot 0. `openInterest` and `totalTradedVolume` are in contracts (x lot = units), while the bhavcopy's open interest is in shares. `optionType` is always null. NSE's `impliedVolatility` disagrees between calls and puts and is 0 for skipped strikes; `trader-options` computes its own.
+- **Spot after 15:30.** The cash index stops at 15:30 while equity derivatives trade until 15:40, so the chain's `underlyingValue` is stale against option prices in that window.
 
 ## Market rules (dated)
 
@@ -101,8 +103,6 @@ reads `charges` from the config. F&O rates are a dated table, `FNO_CHARGES`;
 | Brokerage (a typical discount broker) | ₹20 per executed order | lower of 0.03% and ₹20 per order | | same; set yours in `fno_charges` |
 
 An exercised option has no sell order: the exercise leg pays STT only.
-- **Option chain v3** returns only the expiry asked for. A wrong expiry returns HTTP 200 with no rows and spot 0. `openInterest` and `totalTradedVolume` are in contracts (x lot = units), while the bhavcopy's open interest is in shares. `optionType` is always null. NSE's `impliedVolatility` disagrees between calls and puts and is 0 for skipped strikes; `trader-options` computes its own.
-- **Spot after 15:30.** The cash index stops at 15:30 while equity derivatives trade until 15:40, so the chain's `underlyingValue` is stale against option prices in that window.
 
 ## Calendar
 
