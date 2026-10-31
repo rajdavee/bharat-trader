@@ -106,7 +106,7 @@ With `include_charges` on (the default), it estimates the round-trip charges
 for the quantity you give with `--qty`, or else the most shares your max
 loss per trade allows at this risk, capped by `max_order_value`. The parts:
 brokerage on each order (0.03% capped at ₹20), STT on the sell side
-(0.025% intraday), exchange transaction charge (0.00297%), SEBI fee (₹10 a
+(0.025% intraday), exchange transaction charge (0.00307%), SEBI fee (₹10 a
 crore), stamp duty on the buy side (0.003% intraday) and 18% GST on
 brokerage, exchange and SEBI fees. CNC (delivery) uses 0.1% STT on both
 sides and 0.015% stamp duty. These are typical discount-broker rates: check
@@ -145,7 +145,7 @@ Exit plan: HDFCBANK (NSE) long, Mon 2026-10-26, opening-range breakout on 5-minu
   Target        ₹698.30  2R (two times the risk)
   Risk a share  ₹2.80 (0.40% of the entry)
   Reward:risk   2.0 gross, 1.38 net of charges
-  Charges       ₹53.15 at the target, ₹52.77 at the stop, round trip on 72 shares (MIS, the most your max loss per trade allows)
+  Charges       ₹53.27 at the target, ₹52.88 at the stop, round trip on 72 shares (MIS, the most your max loss per trade allows)
   Flat by       15:10 IST, win or lose: no overnight hold
   F&O stock     continuous trading ends 15:15, then the closing auction 15:15-15:35 IST: no stop-loss orders there
 ```

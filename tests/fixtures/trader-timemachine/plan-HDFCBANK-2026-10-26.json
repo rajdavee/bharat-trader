@@ -34,25 +34,25 @@
     "at_target": {
       "brokerage": 30.05,
       "stt": 12.57,
-      "exchange": 2.97,
+      "exchange": 3.07,
       "sebi": 0.1,
       "stamp": 1.5,
-      "gst": 5.96,
-      "total": 53.15
+      "gst": 5.98,
+      "total": 53.27
     },
     "at_stop": {
       "brokerage": 29.86,
       "stt": 12.42,
-      "exchange": 2.96,
+      "exchange": 3.06,
       "sebi": 0.1,
       "stamp": 1.5,
-      "gst": 5.93,
-      "total": 52.77
+      "gst": 5.94,
+      "total": 52.88
     },
     "reward_gross": 403.2,
-    "reward_net": 350.05,
+    "reward_net": 349.93,
     "risk_gross": 201.6,
-    "risk_net": 254.37,
+    "risk_net": 254.48,
     "reward_risk_net": 1.38
   },
   "reward_risk_net": 1.38

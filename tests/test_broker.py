@@ -66,7 +66,7 @@ class ExplicitYes(unittest.TestCase):
 
     def test_plain_yes_counts(self):
         for r in ("yes", "Yes.", "YES", "y", "yes place it", "Yes, buy it", "yes RELIANCE", "yes 42 RELIANCE",
-                  "yes 1174.30", "yes 42 at 1,174.30", "yes target 1196.30", "yes max loss 514.00",
+                  "yes 1174.30", "yes 42 at 1,174.30", "yes target 1196.30", "yes max loss 514.11",
                   "yes ₹49,320.60"):
             self.assertTrue(self.yes(r), r)
 
@@ -89,17 +89,17 @@ class TicketShape(unittest.TestCase):
         self.assertEqual(parts[1], "then a stop-loss: SL-M trigger 1163.30")
         self.assertIn("LIMIT 1196.30", parts[2])
         self.assertEqual(parts[3], "order value about ₹49,320.60")
-        self.assertIn("₹462.00 + ₹52.00 charges = ₹514.00", parts[4])
+        self.assertIn("₹462.00 + ₹52.11 charges = ₹514.11", parts[4])
 
     def test_side_charges_add_up_to_the_round_trip(self):
         c = jload(CFG_PATH)
-        # buy 42 at 1174.30 = 49,320.60: brokerage 14.80, exchange 1.46, SEBI 0.05, stamp 1.48, GST 2.94
+        # buy 42 at 1174.30 = 49,320.60: brokerage 14.80, exchange 0.00307% = 1.51, SEBI 0.05, stamp 1.48, GST 2.94
         buy = ticket.side_charges("BUY", 1174.30, 42, c, "MIS")
         self.assertEqual((buy["brokerage"], buy["stt"], buy["exchange"], buy["sebi"], buy["stamp"], buy["gst"],
-                          buy["total"]), (14.80, 0.0, 1.46, 0.05, 1.48, 2.94, 20.73))
+                          buy["total"]), (14.80, 0.0, 1.51, 0.05, 1.48, 2.94, 20.78))
         sell = ticket.side_charges("SELL", 1163.30, 42, c, "MIS")
         whole = ticket.round_trip_charges(1174.30, 1163.30, 42, c)["total"]
-        self.assertEqual(whole, 52.00)
+        self.assertEqual(whole, 52.11)
         self.assertLessEqual(abs(buy["total"] + sell["total"] - whole), 0.02)
 
 
@@ -158,7 +158,7 @@ class PaperFlow(unittest.TestCase):
         self.assertFalse(t["ready"])
         self.assertIn("BLOCKED by trader-risk: window", t["status"])
         self.assertEqual(t["order"], NEUTRAL)
-        self.assertEqual(t["max_loss"], 514.00)
+        self.assertEqual(t["max_loss"], 514.11)
 
     def test_confirm_records_the_yes_verbatim_once(self):
         risk("2026-10-29 09:40")
@@ -172,17 +172,17 @@ class PaperFlow(unittest.TestCase):
         self.assertIn('"Yes, buy 42 RELIANCE"', text)
         rec = jload("trader/state/broker.json")["orders"][0]
         self.assertEqual((rec["status"], rec["yes_text"], rec["kind"], rec["max_loss"], rec["broker"]),
-                         ("placed", "Yes, buy 42 RELIANCE", "entry", 514.00, "paper"))
+                         ("placed", "Yes, buy 42 RELIANCE", "entry", 514.11, "paper"))
         self.assertEqual(rec["order"], NEUTRAL)
         self.assertEqual(rec["at"], "2026-10-29T09:41:00+05:30")
         self.assertIn("DONE: placed", tk("show", "--now", "2026-10-29 09:42")[1])
         code, _, err = tk("confirm", "--index", "1", "--yes-text", "yes", "--now", "2026-10-29 09:42")
         self.assertEqual(code, 1)
-        # trader-risk now sees it: the same order again is a duplicate, its 514.00 counts in the day
+        # trader-risk now sees it: the same order again is a duplicate, its 514.11 counts in the day
         code, text, _ = risk("2026-10-29 09:45")
         self.assertEqual(code, 1)
         self.assertIn("already placed today", text)
-        self.assertIn("₹514.00 of ₹3,000.00 daily loss", text)
+        self.assertIn("₹514.11 of ₹3,000.00 daily loss", text)
 
     def test_decline(self):
         risk("2026-10-29 09:40")
@@ -203,15 +203,15 @@ class PaperFlow(unittest.TestCase):
 
     def test_the_entry_fill_applies_charges(self):
         text = self.entry()
-        self.assertIn("Charges about ₹20.73. Cash now ₹50,658.67", text)
+        self.assertIn("Charges about ₹20.78. Cash now ₹50,658.62", text)
         self.assertIn("SL-M stop at 1163.30 and the LIMIT target at 1196.30 are now working", text)
         pf = jload("trader/portfolio.json")
-        self.assertEqual(pf["cash"], 50658.67)         # 1,00,000 - 49,320.60 - 20.73
+        self.assertEqual(pf["cash"], 50658.62)         # 1,00,000 - 49,320.60 - 20.78
         self.assertEqual(pf["positions"]["RELIANCE"],
-                         {"qty": 42, "avg_price": 1174.30, "product": "MIS", "buy_charges": 20.73})
+                         {"qty": 42, "avg_price": 1174.30, "product": "MIS", "buy_charges": 20.78})
         trades = jload("trader/state/trades.json")["trades"]
         self.assertEqual((trades[0]["side"], trades[0]["qty"], trades[0]["value"], trades[0]["charges"]),
-                         ("BUY", 42, 49320.60, 20.73))
+                         ("BUY", 42, 49320.60, 20.78))
         code, _, err = tk("fill", "--index", "1", "--price", "1174.30", "--now", "2026-10-29 09:43")
         self.assertIn("already filled", err)
 
@@ -233,11 +233,11 @@ class PaperFlow(unittest.TestCase):
         code, text, err = tk("fill", "--index", "1", "--leg", "stop", "--now", "2026-10-29 10:40")
         self.assertEqual(code, 0, err)
         sell = ticket.side_charges("SELL", 1163.30, 42, jload(CFG_PATH), "MIS")["total"]
-        realised = round(-462.00 - 20.73 - sell, 2)
+        realised = round(-462.00 - 20.78 - sell, 2)
         self.assertIn("SELL 42 RELIANCE at 1163.30", text)
         self.assertIn(ticket.inr(realised), text)
         self.assertIn("Cancelled the target", text)
-        self.assertLessEqual(abs(-realised - 514.00), 0.02)     # what trader-budget and trader-risk said
+        self.assertLessEqual(abs(-realised - 514.11), 0.02)     # what trader-budget and trader-risk said
         code, _, err = tk("fill", "--index", "1", "--leg", "target", "--now", "2026-10-29 11:00")
         self.assertIn("closed already", err)
         self.assertEqual(jload("trader/portfolio.json")["positions"], {})
@@ -261,20 +261,20 @@ class PaperFlow(unittest.TestCase):
         self.assertEqual(code, 0, err)
         code, text, err = tk("fill", "--index", "1", "--now", "2026-10-29 15:11")   # the fresh 15:10 price
         self.assertEqual(code, 0, err)
-        # sell 42 at 1168.80 = 49,089.60: charges 31.43; realised -231.00 - 20.73 - 31.43 = -283.16
+        # sell 42 at 1168.80 = 49,089.60: charges 31.49; realised -231.00 - 20.78 - 31.49 = -283.27
         self.assertIn("SELL 42 RELIANCE at 1168.80 (the fresh price in trader/prices.json)", text)
-        self.assertIn("Charges about ₹31.43", text)
-        self.assertIn("-₹283.16", text)
+        self.assertIn("Charges about ₹31.49", text)
+        self.assertIn("-₹283.27", text)
         self.assertIn("Cancelled the stop and target of RELIANCE", text)
         pf = jload("trader/portfolio.json")
-        self.assertEqual((pf["cash"], pf["positions"]), (99716.84, {}))   # 1,00,000 - 283.16
+        self.assertEqual((pf["cash"], pf["positions"]), (99716.73, {}))   # 1,00,000 - 283.27
         self.assertEqual((pf["schema"], pf["margin_blocked"], pf["fno_positions"]), (ticket.PORTFOLIO_SCHEMA, 0.0, []))
         code, text, _ = tk("status", "--now", "2026-10-29 15:12")
-        self.assertIn("Cash ₹99,716.84", text)
+        self.assertIn("Cash ₹99,716.73", text)
         self.assertIn("No open positions.", text)
-        self.assertIn("Today: 2 of 10 orders, 1 of 3 trades, ₹514.00 of ₹3,000.00 daily loss", text)
-        self.assertIn("Realised today -₹283.16", text)
-        self.assertIn("charges paid today ₹52.16", text)
+        self.assertIn("Today: 2 of 10 orders, 1 of 3 trades, ₹514.11 of ₹3,000.00 daily loss", text)
+        self.assertIn("Realised today -₹283.27", text)
+        self.assertIn("charges paid today ₹52.27", text)
         self.assertEqual(len(jload("trader/state/trades.json")["trades"]), 2)
         # nothing left to flatten
         self.assertIn("nothing to flatten", tk("flatten", "--now", "2026-10-29 15:13")[2])

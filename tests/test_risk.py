@@ -86,7 +86,7 @@ class TheFixtureOrder(unittest.TestCase):
         self.assertEqual((r["kind"], r["qty"], r["value"], r["entry_ref"], r["entry_ref_from"]),
                          ("entry", 42, 49320.60, 1174.30, "limit"))
         self.assertEqual((r["max_loss"], r["charges"], r["max_loss_with_charges"], r["reward_risk"]),
-                         (462.00, 52.00, 514.00, 2.0))
+                         (462.00, 52.11, 514.11, 2.0))
 
     def test_cli_records_the_verdict_with_the_brokers_fingerprint(self):
         with tempfile.TemporaryDirectory() as d:
@@ -99,7 +99,7 @@ class TheFixtureOrder(unittest.TestCase):
             self.assertEqual(code, 0)
             text = buf.getvalue()
             self.assertIn("PASS  #1 BUY 42 RELIANCE (MIS), entry", text)
-            self.assertIn("₹462.00 + ₹52.00 charges = ₹514.00 (limit ₹1,000.00)", text)
+            self.assertIn("₹462.00 + ₹52.11 charges = ₹514.11 (limit ₹1,000.00)", text)
             self.assertIn("IST", text)
             self.assertIn("not financial advice", text)
             with open(out) as fh:
@@ -145,12 +145,12 @@ class StopTargetLoss(unittest.TestCase):
         self.assertIn("target", tags(r))
 
     def test_loss_at_the_stop_includes_the_charges(self):
-        # 83 shares: 913.00 + 81.28 charges = 994.28 fits; 84: 924.00 + 81.71 = 1,005.71 does not
+        # 83 shares: 913.00 + 81.52 charges = 994.52 fits; 84: 924.00 + 81.94 = 1,005.94 does not
         r = one([rel(qty=83)], cfg(**LOOSE))
-        self.assertEqual((r["verdict"], r["max_loss_with_charges"]), ("PASS", 994.28))
+        self.assertEqual((r["verdict"], r["max_loss_with_charges"]), ("PASS", 994.52))
         r = one([rel(qty=84)], cfg(**LOOSE))
         self.assertEqual(tags(r), ["loss"])
-        self.assertIn("84 shares x 11.00 risk a share = ₹924.00 + ₹81.71 charges = ₹1,005.71",
+        self.assertIn("84 shares x 11.00 risk a share = ₹924.00 + ₹81.94 charges = ₹1,005.94",
                       r["reasons"][0])
         # without charges 84 x 11.00 = 924.00 fits
         self.assertEqual(one([rel(qty=84)], cfg(include_charges=False, **LOOSE))["verdict"], "PASS")
@@ -183,7 +183,7 @@ class DayLimits(unittest.TestCase):
     def test_daily_loss(self):
         r = one([rel()], state={"orders": [placed(max_loss=2600)]})
         self.assertEqual(tags(r), ["daily loss"])
-        self.assertIn("₹2,600.00 already at risk today plus ₹514.00", r["reasons"][0])
+        self.assertIn("₹2,600.00 already at risk today plus ₹514.11", r["reasons"][0])
         self.assertEqual(one([rel()], state={"orders": [placed(max_loss=2400)]})["verdict"], "PASS")
         # yesterday's entries do not count
         self.assertEqual(one([rel()], state={"orders": [placed(max_loss=2900, day="2026-10-28")]})["verdict"], "PASS")

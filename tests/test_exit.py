@@ -68,17 +68,18 @@ class Money(unittest.TestCase):
         #   buy value  692.70 x 72 = 49,874.40      sell value 698.30 x 72 = 50,277.60   turnover 1,00,152.00
         #   brokerage  0.03% each leg, cap 20: 14.96232 + 15.08328 = 30.0456          -> 30.05
         #   STT        0.025% of the sell 50,277.60 = 12.5694                         -> 12.57
-        #   exchange   0.00297% of 1,00,152.00 = 2.9745144                            -> 2.97
+        #   exchange   0.00307% of 1,00,152.00 = 3.0746664                            -> 3.07
         #   SEBI       10 per crore: 1,00,152.00 x 10 / 1,00,00,000 = 0.100152        -> 0.10
         #   stamp      0.003% of the buy 49,874.40 = 1.496232                         -> 1.50
-        #   GST        18% of (30.0456 + 2.9745144 + 0.100152) = 18% of 33.1202664 = 5.96164795 -> 5.96
-        #   total      30.05 + 12.57 + 2.97 + 0.10 + 1.50 + 5.96 = 53.15
+        #   GST        18% of (30.0456 + 3.0746664 + 0.100152) = 18% of 33.2204184 = 5.97967531 -> 5.98
+        #   total      30.05 + 12.57 + 3.07 + 0.10 + 1.50 + 5.98 = 53.27
         cfg = exitp.read_config(None)
         self.assertEqual(exitp.round_trip_charges(692.70, 698.30, 72, cfg),
-                         {"brokerage": 30.05, "stt": 12.57, "exchange": 2.97, "sebi": 0.1, "stamp": 1.5,
-                          "gst": 5.96, "total": 53.15})
-        # out at the stop 689.90: sell 49,672.80, brokerage 29.86416, STT 12.4182, GST 18% of 32.920258
-        self.assertEqual(exitp.round_trip_charges(692.70, 689.90, 72, cfg)["total"], 52.77)
+                         {"brokerage": 30.05, "stt": 12.57, "exchange": 3.07, "sebi": 0.1, "stamp": 1.5,
+                          "gst": 5.98, "total": 53.27})
+        # out at the stop 689.90: sell 49,672.80, brokerage 29.86416, STT 12.4182, exchange 3.05609904,
+        # GST 18% of 33.01980624 = 5.94: 29.86 + 12.42 + 3.06 + 0.10 + 1.50 + 5.94 = 52.88
+        self.assertEqual(exitp.round_trip_charges(692.70, 689.90, 72, cfg)["total"], 52.88)
 
     def test_brokerage_cap_delivery_and_custom_rates(self):
         cfg = exitp.read_config(None)
@@ -90,7 +91,7 @@ class Money(unittest.TestCase):
         self.assertEqual((ch["stt"], ch["stamp"]), (400.0, 30.0))
         zero = dict(cfg, charges=dict(cfg["charges"], brokerage_pct=0))
         ch = exitp.round_trip_charges(692.70, 698.30, 72, zero)
-        self.assertEqual((ch["brokerage"], ch["gst"]), (0.0, 0.55))     # 18% of 3.0746664
+        self.assertEqual((ch["brokerage"], ch["gst"]), (0.0, 0.57))     # 18% of 3.1748184
         parts = sum(v for k, v in ch.items() if k != "total")
         self.assertAlmostEqual(ch["total"], parts, places=9)
 
@@ -263,16 +264,16 @@ class Cli(unittest.TestCase):
         self.assertEqual(p["created_at"], "2026-10-26T04:41:00Z")
         ch = p["charges"]
         self.assertEqual((ch["qty"], ch["qty_source"], ch["product"]), (72, "estimate", "MIS"))
-        self.assertEqual((ch["at_target"]["total"], ch["at_stop"]["total"]), (53.15, 52.77))
-        # 403.20 - 53.15 = 350.05 over 201.60 + 52.77 = 254.37 -> 1.376 -> 1.38
+        self.assertEqual((ch["at_target"]["total"], ch["at_stop"]["total"]), (53.27, 52.88))
+        # 403.20 - 53.27 = 349.93 over 201.60 + 52.88 = 254.48 -> 1.375 -> 1.38
         self.assertEqual((ch["reward_gross"], ch["reward_net"], ch["risk_gross"], ch["risk_net"]),
-                         (403.2, 350.05, 201.6, 254.37))
+                         (403.2, 349.93, 201.6, 254.48))
         self.assertIn("Entry         ₹692.70 at 10:10 IST (bar 10)", text)
         self.assertIn("Stop          ₹689.90  opening-range midpoint", text)
         self.assertIn("Target        ₹698.30  2R (two times the risk)", text)
         self.assertIn("Risk a share  ₹2.80 (0.40% of the entry)", text)
         self.assertIn("Reward:risk   2.0 gross, 1.38 net of charges", text)
-        self.assertIn("₹53.15 at the target, ₹52.77 at the stop, round trip on 72 shares", text)
+        self.assertIn("₹53.27 at the target, ₹52.88 at the stop, round trip on 72 shares", text)
         self.assertIn("Flat by       15:10 IST", text)
         self.assertIn("not a guarantee", text)
         self.assertIn("/trader-timemachine", text)
@@ -460,7 +461,7 @@ class SkillDoc(unittest.TestCase):
         low = " ".join(text.lower().split())
         for must in ("before the entry", "a stop is a plan, not a guarantee", "day trading loses most people money",
                      "/trader-timemachine", "/trader-budget", "longs only", "₹689.90", "₹698.30", "₹2.80",
-                     "₹53.15", "1.38 net of charges", "15:10 ist", "mis", "ist", "nse",
+                     "₹53.27", "1.38 net of charges", "15:10 ist", "mis", "ist", "nse",
                      "too tight to survive the spread", "not financial advice", "typed an explicit yes"):
             self.assertIn(must, low)
         for never in ("—", "pro" + "fit", "ny" + "se", "\x24", " et,", "skill_dir"):

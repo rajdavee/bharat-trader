@@ -146,7 +146,7 @@ cost of a trade, so "max loss ₹1,000" really means ₹1,000 after charges.
 "charges": {
   "brokerage_pct": 0.03, "brokerage_cap": 20,
   "stt_sell_pct": 0.025, "stt_delivery_pct": 0.1,
-  "exchange_txn_pct": 0.00297, "sebi_per_crore": 10,
+  "exchange_txn_pct": 0.00307, "sebi_per_crore": 10,
   "stamp_buy_pct": 0.003, "stamp_delivery_pct": 0.015,
   "gst_pct": 18
 }
@@ -167,8 +167,8 @@ them.**
 
 NSE's equity transaction charge plus the IPFT contribution comes to ₹307 a
 crore (0.00307%) on each side ([NSE/FA/73061](https://nsearchives.nseindia.com/content/circulars/FA73061.pdf)).
-The default `exchange_txn_pct` of 0.00297% is the transaction charge without
-the ₹10 a crore IPFT part; set 0.00307 to match a contract note to the paisa.
+The default `exchange_txn_pct` is that 0.00307%. A config that still says
+0.00297 (the rate without the ₹10 a crore IPFT part) under-counts by ₹10 a crore.
 
 ### Futures and options
 

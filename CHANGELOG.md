@@ -133,6 +133,10 @@ paper by default.
   Yahoo's spark answer leaves out a 5-minute close that lies on the straight
   line between its neighbours; stage 1 now restores those bars, and stage 2
   still checks each candidate on the full chart.
+- Equity exchange transaction charge default is now 0.00307% (#22, #36): NSE's
+  charge plus the IPFT contribution (NSE/FA/73061, 27 Feb 2026), in every copy
+  of the charges helper, `config.example.json` and `size.py init`. Worked
+  examples move by a few paise; the dated F&O rates are unchanged.
 
 ## [0.1.0] - 2026-10-29
 

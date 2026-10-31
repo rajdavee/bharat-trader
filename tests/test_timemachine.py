@@ -102,7 +102,7 @@ class TheFixturePlan(unittest.TestCase):
         self.assertEqual(m["p5_close"], 683.87)
         self.assertEqual(m["p95_close"], 700.59)
         self.assertEqual(m["avg_R"], -0.17)
-        self.assertEqual(m["avg_R_net"], -0.432)
+        self.assertEqual(m["avg_R_net"], -0.433)
         self.assertEqual(m["r_at_target"], 2.0)
 
     def test_the_bands_and_histogram_are_pinned(self):
@@ -119,18 +119,18 @@ class TheFixturePlan(unittest.TestCase):
 
     def test_charges(self):
         ch = self.doc["charges"]
-        self.assertEqual(ch, {"qty": 72, "qty_source": "plan", "product": "MIS", "at_target": 53.15, "at_stop": 52.77})
-        # at the target R is +2, net 2 - 53.15 / (2.80 x 72) = 2 - 0.2636 = 1.7364; at the stop -1 - 0.2618
-        self.assertAlmostEqual(2 - 53.15 / (2.80 * 72), 1.7364, places=4)
+        self.assertEqual(ch, {"qty": 72, "qty_source": "plan", "product": "MIS", "at_target": 53.27, "at_stop": 52.88})
+        # at the target R is +2, net 2 - 53.27 / (2.80 x 72) = 2 - 0.2642 = 1.7358; at the stop -1 - 0.2623
+        self.assertAlmostEqual(2 - 53.27 / (2.80 * 72), 1.7358, places=4)
 
     def test_the_history_replay(self):
         h = self.doc["history"]
         self.assertEqual((h["sessions"], h["triggered"]), (55, 33))
         self.assertEqual((h["target"], h["stop"], h["close"], h["green"]), (5, 18, 10, 11))
-        self.assertEqual((h["avg_R"], h["avg_R_net"]), (-0.155, -0.442))
+        self.assertEqual((h["avg_R"], h["avg_R_net"]), (-0.155, -0.443))
         self.assertEqual(h["rule"], {"setup": "orb", "or_minutes": 15, "stop_rule": "or_mid", "target_r": 2.0})
         self.assertEqual(h["trades"][0], {"date": "2026-08-05", "time": "10:50", "entry": 740.7, "stop": 737.1,
-                                          "target": 747.9, "outcome": "stop", "R": -1.0, "charges": 56.39,
+                                          "target": 747.9, "outcome": "stop", "R": -1.0, "charges": 56.52,
                                           "R_net": -1.22})
         self.assertEqual(h["trades"][-1]["date"], "2026-10-23")
         for t in h["trades"]:
@@ -151,9 +151,9 @@ class TheFixturePlan(unittest.TestCase):
                      "60 five-minute bars", "seed 19", "55 sessions", "target first   19.7 %",
                      "stop first     64.0 %", "neither        16.2 %   still open at 15:10",
                      "green          31.6 %", "median 691.96, 90 % of replays between 683.87 and 700.59",
-                     "Average R: -0.170 gross", "Average R: -0.432 net of charges (₹53.15 at the target, ₹52.77 at "
+                     "Average R: -0.170 gross", "Average R: -0.433 net of charges (₹53.27 at the target, ₹52.88 at "
                      "the stop, round trip on 72 shares, MIS)",
-                     "fired 33 times: 5 target, 18 stop, 10 neither. Average R -0.155 gross, -0.442 net of charges.",
+                     "fired 33 times: 5 target, 18 stop, 10 neither. Average R -0.155 gross, -0.443 net of charges.",
                      "Left out 1 session(s)", "2026-10-15", "not a prediction", "--seed 19"):
             self.assertIn(line, text)
         for word in ("profit", "P&L", "guarantee", "$", " ET"):
@@ -554,7 +554,7 @@ class Cli(unittest.TestCase):
         code, text, err = run(self.base("--write", self.out))
         self.assertEqual(code, 0, err)
         self.assertIn("target first   19.7 %", text)
-        self.assertIn("Average R: -0.432 net of charges", text)
+        self.assertIn("Average R: -0.433 net of charges", text)
         self.assertIn("Wrote %s." % self.out, text)
         self.assertIn("/trader-budget", text)
         with open(self.out, encoding="utf-8") as fh:
@@ -563,7 +563,7 @@ class Cli(unittest.TestCase):
                          ["charges", "history", "mc", "plan"])
         self.assertEqual((doc["created_by"], doc["source"], doc["created_at"]),
                          ("trader-timemachine", "offline", "2026-10-26T04:45:00Z"))
-        self.assertEqual((doc["mc"]["p_target"], doc["mc"]["avg_R"], doc["mc"]["avg_R_net"]), (0.1973, -0.17, -0.432))
+        self.assertEqual((doc["mc"]["p_target"], doc["mc"]["avg_R"], doc["mc"]["avg_R_net"]), (0.1973, -0.17, -0.433))
         self.assertEqual((doc["history"]["triggered"], doc["history"]["avg_R"]), (33, -0.155))
         self.assertEqual(doc["plan"]["from"], self.plan)
         self.assertEqual(doc["data"]["last_bar"], "2026-10-26 10:10 IST")
@@ -647,7 +647,7 @@ class SkillDoc(unittest.TestCase):
         self.assertIn("## Safety", text)
         low = " ".join(text.lower().split())
         for must in ("10,000", "seed 19", "09:15 to 15:30 ist", "75 five-minute bars", "15:10", "net of charges",
-                     "not a prediction", "/trader-budget", "19.7 %", "64.0 %", "-0.432", "mis",
+                     "not a prediction", "/trader-budget", "19.7 %", "64.0 %", "-0.433", "mis",
                      "not financial advice", "typed an explicit yes"):
             self.assertIn(must, low)
         for never in ("—", "pro" + "fit", "ny" + "se", "\x24", "new " + "york", "skill_dir"):

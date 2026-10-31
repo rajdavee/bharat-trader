@@ -142,16 +142,16 @@ each part rounded half up to the paisa:
 | --- | --- | --- |
 | brokerage | min(0.03% of each order, ₹20) on the buy and on the sell | same |
 | STT | 0.025% of the sell side | 0.1% of both sides |
-| exchange transaction | 0.00297% of buy + sell | same |
+| exchange transaction | 0.00307% of buy + sell (incl. IPFT) | same |
 | SEBI fee | ₹10 per crore of buy + sell | same |
 | stamp duty | 0.003% of the buy side | 0.015% of the buy side |
 | GST | 18% of brokerage + exchange + SEBI | same |
 
 Worked by hand: 83 RELIANCE bought at 1174.30, stopped at 1163.30, MIS.
 Buy ₹97,466.90, sell ₹96,553.90. Brokerage ₹20 + ₹20 = ₹40.00, STT ₹24.14,
-exchange ₹5.76, SEBI ₹0.19, stamp ₹2.92, GST ₹8.27: **₹81.28**. So 83 shares
-lose ₹913.00 + ₹81.28 = ₹994.28 at the stop and fit a ₹1,000 max loss; 84
-would lose ₹1,005.71. These are a typical discount broker's rates, set in
+exchange ₹5.96, SEBI ₹0.19, stamp ₹2.92, GST ₹8.31: **₹81.52**. So 83 shares
+lose ₹913.00 + ₹81.52 = ₹994.52 at the stop and fit a ₹1,000 max loss; 84
+would lose ₹1,005.94. These are a typical discount broker's rates, set in
 `"charges"`. **Check them against your broker's charge sheet**: rates change,
 many brokers charge no brokerage on delivery, and STT is rounded by the
 exchange. `"include_charges": false` leaves them out.
@@ -178,8 +178,8 @@ midpoint 1163.30, rounded down to RELIANCE's ₹0.10 tick: 1163.30; target 2R 11
 | max order | ₹50,000 / 1174.30 | 42 |
 | cash | ₹1,00,000 minus ₹10,000 = ₹90,000 / 1174.30 | 76 |
 
-42 shares = ₹49,320.60. At the stop: 42 x 11.00 = ₹462.00 plus about ₹52.00
-charges = ₹514.00. It writes:
+42 shares = ₹49,320.60. At the stop: 42 x 11.00 = ₹462.00 plus about ₹52.11
+charges = ₹514.11. It writes:
 
 ```json
 {"symbol": "RELIANCE", "exchange": "NSE", "product": "MIS", "side": "BUY", "qty": 42,
@@ -189,7 +189,7 @@ charges = ₹514.00. It writes:
  "validity": "DAY",
  "why": "opening-range breakout on RELIANCE: 42 shares, bound by your position cap ...",
  "plan": {"entry": 1174.30, "stop": 1163.30, "target": 1196.30, "risk_per_share": 11.00,
-          "max_loss": 462.00, "charges": 52.00, "max_loss_with_charges": 514.00,
+          "max_loss": 462.00, "charges": 52.11, "max_loss_with_charges": 514.11,
           "setup": "orb", "entry_time": "09:40", "flat_by": "15:10"}}
 ```
 
