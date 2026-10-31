@@ -1,25 +1,29 @@
 ---
 name: trader-risk
 description: >-
-  Risk Manager for NSE trades. Checks every order against your limits and
-  stops anything over them before it can reach the broker. For each trade: a
-  stop is required, the loss at the stop PLUS estimated charges (brokerage,
-  STT, exchange, SEBI, stamp duty, GST) must fit your max loss per trade
-  (measured from the higher of the plan's entry and a fresh price),
-  reward:risk must meet your minimum, the day's total risk must fit your
-  daily loss limit, no more than your trades per day, and no new entries
-  outside your IST entry window or when NSE is closed (weekends, 2026 NSE
-  holidays, your extra holidays, Muhurat-style special sessions). Also:
-  blocked symbols, NSE ticker format, order value, position cap, cash buffer,
-  no broker leverage, no shorts or F&O unless allowed, malformed SL-M / LIMIT
-  legs and tick-size errors, duplicates and a daily order limit. Getting out
-  is never blocked by a day limit. Prints PASS or BLOCK with the reason and
-  records the verdicts so trader-broker only shows an order that passed. Use
-  when the user says "check my order", "is this safe", "risk check", "does
-  this break my rules", "can I take this trade", "how much have I risked
-  today", "daily loss limit", "is the market open", or before /trader-broker,
-  always.
-argument-hint: "[--now \"YYYY-MM-DD HH:MM\"] [--json]"
+  Risk Manager for NSE trades, cash and F&O. Checks every order against your
+  limits and stops anything over them before it can reach the broker. For
+  each trade: a stop is required, the loss at the stop PLUS estimated charges
+  (brokerage, STT, exchange, SEBI, stamp duty, GST) must fit your max loss per
+  trade, reward:risk must meet your minimum, the day's total risk must fit
+  your daily loss limit, no more than your trades per day, and no new entries
+  outside your IST entry window or when NSE is closed. F&O (when allowed): a
+  multi-leg basket is checked as ONE position (a hedged iron condor is not
+  four naked legs): lot multiples from NSE's fo_mktlots, the NSE F&O ban list
+  (fo_secban), expiry-day margin (2% more ELM, no calendar benefit), premium
+  budget, lots per underlying, SPAN-style margin against your cash, naked
+  shorts off unless allowed and stopped, portfolio net delta / gamma / vega /
+  theta limits and a spot +/-1/2/3 sigma x IV +/-5/10 vol scenario grid after
+  charges. Behaviour: circuit-breakers after a losing streak or a daily
+  drawdown, cooling-off after a stop, revenge-trade flag, an order-rate cap
+  under SEBI's 10 a second, and a kill switch. Getting out is never blocked.
+  Use when the user says "check my order", "is this safe", "risk check",
+  "can I take this trade", "how much have I risked today", "daily loss
+  limit", "is the market open", "is this stock in the F&O ban", "how much
+  margin for this iron condor", "what if Nifty falls 2%", "my Greeks",
+  "portfolio delta", "stop me trading today", "kill switch", "I am on tilt",
+  or before /trader-broker, always.
+argument-hint: "[kill|unkill|scenarios|refresh] [--now \"YYYY-MM-DD HH:MM\"] [--json]"
 ---
 
 # trader-risk
@@ -39,6 +43,12 @@ python3 "<skill dir>/check.py"                           # trader/ files; writes
 python3 "<skill dir>/check.py" --json
 python3 "<skill dir>/check.py" --no-write                # look without recording
 python3 "<skill dir>/check.py" --now "2026-10-29 09:40"  # pin the clock (IST)
+python3 "<skill dir>/check.py" --offline                 # never ask NSE (ban list, lot sizes)
+python3 "<skill dir>/check.py" scenarios [--json]        # the F&O book: Greeks and the scenario grid (read only)
+python3 "<skill dir>/check.py" refresh                   # fetch NSE's F&O ban list and lot sizes now
+python3 "<skill dir>/check.py" kill --reason "on tilt"   # no new entries today; --flatten writes exit tickets
+python3 "<skill dir>/check.py" unkill                    # lift it: asks you to type the word unkill
+python3 "<skill dir>/check.py" rate-gate --record        # for a broker adapter: may one more order go now?
 ```
 
 ## What it reads and writes
@@ -51,6 +61,10 @@ python3 "<skill dir>/check.py" --now "2026-10-29 09:40"  # pin the clock (IST)
 | `trader/prices.json` | a fresh price raises the entry a MARKET order is measured from; also values holdings |
 | `trader/state/broker.json` | what was placed today: duplicates, trades per day, daily loss, orders per day |
 | `trader/state/risk.json` | the verdicts it writes, with a fingerprint of each exact order |
+| `trader/state/trades.json` | fills with their realised P&L (trader-broker): the circuit-breakers |
+| `trader/state/kill.json` | the kill switch: on for one day, with its reason and a log |
+| `trader/strategy.json`, `trader/options.json` | (F&O) trader-strategy's basket with its margin estimate, trader-options' chain: forwards and IVs |
+| `trader/fo_mktlots.csv`, `trader/fo_secban.json` | (F&O) NSE's lot sizes and ban list, fetched at most once a day and cached |
 
 ## Entries and exits
 
@@ -86,6 +100,12 @@ batch that is fine order by order but breaks a limit together is caught.
 | window | (entries) before `no_entries_before` (09:30) or after `no_entries_after` (14:45) IST, later than 15 minutes before the stock's safe flat-by, during an F&O stock's closing auction, or NSE is closed |
 | duplicate | (entries) the same symbol and side twice in one batch, or already placed today |
 | daily limit | (entries) `max_orders_per_day` orders already placed today |
+| kill | (entries) the kill switch is on today |
+| breaker | (entries) `max_consecutive_losses` (3) losing trades in a row today, or a realised loss today of `max_daily_drawdown_pct` (3%) of capital: locked until tomorrow |
+| cooling-off | (entries) a stop filled less than `cooloff_after_stop_min` (15) minutes ago |
+| revenge | (entries) re-entering a symbol within `revenge_window_min` (15) minutes of a loss on it; `"revenge_trade": "warn"` makes it a warning |
+| rate | (entries) `order_rate_per_sec` (3) orders already went in the last second; never above 9, whatever the config says |
+| api | (entries) with a live broker (`"paper": false`) whose adapter has no market protection (Dhan): a MARKET or SL-M order, or an SL-M stop leg; use LIMIT, or SL with a limit price. Kite and Upstox send MARKET / SL-M with the broker's automatic protection |
 
 How the numbers work:
 
@@ -117,9 +137,110 @@ How the numbers work:
   with no holiday table yet (2027), it says so and treats weekdays as open.
   Set both `no_entries_*` to null to switch the entry window off.
 
+## F&O: one basket is one position
+
+With `"allow_fno": true`, F&O orders (exchange NFO; trader-strategy's
+`symbol`, `expiry`, `strike`, `option_type`, or a trading symbol like
+`NIFTY26NOV23000CE` / `NIFTY26N0323000CE`) are grouped: every F&O order in an
+orders file with `"basket": true` (trader-strategy writes it), or the orders
+sharing a `basket_id`, are ONE position. They pass or block together: a basket
+is placed whole or not at all. Checked one by one, the short legs of a hedged
+iron condor are naked shorts and block; as one basket the same four legs are
+defined risk and pass.
+
+| check | blocks when |
+| --- | --- |
+| contract, expiry | not an NFO contract, or it has expired (15:30 IST on its expiry day) |
+| lot | qty not a multiple of the lot for that expiry month in NSE's `fo_mktlots.csv`; an order's own `lot_size` that disagrees with NSE |
+| ban | a stock underlying in NSE's F&O ban list for today (open interest over 95% of its market-wide limit): no new positions, closing is allowed. With no list known for today it blocks too (`require_ban_list`); `check.py refresh` fetches it |
+| stop | not defined risk and no stop rule. Defined risk (every short option covered by a long of the same type, same or later expiry) counts as the stop while `defined_risk_counts_as_stop` is true. Otherwise every leg needs `"risk_rule": {"max_loss": 4000}` or `{"stop_underlying": {"above": 23400, "below": 22700}}`, or an SL / SL-M `stop_loss` on every short leg |
+| naked | short options not covered by bought ones while `allow_naked_short` is false (the default). Allowed, they still need a stop rule |
+| loss | the basket's loss over `max_loss_per_trade`, or with today's over `max_daily_loss`: the max loss at expiry with charges (defined risk), else the loss at the stop rule |
+| premium | net premium paid (paid minus received) over `max_premium_per_trade`, or with today's options bought over `max_premium_per_day` |
+| lots | open + this batch over `max_lots_per_underlying` lots on one side (CE short, PE long, futures...) of one underlying |
+| margin | the margin needed (trader-strategy's SPAN-style `margin.high` when `trader/strategy.json` is this basket, else the same method here; the upper bound while `margin_use_upper_bound`) over the cash left after `cash_buffer_pct` and `margin_blocked` |
+| greeks | the book's net delta (lots) over `max_net_delta_lots`, gamma over `max_net_gamma_lots_1pct`, net vega over `max_net_vega` (₹ per vol point) or theta paid over `max_theta_paid_per_day`, unless this basket reduces it: a hedge always passes |
+| scenario | the book's worst P&L after charges on the grid over `max_scenario_loss`, unless this basket makes it better; the reason names the scenario |
+
+**Expiry day.** On the day a contract expires, SEBI adds 2% of notional as
+extra ELM on short index options expiring that day, and a basket with the
+expiring contract gets no calendar-spread benefit (each expiry is margined on
+its own). Both go into the margin figure, and a warning says so.
+
+**The book.** Open F&O positions (portfolio.json `positions` with exchange
+NFO or an expiry, or `fno_positions`, signed qty) plus every basket passed
+earlier in the batch plus this one. Each leg is valued by Black-76 on its
+forward (the chain's, moved with a fresh spot) and IV (the chain's for that
+strike, implied from the premium, or the at-the-money IV). Net Greeks per
+underlying: delta in lots and ₹ per 1% move, gamma as lots of delta per 1%
+move, vega ₹ per vol point, theta ₹ a day. The scenario grid moves every
+underlying k of its own sigmas (at-the-money IV x sqrt(1/252), one session)
+for k = -3..+3, times IV -10, -5, 0, +5, +10 vol points, one day passing; P&L
+after charges (a proposal pays its entry and exit, an open position its
+exit). `check.py scenarios` prints it for open positions alone and with the
+proposals.
+
+Example, Monday 2026-11-02 10:00, the NIFTY 03-Nov iron condor
+(22700/22800 PE, 23200/23300 CE, 1 lot) from trader-strategy on the chain of
+30-Oct-2026, ₹5,00,000 capital:
+
+```
+PASS  #1 BUY 65 NIFTY 22700 PE 2026-11-03 (NRML), entry
+          basket of 4 legs on NIFTY, defined risk: can lose ₹4,298.91 (the most it can lose at expiry, charges included) (limit ₹5,000.00)
+          margin about ₹77,520.08 (the upper bound (+15%), trader-strategy (trader/strategy.json, 2026-10-30T15:40:00)), ₹4,50,000.00 free; premium paid ₹3,428.75, received ₹5,794.75
+          portfolio after this basket: NIFTY delta -0.03 lots, vega -₹189.75, theta ₹925.11/day; worst scenario spot +3 sigma (NIFTY +2.29%) with IV +5 vol: -₹4,342.24 after charges
+
+  scenarios over 1 session(s), P&L after charges (sigma: NIFTY 0.76%):
+    spot \ IV                   -10 vol       -5 vol       +0 vol       +5 vol      +10 vol
+    -2 sigma (-1.52%)         -4,236.74    -3,730.20    -3,149.59    -2,753.56    -2,441.48
+    +0 sigma (+0.00%)          2,258.93     2,164.53     2,156.78     2,052.29     1,776.36
+    +3 sigma (+2.29%)         -4,329.29    -4,329.29    -4,329.15    -4,342.24    -4,305.84
+```
+
+The same NIFTY short strangle on Tuesday (expiry day) blocks: `naked` (short
+legs not covered), `stop` (no stop rule), and its margin carries ₹59,857.56 of
+expiry-day ELM.
+
+## Behaviour: circuit-breakers, the kill switch, the order rate
+
+SEBI's study of F&O traders found that the more often people trade, the more
+they lose. These locks slow you down after losses. They apply to new entries
+only: an exit always passes, with the lock as a warning.
+
+- **Losing streak**: `max_consecutive_losses` losing closed trades in a row
+  today (trader/state/trades.json) locks entries until tomorrow.
+- **Daily drawdown**: a realised loss today, after charges, of
+  `max_daily_drawdown_pct` of capital locks entries until tomorrow.
+- **Cooling-off**: no new entry for `cooloff_after_stop_min` minutes after a
+  stop fills.
+- **Revenge trade**: a new entry in a symbol that lost less than
+  `revenge_window_min` minutes ago.
+- **Trades a day**: `max_trades_per_day` (a basket counts once).
+- **Order rate**: `order_rate_per_sec` (default 3), never above 9, so this
+  pack stays under SEBI's 10 orders a second per exchange (above it an algo
+  must be registered). `check.py rate-gate` answers "may one more go now?"
+  for a broker adapter, from `trader/state/rate.json`.
+- **Live broker API rules**: SEBI wants market protection on every API
+  MARKET order. Kite and Upstox add the broker's automatic protection; with
+  Dhan, use LIMIT orders and SL stops.
+
+**Kill switch.** `check.py kill --reason "..."` blocks every new entry for
+the rest of the day (kill.json) and revokes any entry PASS already recorded
+in trader/state/risk.json, so a verdict from before the kill cannot be
+confirmed after it. Exits still pass. `--flatten` also writes exit tickets
+to trader/orders.json: trader-broker's flatten for cash shares, then one
+closing ticket per F&O position, short legs first (so a hedge never goes
+before the leg it covers). The tickets still go through check.py and the
+user's typed yes, one by one. `check.py unkill` lifts it only when the user
+types the word `unkill` (`--yes-text unkill` for a terminal-less run). The
+next day starts clear. Never run `kill`, `unkill` or `--flatten` for the user
+without being asked, and never type the unkill word yourself.
+
 Warnings do not block, but say them to the user: a LIVE account, a stop that
 lives only in the plan and not as an order leg, a price too old to use, a
-special session, a year with no holiday table.
+special session, a year with no holiday table, an F&O basket priced from an
+old chain, a lot size taken from the order because NSE's file was missing, an
+expiry day.
 
 ## Steps
 
@@ -130,8 +251,11 @@ special session, a year with no holiday table.
 3. Tell the user the result in plain words, order by order: the loss at the
    stop with charges, reward:risk, and how much of today's limits it uses.
    For a BLOCK, give the reason and the fix (fewer shares, a closer stop from
-   trader-exit, wait for the window, or skip the trade). Never change a
-   limit yourself.
+   trader-exit, wait for the window, a hedged structure instead of naked
+   shorts, fewer lots, or skip the trade). For F&O, also say the margin, the
+   worst scenario and that both are estimates. Never change a limit yourself,
+   and never argue a circuit-breaker or the kill switch away: they are the
+   user's own rule for a bad day.
 4. If the order changes in any way, run the check again. trader-broker matches
    each order to its verdict by fingerprint, so an edited order is not ready
    until it passes again, and a verdict from yesterday does not count today.
@@ -174,8 +298,10 @@ holiday. The 15:10 SELL that closes the 42 shares passes even after the
 ## What it never does
 
 It never places an order, never edits an order to make it pass, never
-loosens a limit, never blocks a sell that only gets the user out, and never
-treats a PASS as the user's yes.
+loosens a limit, never blocks an order that only gets the user out, never
+lifts the kill switch without the user's typed word, and never treats a PASS
+as the user's yes. The F&O margin is an estimate (SPAN-style, +/-15% for
+index, 35% for stocks): the broker's basket margin is the one that counts.
 
 ## Safety
 

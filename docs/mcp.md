@@ -30,7 +30,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 30 tools and 5 prompts from
+4. Restart the client. It should list 31 tools and 5 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -89,7 +89,8 @@ message.
 | `exit_plan` | **Stop and target plan.** Set the stop and target for a long entry, from trader/entry.json or from symbol + entry (+ or_high/or_low): or-mid, or-low, pct:X, atr:K or price:X stops; 1R/1.5R/2R or price:X targets; the flat-by time and a charges estimate. save: true writes trader/plan.json. | `symbol`?, `entry`?, `or_high`?, `or_low`?, `or_minutes`?, `setup`?, `date`?, `time`?, `interval`?, `stop`?, `target`?, `flat_by`?, `qty`?, `save`? | writes trader/ |
 | `timemachine_run` | **Time machine replay.** Replay the plan (trader/plan.json, or symbol/entry/stop/target) over thousands of simulated sessions drawn from the stock's own recent 5-minute bars, plus the real history: odds of the target before the stop, R after charges, a fan of outcomes. Nothing is written. | `symbol`?, `entry`?, `stop`?, `target`?, `date`?, `entry_time`?, `replays`?, `seed`? | read-only; network |
 | `size_trade` | **Position size.** How many shares the plan allows under your rules: risk per trade, max position, cash buffer, charges, tick size. Reads trader/plan.json and trader/config.json. Nothing is written. | `capital`?, `limit`?, `market`? | read-only |
-| `risk_check` | **Risk check.** trader-risk on trader/orders.json: every order against your limits (size, loss at stop + charges, reward:risk, daily loss, trades, entry window, duplicates). A preview by default; record: true records the verdicts the paper broker needs. | `record`? | writes trader/ |
+| `risk_check` | **Risk check.** trader-risk on trader/orders.json: every order against your limits (size, loss at stop + charges, reward:risk, daily loss, trades, entry window, duplicates), the kill switch, the circuit-breakers (losing streak, daily drawdown, cooling-off, revenge trades) and the order rate; F&O legs as one basket (lots, ban list, premium, margin, Greeks, scenarios). A preview by default; record: true records the verdicts the paper broker needs. | `record`? | writes trader/ |
+| `risk_scenarios` | **Risk scenarios.** The F&O book's net Greeks (delta lots, gamma, vega, theta) and its P&L after charges on a grid of spot +/-1/2/3 sigma x IV +/-5/10 vol, against your limits; open positions alone or with every F&O proposal in trader/orders.json. Also the kill switch and circuit-breaker state. Read only. | `book`? | read-only |
 | `paper_orders_show` | **Paper order tickets.** The order tickets in trader/orders.json, in plain words, each with its trader-risk status and fingerprint. | none | read-only |
 | `paper_order_draft` | **Draft paper orders.** Size trader/plan.json into order tickets (trader/orders.json, the old one kept as .bak) and record trader-risk's verdicts. Returns each ticket with its fingerprint. Places nothing. | `capital`?, `limit`?, `market`? | writes trader/ (replaces a file, keeps a .bak) |
 | `paper_order_confirm` | **Confirm one paper order.** Record the USER's yes for ONE ticket and place it on the PAPER account (no real money; no live broker exists in this server). Needs the ticket's index and its exact risk-PASS fingerprint. When the client supports elicitation the server asks the user directly and yes_text is ignored; otherwise yes_text must be the user's own reply, word for word, after you showed them the ticket. Never write a yes yourself. | `index`, `risk_fingerprint`, `yes_text`? | writes trader/ |
@@ -122,8 +123,12 @@ and propose nothing. Their `margin.required` is an estimate of what a broker
 would block (SPAN-style, with `error_pct`); `margin.max_loss` is the exact
 max loss at expiry and is not the margin. To paper-trade a strategy the user writes a proposal
 with `strategy.py ... --orders` or the local UI's "Send to paper", then the
-same flow below: `risk_check`, and `paper_order_confirm` for each leg with
-the user's own typed yes. `doctor` runs trader-doctor's self-test read only:
+same flow below: `risk_check` (with `"allow_fno": true` it checks every leg
+of the basket as ONE position: lots, the ban list, premium, margin, Greeks
+and the scenario grid), and `paper_order_confirm` for each leg with the
+user's own typed yes. `risk_scenarios` shows the F&O book's Greeks and its
+scenario grid, open positions alone or with the proposals, read only; the
+kill switch is lifted only by the user (the typed word `unkill`). `doctor` runs trader-doctor's self-test read only:
 it reads `trader/doctor.json` for "since" but does not update it (the
 command line and the UI do).
 

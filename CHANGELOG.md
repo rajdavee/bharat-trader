@@ -7,6 +7,41 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `trader-risk` v2 (F&O, behaviour, kill switch). With `allow_fno`, the legs
+  of one basket (orders.json `basket`, or a shared `basket_id`) are checked
+  as ONE position and pass or block together, so a hedged iron condor passes
+  where the same four legs one by one are naked shorts. NFO contracts from
+  trader-strategy's fields or a trading symbol; lot multiples per expiry
+  month from NSE's `fo_mktlots.csv`; NSE's F&O ban list (`fo_secban`, dated
+  file then the current one, cached in `trader/fo_secban.json`; unknown =
+  block, `require_ban_list`); expiry day: 2% more ELM on short index options
+  expiring today and no calendar-spread benefit; premium budget
+  (`max_premium_per_trade`/`_per_day`, net premium); lots per underlying;
+  margin (trader-strategy's estimate when `trader/strategy.json` is the
+  basket, else the same SPAN-style method) against the cash after the buffer
+  and margin already blocked; defined risk counts as the stop
+  (`defined_risk_counts_as_stop`), else a `risk_rule` (`max_loss` or
+  `stop_underlying`) or SL stops; naked shorts need `allow_naked_short` plus
+  a stop rule. Portfolio net delta (lots), gamma, vega and theta limits over
+  open positions + the batch (a hedge always passes), and a scenario grid of
+  spot +/-1/2/3 sigma x IV +/-5/10 vol after charges with `max_scenario_loss`
+  (the reason names the scenario). Circuit-breakers on new entries, never
+  exits: a losing streak (`max_consecutive_losses`), a daily drawdown
+  (`max_daily_drawdown_pct`), cooling-off after a stop, a revenge-trade
+  flag. Order rate `order_rate_per_sec` (3, hard cap 9, under SEBI's 10 a
+  second) and `check.py rate-gate`; with a live broker whose adapter has no
+  market protection (Dhan), MARKET / SL-M orders block. Kill switch: `check.py kill [--reason] [--flatten]`
+  blocks new entries for the day, revokes recorded entry PASSes and can
+  write exit tickets (trader-broker's flatten for cash, short F&O legs before
+  long ones); `check.py unkill` needs the typed word. Also `check.py
+  scenarios` (read only) and `check.py refresh`. Keys in
+  `docs/configuration.md`.
+- Local UI risk panel: kill switch (on, flatten, unkill with the typed
+  word), circuit-breaker state, Greeks gauges against the limits and the
+  scenario heatmap; routes `/api/risk/kill`, `/api/risk/unkill`, and
+  `/api/risk` now carries the F&O book. MCP: `risk_check` covers the new
+  rules and the read-only `risk_scenarios` tool shows the Greeks and the
+  grid.
 - Live broker adapters in `trader-broker/adapters/` (standard library only):
   Upstox (v2 and v3), Zerodha Kite Connect v3 and Dhan v2, one contract in
   `base.py` with capability flags (profile, funds, holdings, positions,
@@ -40,7 +75,7 @@ All notable changes are documented here. The format follows
   broker's holdings and positions on Portfolio
   (`/api/broker/holdings`, `/api/broker/positions`), read only. MCP: three
   read-only tools, `broker_status`, `broker_holdings`, `broker_positions`
-  (28 tools); still no order tool.
+  ; still no order tool.
 - `tests/test_broker_adapters.py`: one contract suite for all three adapters
   against a local stub HTTP server replaying doc-derived, secret-free
   fixtures and real instrument-master slices; every live-order gate tested

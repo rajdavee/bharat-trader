@@ -379,3 +379,10 @@ canvas.plot:focus-visible { outline: 2px solid var(--focus); }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+
+/* risk: Greeks gauges and the scenario heatmap */
+.gauges { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 18px; margin: 6px 0 10px; }
+.gauges h3 { grid-column: 1 / -1; margin: 8px 0 0; }
+.gauge-head { font-size: 13px; }
+.tbl td.heat { color: var(--text); }
+.tbl td.heat.hot { font-weight: 700; outline: 1px solid var(--down); outline-offset: -1px; }
