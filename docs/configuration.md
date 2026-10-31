@@ -84,7 +84,7 @@ A basket's own stop rule goes on each of its legs in `trader/orders.json`:
 | `no_entries_before` | `"09:30"` | Skip the first 15 minutes while the opening range forms. |
 | `no_entries_after` | `"14:45"` | No new trades late in the session. |
 | `flat_by` | `"15:10"` | Close intraday positions before the broker's MIS auto square-off. Never later than the safe time for the stock and day (below); a later one is pulled in, with a note. `"auto"` takes the safe time. |
-| `broker_profile` | `""` | `zerodha`, `upstox`, `dhan`, `angel`, `groww` or `custom`: your broker's MIS square-off times (see [data sources](data-sources.md#broker-mis-square-off)). Empty: only the exchange's timings bind. |
+| `broker_profile` | `""` | `zerodha`, `upstox`, `dhan`, `angel`, `groww` or `custom`: your broker's MIS square-off times (see [data sources](data-sources.md#broker-mis-square-off)). Empty: only the exchange's timings bind. It also picks the brokerage for paper fills ([options.md](options.md#paper-fo-the-basket-margin-mtm-and-expiry)). |
 | `square_off` | none | For `custom`: `{"EQ": "15:20", "EQ_FNO": "15:10", "DERIV": "15:25"}`, your broker's square-off for cash stocks, F&O stocks and F&O contracts. |
 | `square_off_margin_min` | 5 | Minutes between the flat-by and the earlier of the broker's square-off and the end of continuous trading. |
 | `fno_stocks` | `[]` | Your own list of F&O stocks. Empty: NSE's list, cached in `trader/fno_stocks.json` (refreshed once a day by the scanner, the entry timer, the exit planner's ATR fetch and the time machine). With no list at all every stock is treated as an F&O stock: the earlier close is the safe side to be wrong on. |
@@ -117,7 +117,7 @@ For each stock and day the tools work out:
 
 | key | default | meaning |
 | --- | --- | --- |
-| `exchange` | `"NSE"` | Only NSE in v0.1. |
+| `exchange` | `"NSE"` | Only NSE for now. |
 | `product` | `"MIS"` | `MIS` intraday or `CNC` delivery. Changes STT and stamp duty. |
 | `tick_size` | `"auto"` | NSE tick by price band (see [data sources](data-sources.md#tick-sizes)); a number overrides. Stops round down. |
 | `broker` | `"paper"` | `paper`, or a live broker: `upstox`, `kite` (`zerodha` works too) or `dhan`. A live broker needs `paper` false. See [brokers](brokers.md). |
@@ -125,6 +125,11 @@ For each stock and day the tools work out:
 | `live_enabled` | `{}` | Per broker, e.g. `{"upstox": true}`: the last switch for live orders at that broker. Missing or false: no live order there, whatever else is set. |
 | `static_ip` | `""` | The static IP you registered with your broker (SEBI: API orders only from it): one IP, a list, or `{"kite": "..."}` per broker. `ticket.py preflight` compares it with this machine's public IP. |
 | `order_rate_per_sec` | 3 | Most live orders a second this tool sends; never above 9 (more than 10 a second needs exchange algo registration). |
+| `shadow` | false | With a live broker, record a paper twin of every order `ticket.py place` sends (`trader/state/shadow.json`); `ticket.py shadow-report` compares them. The live order is not changed. |
+| `paper_spread_share` | 0.5 | Paper fills at the bid/ask mid plus this share of the spread against you (0.5: the far side; 0: the mid). |
+| `paper_slippage_bps` | 10 | With no two-sided quote, the last price moves this many basis points against you. |
+| `market_protection_pct` | 2 | A paper MARKET order is sent as a LIMIT this far from the last price, as brokers do for API orders. |
+| `paper_partial_fills`, `paper_partial_chance`, `paper_seed` | false, 0.5, 7 | Seeded part fills for single-leg paper tickets (a basket never fills in part). |
 | `blocked` | `[]` | Symbols you never trade. |
 | `allow_short` | false | Intraday short selling. |
 | `allow_fno` | false | Futures and options on NFO, checked by the F&O risk rules above. |
@@ -141,7 +146,7 @@ cost of a trade, so "max loss ₹1,000" really means ₹1,000 after charges.
 "charges": {
   "brokerage_pct": 0.03, "brokerage_cap": 20,
   "stt_sell_pct": 0.025, "stt_delivery_pct": 0.1,
-  "exchange_txn_pct": 0.00297, "sebi_per_crore": 10,
+  "exchange_txn_pct": 0.00307, "sebi_per_crore": 10,
   "stamp_buy_pct": 0.003, "stamp_delivery_pct": 0.015,
   "gst_pct": 18
 }
@@ -162,8 +167,8 @@ them.**
 
 NSE's equity transaction charge plus the IPFT contribution comes to ₹307 a
 crore (0.00307%) on each side ([NSE/FA/73061](https://nsearchives.nseindia.com/content/circulars/FA73061.pdf)).
-The default `exchange_txn_pct` of 0.00297% is the transaction charge without
-the ₹10 a crore IPFT part; set 0.00307 to match a contract note to the paisa.
+The default `exchange_txn_pct` is that 0.00307%. A config that still says
+0.00297 (the rate without the ₹10 a crore IPFT part) under-counts by ₹10 a crore.
 
 ### Futures and options
 

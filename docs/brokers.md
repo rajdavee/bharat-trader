@@ -4,6 +4,21 @@ trader-broker can read your real account at three Indian brokers, and (only
 when every gate is open) send one order at a time to it. Paper stays the
 default: with no setup at all nothing talks to a broker.
 
+> **Before you go live, two rules you cannot skip** (SEBI's retail-algo
+> framework, in force since 1 April 2026):
+>
+> 1. **A static IP.** Brokers accept API orders (place, modify, cancel) only
+>    from a static public IP you registered with them. A home connection's IP
+>    usually changes; a static IP from your ISP or a small cloud server costs
+>    money and can be changed only about once a week. Reading your account
+>    works from any IP.
+> 2. **A login every trading day.** Tokens expire daily (Upstox 03:30 IST,
+>    Kite 06:00 IST, Dhan 24 hours after login), and each login needs your
+>    two-factor step in a browser. `ticket.py login` makes it one command.
+>
+> `ticket.py preflight <broker>` checks both before any live order. If either
+> is a problem for you, stay on paper: everything else works the same.
+
 | | Upstox | Zerodha Kite | Dhan |
 | --- | --- | --- | --- |
 | API version | v2 + v3 | Kite Connect v3 | DhanHQ v2 |
@@ -123,7 +138,7 @@ Kite has no sandbox: test on paper first.
 Quotes and candles at Dhan need the Data API plan; without it the broker
 answers DH-902, which this tool reports as "not in your plan".
 
-## Every trading day
+## Every trading day: log in, then preflight
 
 ```bash
 eval "$(python3 trader-broker/ticket.py login upstox)"     # browser login with 2FA; sets the token in THIS shell
@@ -223,7 +238,8 @@ After the entry fills, send one exit leg: `place --index N --leg stop` (the
 SL-M or SL stop) or `--leg target` (the LIMIT target). In this version only
 one exit leg works at the broker at a time; to switch, `cancel --index N
 --leg stop` first. Broker-side OCO (Kite GTT two-leg, Upstox GTT, Dhan
-Forever OCO) is the next step; until then watch the position yourself and
+Forever OCO) is the next step
+([#34](https://github.com/rajdavee/bharat-trader/issues/34)); until then watch the position yourself and
 remember the broker's MIS square-off.
 
 What it maps, one to one, and refuses otherwise:

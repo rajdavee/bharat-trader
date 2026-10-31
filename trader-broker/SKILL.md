@@ -141,17 +141,17 @@ ORDER 1 of 1, PAPER account (no real money)
   then a stop-loss: SL-M trigger 1163.30
   then a target: LIMIT 1196.30 (when the stop or the target fills, the other is cancelled)
   order value about ₹49,320.60
-  loss if the stop fills at 1163.30: about ₹462.00 + ₹52.00 charges = ₹514.00 (a stop can fill worse in a fast market)
+  loss if the stop fills at 1163.30: about ₹462.00 + ₹52.11 charges = ₹514.11 (a stop can fill worse in a fast market)
   READY: trader-risk PASS, waiting for your yes
 ```
 
 The user replies "yes". `confirm` records "yes" verbatim and places it on
-paper. Filled at 1174.30: charges ₹20.73, cash ₹1,00,000 to ₹50,658.67.
+paper. Filled at 1174.30: charges ₹20.78, cash ₹1,00,000 to ₹50,658.62.
 Neither leg filled; at 15:10 `flatten` writes SELL 42 RELIANCE MARKET; it
 passes trader-risk as an exit, the user says yes, and it fills at the real
-15:10 price 1168.80: sell charges ₹31.43 (including ₹12.27 STT), realised
-(1168.80 minus 1174.30) x 42 = minus ₹231.00, minus ₹52.16 charges: minus
-₹283.16. Cash ₹99,716.84.
+15:10 price 1168.80: sell charges ₹31.49 (including ₹12.27 STT), realised
+(1168.80 minus 1174.30) x 42 = minus ₹231.00, minus ₹52.27 charges: minus
+₹283.27. Cash ₹99,716.73.
 
 ## The broker-neutral order
 

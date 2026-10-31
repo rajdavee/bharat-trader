@@ -43,7 +43,7 @@ SPEC_CFG = {
     "product": "MIS", "tick_size": "auto", "broker": "paper", "paper": True, "blocked": [], "allow_short": False,
     "allow_fno": False, "include_charges": True,
     "charges": {"brokerage_pct": 0.03, "brokerage_cap": 20, "stt_sell_pct": 0.025, "stt_delivery_pct": 0.1,
-                "exchange_txn_pct": 0.00297, "sebi_per_crore": 10, "stamp_buy_pct": 0.003,
+                "exchange_txn_pct": 0.00307, "sebi_per_crore": 10, "stamp_buy_pct": 0.003,
                 "stamp_delivery_pct": 0.015, "gst_pct": 18},
     "extra_holidays": [], "special_sessions": [], "fno_stocks": [],
 }
@@ -113,31 +113,31 @@ class Charges(unittest.TestCase):
     turnover       1,94,020.80
     brokerage      buy  0.03% = 29.24 -> capped at 20; sell 0.03% = 28.97 -> capped at 20     = 40.00
     STT            0.025% of the sell side 96,553.90 = 24.1385                                = 24.14
-    exchange       0.00297% of 1,94,020.80 = 5.7624                                          =  5.76
+    exchange       0.00307% of 1,94,020.80 = 5.9564                                          =  5.96
     SEBI           10 per crore: 1,94,020.80 x 10 / 1,00,00,000 = 0.1940                      =  0.19
     stamp          0.003% of the buy side 97,466.90 = 2.9240                                  =  2.92
-    GST            18% of (40 + 5.7624 + 0.1940) = 8.2722                                     =  8.27
-    total                                                                                     = 81.28
+    GST            18% of (40 + 5.9564 + 0.1940) = 8.3071                                     =  8.31
+    total                                                                                     = 81.52
     """
 
     def test_the_hand_worked_example(self):
         self.assertEqual(size.round_trip_charges(1174.30, 1163.30, 83, cfg()),
-                         {"brokerage": 40.0, "stt": 24.14, "exchange": 5.76, "sebi": 0.19, "stamp": 2.92,
-                          "gst": 8.27, "total": 81.28})
+                         {"brokerage": 40.0, "stt": 24.14, "exchange": 5.96, "sebi": 0.19, "stamp": 2.92,
+                          "gst": 8.31, "total": 81.52})
 
     def test_delivery_pays_stt_both_sides_and_more_stamp(self):
         # CNC: STT 0.1% of 1,94,020.80 = 194.02; stamp 0.015% of 97,466.90 = 14.62
         ch = size.round_trip_charges(1174.30, 1163.30, 83, cfg(product="CNC"))
-        self.assertEqual((ch["stt"], ch["stamp"], ch["brokerage"], ch["gst"]), (194.02, 14.62, 40.0, 8.27))
-        self.assertEqual(ch["total"], 262.86)
+        self.assertEqual((ch["stt"], ch["stamp"], ch["brokerage"], ch["gst"]), (194.02, 14.62, 40.0, 8.31))
+        self.assertEqual(ch["total"], 263.10)
 
     def test_brokerage_under_the_cap(self):
         # 1 share: 0.03% of 1174.30 = 0.3523 and of 1163.30 = 0.3490: 0.70 in all
         self.assertEqual(size.round_trip_charges(1174.30, 1163.30, 1, cfg())["brokerage"], 0.70)
 
     def test_a_bare_charges_dict_works_too(self):
-        self.assertEqual(size.round_trip_charges(1174.30, 1163.30, 83, SPEC_CFG["charges"])["total"], 81.28)
-        self.assertEqual(size.round_trip_charges(1174.30, 1163.30, 83, {})["total"], 81.28)   # the defaults
+        self.assertEqual(size.round_trip_charges(1174.30, 1163.30, 83, SPEC_CFG["charges"])["total"], 81.52)
+        self.assertEqual(size.round_trip_charges(1174.30, 1163.30, 83, {})["total"], 81.52)   # the defaults
 
 
 class TheFixtures(unittest.TestCase):
@@ -176,16 +176,16 @@ class PlanSizing(unittest.TestCase):
                          [("max loss", 83), ("position cap", 42), ("max order", 42), ("cash", 76)])
         self.assertEqual([l["name"] for l in s["limits"] if l["binds"]], ["position cap"])
         self.assertEqual((s["risk_per_share"], s["value"], s["max_loss"]), (11.00, 49320.60, 462.00))
-        self.assertEqual((s["charges"], s["max_loss_with_charges"]), (52.00, 514.00))
+        self.assertEqual((s["charges"], s["max_loss_with_charges"]), (52.11, 514.11))
         self.assertEqual(s["reward_risk"], 2.0)
         self.assertIsNone(s["refusal"])
 
     def test_max_loss_counts_the_charges(self):
-        # 83 shares: 83 x 11.00 = 913.00 + 81.28 = 994.28 fits 1,000; 84: 924.00 + 81.71 = 1,005.71 does not
-        self.assertEqual(round(83 * 11.00 + size.round_trip_charges(1174.30, 1163.30, 83, cfg())["total"], 2), 994.28)
-        self.assertEqual(round(84 * 11.00 + size.round_trip_charges(1174.30, 1163.30, 84, cfg())["total"], 2), 1005.71)
+        # 83 shares: 83 x 11.00 = 913.00 + 81.52 = 994.52 fits 1,000; 84: 924.00 + 81.94 = 1,005.94 does not
+        self.assertEqual(round(83 * 11.00 + size.round_trip_charges(1174.30, 1163.30, 83, cfg())["total"], 2), 994.52)
+        self.assertEqual(round(84 * 11.00 + size.round_trip_charges(1174.30, 1163.30, 84, cfg())["total"], 2), 1005.94)
         s = size.size_trade(plan(), cfg(max_position_pct=100, max_order_value=100000, cash_buffer_pct=0), today=TODAY)
-        self.assertEqual((s["qty"], s["bound_by"], s["max_loss_with_charges"]), (83, "max loss", 994.28))
+        self.assertEqual((s["qty"], s["bound_by"], s["max_loss_with_charges"]), (83, "max loss", 994.52))
         # without charges the same limit allows floor(1000 / 11.00) = 90
         s = size.size_trade(plan(), cfg(max_position_pct=100, max_order_value=200000, cash_buffer_pct=0,
                                         include_charges=False), today=TODAY)
@@ -289,10 +289,10 @@ class PlanSizing(unittest.TestCase):
         self.assertEqual(o["stop_loss"], {"order_type": "SL-M", "trigger_price": 1163.30})
         self.assertEqual(o["target"], {"order_type": "LIMIT", "price": 1196.30})
         self.assertEqual(o["plan"], {"entry": 1174.30, "stop": 1163.30, "target": 1196.30, "risk_per_share": 11.00,
-                                     "max_loss": 462.00, "charges": 52.00, "max_loss_with_charges": 514.00,
+                                     "max_loss": 462.00, "charges": 52.11, "max_loss_with_charges": 514.11,
                                      "setup": "orb", "entry_time": "09:40", "flat_by": "15:10"})
         self.assertIn("bound by your position cap", o["why"])
-        self.assertIn("₹514.00", o["why"])
+        self.assertIn("₹514.11", o["why"])
 
     def test_cli_writes_the_fixture_orders_file(self):
         with tempfile.TemporaryDirectory() as d:

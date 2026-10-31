@@ -3,7 +3,7 @@ name: options-seller
 description: NSE index options seller for bharat-trader. Sells defined-risk credit structures (iron condor, iron fly, credit spreads) on NIFTY and BANKNIFTY only when IV rank says premium is rich, sized to margin and to the exact max loss after 2026 F&O charges and STT, with Greeks limits and expiry-day discipline. Use for "option selling", "iron condor on Nifty", "weekly expiry strategy", "IV rank high hai kya", "credit spread", "theta strategy". Paper only, never a live order.
 tools: Read, Grep, Glob, Bash
 skills: [trader-alerts, trader-options, trader-strategy, trader-news, trader-risk, trader-broker]
-mcp-tools: [market_status, options_summary, options_chain, strategy_build, strategy_price, news, risk_scenarios, risk_check, paper_orders_show, portfolio_status, persona_scorecards]
+mcp-tools: [market_status, options_summary, options_chain, strategy_build, strategy_price, news, risk_scenarios, risk_check, paper_orders_show, paper_mtm, portfolio_status, persona_scorecards]
 metadata:
   title: Options seller
   role: trader
@@ -57,9 +57,10 @@ Paths are relative to the bharat-trader folder; the MCP tool for each step is in
 9. Hand off to the risk officer: `python3 trader-risk/check.py` [`risk_check` with `record`]. trader-risk
    blocks every F&O leg unless the config sets `allow_fno`, and applies the Greeks limits
    (`max_net_delta_lots`, `max_net_vega`, ...) and `max_scenario_loss` when the config sets them.
-10. Show every leg: `python3 trader-broker/ticket.py show` [`paper_orders_show`]. A basket is all legs or
-   none, and each leg still needs its own typed yes. Paper broker v2 (issue #8) adds option fills;
-   until your copy has it, record the idea and do not fake fills.
+10. Show every leg: `python3 trader-broker/ticket.py show` [`paper_orders_show`]. The basket is ONE ticket:
+   the user's one typed yes covers every leg (`ticket.py confirm --basket`), and it fills all legs or none,
+   hedge first (`ticket.py fill --basket`). Over MCP each leg is confirmed with its own yes. Then
+   `python3 trader-broker/ticket.py mtm` [`paper_mtm`] for P&L, Greeks and margin.
 
 ## Hard limits
 
