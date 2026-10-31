@@ -64,7 +64,7 @@ CHART = "https://%s.finance.yahoo.com/v8/finance/chart/%s?range=1d&interval=5m"
 NSE_ANN = ("https://www.nseindia.com/api/corporate-announcements?index=equities&symbol=%s"
            "&from_date=%s&to_date=%s")
 NSE_BM = "https://www.nseindia.com/api/corporate-board-meetings?index=equities&symbol=%s"
-YAHOO_UA = "Mozilla/5.0 (compatible; bharat-trader/0.1; +https://github.com/rajdavee/bharat-trader)"
+YAHOO_UA = "Mozilla/5.0 (compatible; bharat-trader/0.2; +https://github.com/rajdavee/bharat-trader)"
 NSE_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
           "(KHTML, like Gecko) Chrome/130 Safari/537.36")
 MARKET = "^NSEI"           # --market: Nifty 50 headlines and move

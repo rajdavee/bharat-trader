@@ -48,7 +48,7 @@ import xml.etree.ElementTree as ET
 SCHEMA = "bharat-trader/doctor/1"
 NSE_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
           "Chrome/130 Safari/537.36")
-YAHOO_UA = "Mozilla/5.0 (compatible; bharat-trader/0.1; +https://github.com/rajdavee/bharat-trader)"
+YAHOO_UA = "Mozilla/5.0 (compatible; bharat-trader/0.2; +https://github.com/rajdavee/bharat-trader)"
 NSE = "https://www.nseindia.com/api/"
 ARCHIVES = "https://nsearchives.nseindia.com/content/"
 YAHOO_HOSTS = ("https://query2.finance.yahoo.com", "https://query1.finance.yahoo.com")

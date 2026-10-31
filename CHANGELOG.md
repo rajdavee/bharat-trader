@@ -6,7 +6,7 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-11-xx
+## [0.2.0] - 2026-11-01
 
 NSE F&O, an honest Strategy Lab, live broker adapters behind gates, a local
 web UI, an MCP server and an agent team. Still standard library only, still
