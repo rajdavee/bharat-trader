@@ -1656,7 +1656,7 @@ def stop_rule_loss(legs, orders, rule, cfg, on):
                 return None, "the stop %s of %s is on the wrong side of its entry %s" % (_p(t), l["label"], _p(l["entry"]))
             loss += abs(t - l["entry"]) * abs(l["qty"])
         loss += sum(l["entry"] * l["qty"] for l in legs if l["qty"] > 0 and l["instrument"] == "OPT")
-        return round_paise(loss + entry_rt), "the stop_loss legs on every short leg (a stop can fill worse)"
+        return round_paise(loss + entry_rt), "the stop_loss on every short leg and future (a stop can fill worse)"
     return None, "no stop or adjustment rule"
 
 
@@ -2332,9 +2332,10 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
                 "NOT defined risk", inr(loss), summary.get("loss_from"),
                 (" (limit %s)" % inr(c["max_loss_per_trade"])) if _f(c.get("max_loss_per_trade")) else ""))
         if margin:
-            info.insert(1 if loss is not None else 0, "margin about %s (%s, %s), %s free; premium paid %s, received %s"
+            info.insert(1 if loss is not None else 0, "margin about %s (%s, %s), %s free%s"
                         % (inr(margin_use), margin["used_is"], margin["source"], inr(max(margin["available"], 0)),
-                           inr(paid), inr(received)))
+                           ("; premium paid %s, received %s" % (inr(paid), inr(received)))
+                           if any(l["instrument"] == "OPT" for l in bl) else ""))
         summary.update({"premium_paid": round_paise(paid), "premium_received": round_paise(received)})
         # verdicts: all or nothing
         own_block = [x["j"] for x in legs if per[x["j"]]["reasons"]]
@@ -2959,9 +2960,17 @@ def cmd_refresh(argv):
     ap.add_argument("--config", default="trader/config.json")
     ap.add_argument("--now")
     a = ap.parse_args(argv)
-    today = parse_now(a.now).date().isoformat()
+    now = parse_now(a.now)
+    today = now.date().isoformat()
     tdir = tdir_of(a.config)
-    ban, note = load_ban(os.path.join(tdir, "fo_secban.json"), today, True)
+    c = merged_config(read_json(a.config, "config", required=False) or {})
+    # the ban list that matters is the next session's: today's on a trading day, else the next open day's
+    day = now.date()
+    while _closed_day(day, c):
+        day += datetime.timedelta(days=1)
+    if day.isoformat() != today:
+        print("NSE is closed on %s: fetching the ban list for the next session, %s." % (today, day.isoformat()))
+    ban, note = load_ban(os.path.join(tdir, "fo_secban.json"), day.isoformat(), True)
     print(note)
     lots, lnote = load_lots(os.path.join(tdir, "fo_mktlots.csv"), True, today)
     print(lnote + ("; %d underlyings" % len(lots) if lots else ""))
