@@ -220,8 +220,49 @@ All notable changes are documented here. The format follows
 - UI: a "Data" badge in the header (the last self-test; click to run it),
   `GET /api/doctor` and `POST /api/doctor/run`. MCP: the read-only `doctor`
   tool.
+- Paper broker v2, NSE F&O on paper (#8): options and futures in whole lots,
+  NRML and MIS, positions kept per strategy in signed units. A multi-leg
+  proposal from trader-strategy is ONE basket ticket (`ticket.py show`: every
+  leg, net premium, margin, max loss at expiry with charges, charges) and one
+  typed yes (`confirm --basket`, only when trader-risk passed every leg
+  today); `fill --basket` fills every leg or none, buys first (hedge first).
+  Margin is blocked per strategy (trader-strategy's estimate less the premium
+  paid, or a SPAN-style estimate here, futures included) and released as legs
+  close, with a cash/margin `ledger`. Fill realism: spread-based slippage from
+  the chain's bid/ask (`paper_spread_share`) or `paper_slippage_bps`, MARKET
+  orders turned into a protected LIMIT (`market_protection_pct`, as brokers do
+  for API orders), rejection outside NSE's price band (`trader/bands.csv`,
+  the F&O contract master), optional seeded part fills for single-leg tickets
+  (`paper_partial_fills`). `ticket.py mtm` marks positions to
+  `trader/options.json` with Black-76 Greeks from trader-options, per leg,
+  strategy and portfolio, and the payoff at expiry. `ticket.py adjust` (roll a
+  leg, close a leg, add a hedge, close all) writes a new basket ticket that
+  goes through risk and a yes. `ticket.py settle` settles at NSE's final
+  settlement price (FOSett_prce or the F&O bhavcopy of the expiry day):
+  cash-settled index options, STT on exercise for in-the-money longs, expired
+  legs, futures; a physical-settlement warning for stock options.
+- Broker charge profiles for paper fills (zerodha, upstox, dhan, angel, groww,
+  custom), chosen by the existing `broker_profile`; sources and dates in
+  `ticket.py` and docs/options.md.
+- Shadow mode: `"shadow": true` records a paper twin for every live order
+  `ticket.py place` sends (trader/state/shadow.json; the live order is not
+  changed); `ticket.py shadow-report` puts each next to its live fill.
+- UI: the portfolio page shows F&O by strategy (marks, P&L, Greeks, margin,
+  payoff at expiry) with adjust and close buttons that only write a proposal,
+  and a basket ticket with one yes form; `GET /api/fno`, `POST
+  /api/fno/adjust`. MCP: `portfolio_status` carries the F&O book; new
+  read-only `paper_mtm`.
+
 
 ### Changed
+- `trader/portfolio.json` has a schema (`bharat-trader/portfolio/2`): cash,
+  share positions, `fno_positions`, `strategies`, `margin_blocked` and
+  `ledger`. Older files are migrated on read; the first write keeps the old
+  file as `portfolio.json.v1.bak`.
+- With `broker_profile` set, paper fills of shares also use that broker's
+  brokerage (for example zero on Zerodha delivery); without it, nothing changes.
+- `ticket.py flatten` names open F&O strategies and the `adjust --close-all`
+  that closes each as one basket (its own tickets stay shares only).
 - A skill may keep helper modules in one subfolder (a package its entry
   script loads by path), still standard library and self-contained; the repo
   tests check it.

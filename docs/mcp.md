@@ -30,7 +30,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 31 tools and 11 prompts from
+4. Restart the client. It should list 32 tools and 11 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -95,6 +95,7 @@ message.
 | `paper_order_draft` | **Draft paper orders.** Size trader/plan.json into order tickets (trader/orders.json, the old one kept as .bak) and record trader-risk's verdicts. Returns each ticket with its fingerprint. Places nothing. | `capital`?, `limit`?, `market`?, `persona`? | writes trader/ (replaces a file, keeps a .bak) |
 | `paper_order_confirm` | **Confirm one paper order.** Record the USER's yes for ONE ticket and place it on the PAPER account (no real money; no live broker exists in this server). Needs the ticket's index and its exact risk-PASS fingerprint. When the client supports elicitation the server asks the user directly and yes_text is ignored; otherwise yes_text must be the user's own reply, word for word, after you showed them the ticket. Never write a yes yourself. | `index`, `risk_fingerprint`, `yes_text`? | writes trader/ |
 | `portfolio_status` | **Paper portfolio.** The paper account: cash, positions marked to a delayed price, P&L if closed now after charges, working stop/target legs, today's fills and limits. | `live_quotes`? | read-only; network |
+| `paper_mtm` | **Paper F&O mark to market.** The paper F&O book marked to the latest chain (trader/options.json): positions grouped by strategy, P&L (open and realised), Black-76 Greeks per leg, per strategy and in all, margin blocked, and the payoff at expiry of each open structure. Read only. | `strategy`? | read-only |
 | `options_chain` | **Option chain.** NSE option chain for an index or F&O stock and expiry: LTP, bid/ask, OI and change, volume, our Black-76 IV and Greeks per strike around the money, lot size, forward, ATM straddle. | `symbol`, `expiry`?, `strikes`? | read-only; network |
 | `options_summary` | **Options summary.** One expiry in numbers: PCR (OI and volume), max pain, call and put walls, ATM IV, 25-delta skew, expected move from the straddle and from IV, IV rank and percentile from India VIX (NIFTY). | `symbol`, `expiry`? | read-only; network |
 | `results_analyse` | **Quarterly results.** Quarterly results from the company's XBRL filings with NSE: revenue, profit, margins, EPS, QoQ and YoY changes, plain-words notes and the next board meeting. | `symbols`, `quarters`?, `standalone`? | read-only; network |

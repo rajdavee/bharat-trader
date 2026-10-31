@@ -399,8 +399,10 @@ def account_view(ctx, live_quotes=True):
     legs = [{"symbol": r["symbol"], "index": r.get("index"), "stop": r.get("stop"), "target": r.get("target"),
              "paper_order_id": r.get("paper_order_id")} for r in broker.open_legs(state, today)]
     now_s = ist_text(ctx.now_ist())
+    fno = fno_view(ctx, pf)
     return {
         "paper": True, "date": today, "cash": pf["cash"], "positions": positions, "working_legs": legs,
+        "margin_blocked": pf.get("margin_blocked") or 0.0, "free_cash": broker.free_cash(pf), "fno": fno,
         "today": {"orders": len(placed), "max_orders": c["max_orders_per_day"], "trades": len(entries),
                   "max_trades": c["max_trades_per_day"], "at_risk": at_risk, "max_daily_loss": c["max_daily_loss"],
                   "realised": realised, "charges": charges, "open_pnl": open_pnl,
@@ -427,6 +429,72 @@ def account_view(ctx, live_quotes=True):
     }
 
 
+def fno_view(ctx, pf=None):
+    """The paper F&O book marked to trader/options.json (trader-broker mtm_view): positions grouped by strategy,
+    P&L, Black-76 Greeks, margin blocked and the payoff at expiry of each open structure."""
+    broker = skill("broker")
+    if pf is None:
+        try:
+            pf = broker.load_portfolio(ctx.path("portfolio.json"), ctx.config())
+        except broker.TicketError as e:
+            raise ApiError(422, str(e))
+    markets = broker.load_markets([ctx.path("options.json")])
+    v = broker.mtm_view(pf, markets, ctx.now_ist(), ctx.config())
+    v["why"] = {
+        "unrealised": why("sum over open F&O positions of (mark - average price) x signed units",
+                          {"positions": len(v["positions"])}, "trader-broker mtm_view; marks from trader/options.json",
+                          v["as_of"], "Marks are the chain's mid (futures: its parity forward), not a trade."),
+        "margin": why("per strategy: trader-strategy's SPAN-style estimate less the premium paid, or trader-broker's "
+                      "own estimate after an adjustment", {"blocked": v["totals"]["margin_blocked"]},
+                      "trader/portfolio.json (the paper ledger)", v["as_of"],
+                      "An estimate of what a broker blocks: check your broker's basket margin."),
+        "greeks": why("Black-76 on the forward at each leg's IV, x signed units", {"from": v["greeks_from"]},
+                      "trader-options black76_greeks", v["as_of"])}
+    return v
+
+
+def r_fno(ctx, q, body):
+    return fno_view(ctx)
+
+
+def r_fno_adjust(ctx, q, body):
+    """Write an adjustment PROPOSAL (ticket.py adjust) to trader/orders.json. It places nothing: the ticket
+    still needs trader-risk and your typed yes."""
+    skill("broker").paper_only(ctx.config(), "the local UI's adjust")
+    body = body or {}
+    sid = body.get("strategy")
+    if not isinstance(sid, str) or not re.match(r"^S-\d{8}-\d{1,4}$", sid):
+        raise ApiError(400, "strategy must be an id like S-20261102-1")
+    action = body.get("action")
+    argv = ["adjust", "--strategy", sid, "--orders", ctx.path("orders.json"), "--portfolio", ctx.path("portfolio.json"),
+            "--config", ctx.path("config.json"), "--options", ctx.path("options.json")]
+    if action == "close-all":
+        argv.append("--close-all")
+    elif action in ("close-leg", "roll-leg"):
+        argv += ["--" + action, str(_int(body, "leg"))]
+        if action == "roll-leg":
+            k = body.get("strike")
+            if isinstance(k, bool) or not isinstance(k, (int, float)) or k <= 0:
+                raise ApiError(400, "a roll needs the new strike (a positive number)")
+            argv += ["--strike", str(k)]
+            exp = body.get("expiry")
+            if exp:
+                if not isinstance(exp, str) or not re.match(r"^\d{4}-\d{2}-\d{2}$", exp):
+                    raise ApiError(400, "expiry is YYYY-MM-DD")
+                argv += ["--expiry", exp]
+    elif action == "add-hedge":
+        hedge = body.get("hedge")
+        if not isinstance(hedge, str) or len(hedge) > 60:
+            raise ApiError(400, "hedge is short text like \"BUY 1 PE 22500\"")
+        argv += ["--add-hedge", hedge]
+    else:
+        raise ApiError(400, "action is close-leg, roll-leg, add-hedge or close-all")
+    rc, out, err = run_skill(ctx, "broker", argv + ctx.now_args())
+    res = _command_result(ctx, rc, out, err)
+    res["placed"] = False
+    return res
+
+
 def r_portfolio(ctx, q, body):
     return account_view(ctx, live_quotes=q.get("live", "1") not in ("0", "false"))
 
@@ -444,6 +512,19 @@ def tickets(ctx):
     state = broker.load_state(ctx.path("state", "broker.json"))
     today = ctx.today()
     out = []
+    if orders and broker.is_basket_doc(doc, orders):
+        try:
+            pf = broker.load_portfolio(ctx.path("portfolio.json"), cfg)
+            view = broker.basket_view(doc, orders, cfg, risk_doc, state, pf, ctx.read("strategy.json"),
+                                      broker.load_markets([ctx.path("options.json")]), ctx.now_ist(), today)
+        except broker.TicketError as e:
+            raise ApiError(422, str(e))
+        view["text"] = broker.render_basket(view)
+        return {"orders_file": True, "source": doc.get("source") if isinstance(doc, dict) else None,
+                "created_at": doc.get("created_at") if isinstance(doc, dict) else None, "tickets": [],
+                "basket": view, "risk_checked_at": (risk_doc or {}).get("checked_at"),
+                "rule": "A multi-leg basket is ONE ticket: your typed yes covers every leg, all or nothing. Paper "
+                        "account only."}
     for i, o in enumerate(orders, 1):
         t = broker.ticket_json(o, i, cfg, risk_doc, state, today)
         t["explain"] = {"max_loss": why("qty x (entry - stop) + estimated round-trip charges at the stop",
@@ -480,16 +561,28 @@ def _command_result(ctx, rc, out, err):
     return {"ok": rc == 0, "exit_code": rc, "output": out.strip(), "error": err.strip(), "paper": True}
 
 
+def _fno_paths(ctx):
+    return ["--portfolio", ctx.path("portfolio.json"), "--options", ctx.path("options.json"),
+            "--strategy", ctx.path("strategy.json")]
+
+
 def r_confirm(ctx, q, body):
     skill("broker").paper_only(ctx.config(), "the local UI's confirm")
-    idx = _int(body, "index")
+    basket = (body or {}).get("basket") is True
+    idx = None if basket else _int(body, "index")
     text = (body or {}).get("yes_text")
     if not isinstance(text, str) or not text.strip():
         raise ApiError(400, "type your reply (yes_text): the paper broker records it word for word")
     if len(text) > 500:
         raise ApiError(400, "yes_text is too long")
-    rc, out, err = run_skill(ctx, "broker", ["confirm"] + _broker_paths(ctx) + ["--index", str(idx),
-                                                                                "--yes-text", text]
+    if basket:
+        bid = (body or {}).get("basket_id")
+        if not isinstance(bid, str) or not re.match(r"^[0-9a-f]{16}$", bid):
+            raise ApiError(400, "basket_id (16 hex characters, from the basket ticket) is needed with basket")
+        which = ["--basket", "--basket-id", bid] + _fno_paths(ctx)
+    else:
+        which = ["--index", str(idx)]
+    rc, out, err = run_skill(ctx, "broker", ["confirm"] + _broker_paths(ctx) + which + ["--yes-text", text]
                              + ctx.now_args())
     res = _command_result(ctx, rc, out, err)
     res["tickets"] = tickets(ctx)["tickets"]
@@ -497,12 +590,11 @@ def r_confirm(ctx, q, body):
 
 
 def r_decline(ctx, q, body):
-    idx = _int(body, "index")
+    which = ["--basket"] if (body or {}).get("basket") is True else ["--index", str(_int(body, "index"))]
     reply = (body or {}).get("reply") or "no"
     if not isinstance(reply, str) or len(reply) > 500:
         raise ApiError(400, "reply must be short text")
-    rc, out, err = run_skill(ctx, "broker", ["decline"] + _broker_paths(ctx) + ["--index", str(idx),
-                                                                                "--reply", reply]
+    rc, out, err = run_skill(ctx, "broker", ["decline"] + _broker_paths(ctx) + which + ["--reply", reply]
                              + ctx.now_args())
     res = _command_result(ctx, rc, out, err)
     res["tickets"] = tickets(ctx)["tickets"]
@@ -510,6 +602,14 @@ def r_decline(ctx, q, body):
 
 
 def r_fill(ctx, q, body):
+    if (body or {}).get("basket") is True:
+        argv = ["fill", "--basket", "--orders", ctx.path("orders.json"), "--prices", ctx.path("prices.json"),
+                "--portfolio", ctx.path("portfolio.json"), "--trades", ctx.path("state", "trades.json"),
+                "--config", ctx.path("config.json"), "--state", ctx.path("state", "broker.json"),
+                "--options", ctx.path("options.json"), "--strategy", ctx.path("strategy.json"),
+                "--bands", ctx.path("bands.csv")]
+        rc, out, err = run_skill(ctx, "broker", argv + ctx.now_args())
+        return _command_result(ctx, rc, out, err)
     idx = _int(body, "index")
     leg = (body or {}).get("leg") or "order"
     if leg not in ("order", "stop", "target"):
@@ -1516,6 +1616,7 @@ def r_strategy_draft(ctx, q, body):
     stg.write_json(ctx.path("strategy.json"), doc)
     return {"ok": True, "paper": True, "orders": written["orders"], "path": ctx.path("orders.json"),
             "strategy_path": ctx.path("strategy.json"), "tickets": tickets(ctx)["tickets"],
+            "basket": tickets(ctx).get("basket"),
             "next": "Proposals written, nothing placed. Next: Risk panel -> Run risk check, then type yes for each "
                     "leg on the Portfolio page. Until trader-risk has F&O rules it blocks option legs unless your "
                     "config allows F&O (\"allow_fno\": true)."}
@@ -1888,7 +1989,8 @@ ROUTES = [
     ("GET", "/api/plan", r_plan, "trader/plan.json from trader-exit", False),
     ("GET", "/api/alerts", r_alerts, "alert rules and what would ring now (dry run)", False),
     ("GET", "/api/portfolio", r_portfolio, "paper cash, positions, working legs, fills, today's limits", False),
-    ("GET", "/api/orders", r_orders, "order tickets with their trader-risk status", False),
+    ("GET", "/api/orders", r_orders, "order tickets with their trader-risk status (a basket as one ticket)", False),
+    ("GET", "/api/fno", r_fno, "paper F&O by strategy: MTM, Greeks, margin, payoff at expiry", False),
     ("GET", "/api/broker", r_broker, "live broker connection: credentials set, capabilities, last preflight", False),
     ("GET", "/api/broker/holdings", r_broker_holdings, "holdings at the live broker, read only: ?broker=", False),
     ("GET", "/api/broker/positions", r_broker_positions, "positions at the live broker, read only: ?broker=", False),
@@ -1905,7 +2007,9 @@ ROUTES = [
     ("POST", "/api/prices/refresh", r_refresh_prices, "trader-alerts quote --holdings --write", True),
     ("POST", "/api/orders/confirm", r_confirm, "record your typed yes for ONE order (paper broker)", True),
     ("POST", "/api/orders/decline", r_decline, "record a no for one order", True),
-    ("POST", "/api/orders/fill", r_fill, "simulate a paper fill (entry, stop or target)", True),
+    ("POST", "/api/orders/fill", r_fill, "simulate a paper fill (entry, stop or target; or a whole basket)", True),
+    ("POST", "/api/fno/adjust", r_fno_adjust, "write an F&O adjustment PROPOSAL (roll, close a leg, hedge); places nothing",
+     True),
     ("POST", "/api/config/validate", r_config_validate, "check a config without saving it", True),
     ("POST", "/api/config", r_config_save, "validate and save trader/config.json (keeps a .bak)", True),
     ("POST", "/api/strategy/price", r_strategy_price, "price a template or custom legs (trader-strategy evaluate)",

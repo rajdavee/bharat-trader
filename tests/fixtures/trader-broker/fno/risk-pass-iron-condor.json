@@ -1,0 +1,57 @@
+{
+ "checked_at": "2026-11-02T10:00:00+05:30",
+ "date": "2026-11-02",
+ "paper": true,
+ "pass": 4,
+ "block": 0,
+ "results": [
+  {
+   "index": 1,
+   "symbol": "NIFTY",
+   "side": "BUY",
+   "qty": 65,
+   "verdict": "PASS",
+   "kind": "entry",
+   "reasons": [],
+   "warnings": [],
+   "fingerprint": "ef289292f3c2943b",
+   "basket_id": "24c2c32c6b4cc415"
+  },
+  {
+   "index": 2,
+   "symbol": "NIFTY",
+   "side": "SELL",
+   "qty": 65,
+   "verdict": "PASS",
+   "kind": "entry",
+   "reasons": [],
+   "warnings": [],
+   "fingerprint": "5d01d8b9c5aec129",
+   "basket_id": "24c2c32c6b4cc415"
+  },
+  {
+   "index": 3,
+   "symbol": "NIFTY",
+   "side": "SELL",
+   "qty": 65,
+   "verdict": "PASS",
+   "kind": "entry",
+   "reasons": [],
+   "warnings": [],
+   "fingerprint": "d74e00430e2feaae",
+   "basket_id": "24c2c32c6b4cc415"
+  },
+  {
+   "index": 4,
+   "symbol": "NIFTY",
+   "side": "BUY",
+   "qty": 65,
+   "verdict": "PASS",
+   "kind": "entry",
+   "reasons": [],
+   "warnings": [],
+   "fingerprint": "7b7349103c5766ec",
+   "basket_id": "24c2c32c6b4cc415"
+  }
+ ]
+}

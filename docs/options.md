@@ -180,8 +180,75 @@ lots, lot size, qty, a LIMIT at the priced premium on the 0.05 tick (rounded
 up for a buy, down for a sell), and `tradingsymbol: null` for the broker
 adapter to fill. It refuses to overwrite someone else's proposals without
 `--replace`. Then the usual chain: trader-risk checks every leg, and the
-paper broker needs the user's typed yes for each one. Until trader-risk has
-F&O rules it blocks option legs unless the config allows F&O.
+paper broker shows the legs as one basket ticket and needs the user's typed
+yes to it. Until trader-risk has F&O rules it blocks option legs unless the
+config allows F&O.
+
+## Paper F&O: the basket, margin, MTM and expiry
+
+The paper broker (`trader-broker/ticket.py`) trades the proposal like this:
+
+| step | command | what happens |
+| --- | --- | --- |
+| the ticket | `ticket.py show` | ONE ticket for the basket: every leg, the order paper fills them in (buys first), net premium, margin blocked, max loss at expiry with charges, charges now and for the round trip. READY only when trader-risk passed every leg today |
+| the yes | `ticket.py confirm --basket --yes-text "<the user's words>"` | one yes covers this basket and nothing else; refused for "ok", "sure", a doubt, another underlying, or a number not on the ticket |
+| the fill | `ticket.py fill --basket` | every leg at the latest chain (`trader/options.json`), hedge first, all or nothing |
+| the book | `ticket.py mtm` | marks, P&L, Black-76 Greeks per leg, strategy and portfolio; margin; payoff at expiry |
+| a change | `ticket.py adjust --strategy ID --roll-leg N --strike K`, `--close-leg N`, `--add-hedge "BUY 1 PE 22500"`, `--close-all` | a new basket ticket, through trader-risk and a new yes |
+| expiry | `ticket.py settle --date D --settlement FILE` | NSE's final settlement price; cash settlement of index options; STT on exercise; futures to the settlement price |
+
+**Fill prices.** A buy pays the mid plus `paper_spread_share` (default 0.5,
+so the ask) of the bid/ask spread; a sell gets the mirror. A LIMIT at the
+mid (what trader-strategy proposes) therefore waits when the book is wider:
+that is what a real limit at the mid does. Set `"paper_spread_share": 0` to
+fill at the mid. With no two-sided quote the last price moves
+`paper_slippage_bps` (10) against you. A MARKET order is sent as a LIMIT
+`market_protection_pct` (2) from the last price, the way brokers send API
+market orders with market protection under SEBI's retail-algo framework; the
+book past that limit cancels it. A limit or fill outside the contract's
+price band (MinPric to MaxPric in NSE's `NSE_FO_contract_DDMMYYYY.csv`, kept
+as `trader/bands.csv`) is rejected. With `"paper_partial_fills": true` a
+single-leg ticket may fill in part (top-of-book depth, then a draw seeded by
+`paper_seed` and the ticket); a basket never fills in part.
+
+**Margin and cash.** Option premium moves cash at the fill (paid on a buy,
+received on a sell); futures move only their charges until closed. The
+margin blocked for a strategy is trader-strategy's SPAN-style estimate less
+the premium paid (it is already out of cash), or, after an adjustment,
+`ticket.py`'s own estimate with the same scenarios (price scan 9.3% for an
+index, 20% for a stock, vol scan, extreme moves at 30% weight, exposure on
+every short option and future, 2% more on index shorts on their expiry day).
+A future alone needs about its notional x (scan + exposure). Each block and
+release is a row in `trader/portfolio.json`'s `ledger`; free cash is cash
+less the margin blocked, and that is what trader-risk reads
+(`margin_blocked`). These are estimates: check your broker's basket margin.
+
+**Charges by broker.** `broker_profile` in the config picks the brokerage
+for paper fills; the statutory parts are the same at every broker.
+
+| profile | cash intraday | delivery | futures | options | source (read 1 Nov 2026) |
+| --- | --- | --- | --- | --- | --- |
+| zerodha | 0.03% or Rs 20, lower | zero | 0.03% or Rs 20, lower | Rs 20 an order | zerodha.com/charges |
+| upstox | 0.1% or Rs 20, lower | Rs 20 an order | 0.05% or Rs 20, lower | Rs 20 an order | upstox.com/brokerage-charges |
+| dhan | 0.03% or Rs 20, lower | zero | Rs 20 an order | Rs 20 an order | dhan.co/pricing |
+| angel | 0.1% or Rs 20, lower | 0.1% or Rs 20, lower | Rs 20 an order | Rs 20 an order | angelone.in/exchange-transaction-charges |
+| groww | 0.1% or Rs 20, lower | 0.1% or Rs 20, lower | Rs 20 an order | Rs 20 an order | groww.in/pricing |
+
+Not modelled: Angel One's and Groww's Rs 5 minimum, and joining offers.
+`custom` (or no profile) uses your own `charges` and `fno_charges` exactly.
+
+**Expiry settlement.** NSE index options are European and cash settled at
+the final settlement price, the index's close on expiry day: NSE's
+`FOSett_prce_DDMMYYYY.csv` gives it as the expiring future's row (for
+example NIFTY 22,749.75 on 27-Oct-2026), and the F&O bhavcopy of that day
+gives it as `UndrlygPric` on every expiring option. A long that ends in the
+money receives the intrinsic value and pays STT on exercise (0.15% of the
+intrinsic value since 1 Apr 2026); a short pays the intrinsic value;
+anything out of the money expires worthless. Futures settle at the final
+settlement price. Stock options are physically settled: a real account
+would take or give delivery (and needs delivery margin in the last days),
+so `mtm` warns three days ahead and the default is to close them before
+expiry; if one is still open, paper settles it in cash and says so.
 
 Education and tooling, not financial advice. Options can lose the whole
 premium, and sold options can lose much more.

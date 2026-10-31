@@ -13,13 +13,24 @@ description: >-
   builds the SELL tickets that close every MIS position by your flat-by time
   (15:10 IST). Reads your broker's holdings, positions, funds and order book;
   logs you in through a local browser callback (the daily token stays in your
-  shell); checks your static IP against SEBI's rules. Use when the user says
+  shell); checks your static IP against SEBI's rules. On paper it also
+  trades NSE F&O: a multi-leg option strategy (iron condor, strangle,
+  spread) from trader-strategy is ONE basket ticket and one yes, filled all
+  or nothing and hedge first, with margin blocked and released, broker
+  charge profiles (Zerodha, Upstox, Dhan, Angel One, Groww), spread
+  slippage, market protection, price bands, optional seeded part fills,
+  mark to market with Black-76 Greeks, rolls and hedges as new tickets, and
+  expiry settlement at NSE's final settlement price with STT on exercise.
+  Use when the user says
   "place the order", "buy it", "execute", "paper trade", "confirm", "I got
   filled", "square off", "close my position", "flatten", "get me out", "exit
   all intraday", "what do I hold", "my P&L today", "my Zerodha holdings",
   "Upstox positions", "Dhan funds", "login to Kite", "connect my broker",
-  "static IP check", "is my broker ready", or after /trader-risk passes.
-argument-hint: "[show | confirm --index N --yes-text \"...\" | fill | flatten | status | holdings | positions | preflight]"
+  "static IP check", "is my broker ready", "paper trade this iron condor",
+  "place the basket", "my F&O MTM", "option positions P&L", "portfolio
+  Greeks", "roll my short call", "add a hedge", "close the strangle",
+  "settle my expiry", "kitna margin laga", or after /trader-risk passes.
+argument-hint: "[show | confirm --index N --yes-text \"...\" | confirm --basket | fill | mtm | adjust | settle | flatten | status | holdings | positions | preflight]"
 ---
 
 # trader-broker
@@ -73,7 +84,11 @@ python3 "<skill dir>/ticket.py" instruments --broker kite --symbol "NIFTY 2026-1
 | `trader/orders.json` | the proposed orders (trader-budget writes it; `flatten` replaces it) |
 | `trader/state/risk.json` | trader-risk's verdicts; only a PASS from today, for this exact order, is READY |
 | `trader/state/broker.json` | every yes (verbatim), no, placed, filled and cancelled leg, with each entry's max loss |
-| `trader/portfolio.json` | `{"cash", "positions": {SYM: {"qty", "avg_price", "product"}}}`, updated by `fill` |
+| `trader/portfolio.json` | schema `bharat-trader/portfolio/2`: `cash`, share `positions` `{SYM: {"qty", "avg_price", "product"}}`, `fno_positions` (signed units, by strategy), `strategies`, `margin_blocked` and the cash/margin `ledger`. An older file is migrated on read and kept once as `portfolio.json.v1.bak` |
+| `trader/options.json` | trader-options' latest chain: F&O fill prices (bid/ask), marks and IVs |
+| `trader/strategy.json` | trader-strategy's position: its margin estimate and max loss for the basket ticket |
+| `trader/bands.csv` | optional: NSE's F&O contract master (`NSE_FO_contract_DDMMYYYY.csv`) for price bands |
+| `trader/state/shadow.json` | shadow mode: the paper twin of every live order `place` sent |
 | `trader/state/trades.json` | every paper fill: side, qty, price, value, charges and their parts, realised result on a sell |
 | `trader/prices.json` | the fresh price `fill` uses when no `--price` is given (under 15 minutes old) |
 | `trader/plan.json` | the flat-by time for `flatten` |
@@ -158,6 +173,76 @@ rounds them with `tick_size` `"auto"` (by NSE price band; RELIANCE above
 the config (`"tick_size": 0.05`) overrides the band. `stop_loss` and `target` are optional linked legs,
 placed only after the entry fills. `why` and `plan` in `trader/orders.json`
 are notes for the user and the checks, never part of the order.
+
+## F&O on paper: baskets, margin, MTM, adjustments, expiry
+
+trader-strategy's `--orders` writes every leg of a strategy to
+`trader/orders.json` with `"basket": true`. The paper broker shows that file
+as **one ticket** listing every leg, the net premium, the margin it blocks,
+the max loss at expiry (with charges) and the charges, and takes **one yes
+for the whole basket**, only when trader-risk passed every leg today.
+
+```bash
+python3 "<skill dir>/ticket.py" show                                   # BASKET of 4 legs ... READY
+python3 "<skill dir>/ticket.py" confirm --basket --yes-text "yes"      # the user's words, verbatim
+python3 "<skill dir>/ticket.py" fill --basket                          # every leg at the latest chain, or none
+python3 "<skill dir>/ticket.py" mtm                                    # P&L, Greeks, margin per strategy
+python3 "<skill dir>/ticket.py" adjust --strategy S-20261102-1 --roll-leg 3 --strike 23250
+python3 "<skill dir>/ticket.py" adjust --strategy S-20261102-1 --add-hedge "BUY 1 PE 22500"
+python3 "<skill dir>/ticket.py" adjust --strategy S-20261102-1 --close-leg 2   # or --close-all
+python3 "<skill dir>/ticket.py" settle --date 2026-11-03 --settlement FOSett_prce_03112026.csv
+python3 "<skill dir>/ticket.py" shadow-report --live --broker kite     # live fills next to their paper twins
+```
+
+- **Lots and products.** Every leg is whole lots (`lot_size` from NSE's
+  fo_mktlots), NRML (carry forward) or MIS (intraday). Positions are kept
+  per strategy in signed units.
+- **One yes, all or nothing, hedge first.** The yes must start with "yes";
+  "sure", "ok", a doubt, another underlying or a number that is not on the
+  ticket is refused. The fill buys first (the wings, or buy-backs of shorts)
+  and sells after, as you would for the hedge's margin benefit; if any leg
+  cannot fill, or the margin is short after any step, nothing fills.
+- **Margin.** Blocked per strategy: trader-strategy's SPAN-style estimate in
+  `trader/strategy.json` less the premium paid (paid from cash), or this
+  skill's own estimate with the same method (and a futures scan) after an
+  adjustment. Free cash = cash - margin blocked. Closing a leg or the
+  strategy releases it; every move is a `ledger` row.
+- **Fills.** A buy pays mid + `paper_spread_share` x spread (0.5, the ask), a
+  sell gets the mirror; with no two-sided quote, the last price +/-
+  `paper_slippage_bps` (10). A LIMIT fills at its price or better or waits.
+  A MARKET order becomes a LIMIT `market_protection_pct` (2) from the last
+  price, as brokers do for API market orders under SEBI's retail-algo rules,
+  and is cancelled if the book is past it. A price outside the contract's
+  band (NSE's contract master, when you keep it at `trader/bands.csv`) is
+  rejected. `"paper_partial_fills": true` lets a single-leg ticket fill in
+  part (top-of-book depth and a seeded draw, `paper_seed`); a basket still
+  fills whole or not at all.
+- **Charges by broker.** `broker_profile` (zerodha, upstox, dhan, angel,
+  groww; it also sets the square-off times) picks that broker's brokerage
+  for paper fills, cash market and F&O; STT, exchange, SEBI, stamp and GST
+  are the statutory rates. `custom` (or none) keeps your own `charges` /
+  `fno_charges`. Sources and dates are in `ticket.py` (`CHARGE_PROFILES`).
+- **Mark to market.** `mtm` marks every leg to `trader/options.json` (the
+  mid; futures at the parity forward), with Black-76 Greeks from
+  trader-options' functions, per leg, per strategy and in all, and the
+  payoff at expiry of each open structure (the UI plots it).
+- **Adjustments** (roll a leg, close a leg, add a hedge, close all) only
+  write a new basket ticket. It goes through trader-risk and a new yes.
+- **Expiry.** `settle` takes NSE's final settlement price from the expiry
+  day's `FOSett_prce` file or F&O bhavcopy (or `--price NIFTY=23012.40`).
+  Index options are cash settled: an in-the-money long gets the intrinsic
+  value and pays STT on exercise (0.15% of it); a short pays it; anything
+  else expires worthless. Futures settle at the final settlement price.
+  Stock options are physically settled at NSE: `mtm` warns 3 days before,
+  and the default is to close them before expiry.
+- **Shadow mode.** `"shadow": true` records, for every live order `place`
+  sends, what paper would have filled (trader/state/shadow.json). The live
+  order is not changed. `shadow-report` compares them.
+- `flatten` still writes share tickets only: it names each open F&O strategy
+  and the `adjust --close-all` that closes it as one basket.
+
+Baskets are paper-only in this version: a live config refuses `confirm
+--basket`.
 
 ## Live brokers: Upstox, Zerodha Kite, Dhan
 
