@@ -267,7 +267,8 @@ class PaperFlow(unittest.TestCase):
         self.assertIn("-₹283.16", text)
         self.assertIn("Cancelled the stop and target of RELIANCE", text)
         pf = jload("trader/portfolio.json")
-        self.assertEqual(pf, {"cash": 99716.84, "positions": {}})   # 1,00,000 - 283.16
+        self.assertEqual((pf["cash"], pf["positions"]), (99716.84, {}))   # 1,00,000 - 283.16
+        self.assertEqual((pf["schema"], pf["margin_blocked"], pf["fno_positions"]), (ticket.PORTFOLIO_SCHEMA, 0.0, []))
         code, text, _ = tk("status", "--now", "2026-10-29 15:12")
         self.assertIn("Cash ₹99,716.84", text)
         self.assertIn("No open positions.", text)

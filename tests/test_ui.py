@@ -503,7 +503,9 @@ class StrategyDraft(unittest.TestCase):
         self.assertEqual((doc["created_by"], doc["status"], doc["paper"]), ("trader-strategy", "proposed", True))
         with open(os.path.join(self.s.dir, "trader", "strategy.json"), encoding="utf-8") as fh:
             self.assertEqual(json.load(fh)["name"], "iron-fly")
-        self.assertTrue(all(not t["ready"] for t in d["tickets"]))
+        self.assertEqual(d["tickets"], [])                  # a basket is one ticket
+        self.assertFalse(d["basket"]["ready"])
+        self.assertEqual(len(d["basket"]["legs"]), 4)
         # trader-risk decides: F&O is off in this config, so every leg is blocked and none can be confirmed
         status, res = self.s.post("/api/risk/check", {})
         self.assertTrue(res["ok"], res)
@@ -525,6 +527,79 @@ class StrategyDraft(unittest.TestCase):
         status, d = self.s.post("/api/strategy/draft", {"symbol": "NIFTY", "template": "iron-fly", "replace": True})
         self.assertEqual(status, 409)
         self.assertIn("paper", d["error"])
+
+
+class FnoBasket(unittest.TestCase):
+    """An F&O basket from the UI: one ticket, one typed yes, a paper fill, MTM, and adjust buttons that only
+    write a proposal."""
+
+    def setUp(self):
+        self.s = Running()
+        self.t = os.path.join(self.s.dir, "trader")
+
+    def tearDown(self):
+        self.s.close()
+
+    def jl(self, *parts):
+        with open(os.path.join(self.t, *parts), encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def js(self, doc, *parts):
+        with open(os.path.join(self.t, *parts), "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+
+    def test_basket_yes_fill_mtm_adjust(self):
+        import gzip
+        op = load("trader-options", "options")
+        broker = load("trader-broker", "ticket")
+        with gzip.open(os.path.join(UIFIX, "chain-NIFTY-03-Nov-2026.json.gz"), "rb") as fh:
+            chain = op.parse_chain(json.loads(fh.read().decode("utf-8")), "NIFTY")
+        self.js(op.analyse(chain, 65, 0.0557), "options.json")
+        status, d = self.s.post("/api/strategy/draft", {"symbol": "NIFTY", "template": "iron-condor", "replace": True,
+                                                       "params": {"wings": 200, "width": 100}})
+        self.assertEqual(status, 200, d)
+        cfg = self.jl("config.json")
+        cfg.update(paper_spread_share=0, capital=300000)
+        self.js(cfg, "config.json")
+        pf = self.jl("portfolio.json")
+        pf["cash"] = 300000
+        self.js(pf, "portfolio.json")
+        orders = self.jl("orders.json")["orders"]
+        _, o = self.s.get("/api/orders")
+        bid = broker.basket_id(orders)
+        self.assertEqual(o["basket"]["basket_id"], bid)
+        self.js({"date": "2026-10-29", "results": [{"fingerprint": broker.fingerprint(x), "verdict": "PASS",
+                                                    "reasons": [], "warnings": [], "basket_id": bid} for x in orders]},
+                "state", "risk.json")
+        _, o = self.s.get("/api/orders")
+        self.assertTrue(o["basket"]["ready"], o["basket"]["status"])
+        self.assertEqual(self.s.post("/api/orders/confirm", {"basket": True, "yes_text": "yes"})[0], 400)
+        status, res = self.s.post("/api/orders/confirm", {"basket": True, "basket_id": bid, "yes_text": "sure"})
+        self.assertFalse(res["ok"])
+        status, res = self.s.post("/api/orders/confirm", {"basket": True, "basket_id": bid, "yes_text": "yes"})
+        self.assertTrue(res["ok"], res)
+        status, res = self.s.post("/api/orders/fill", {"basket": True})
+        self.assertTrue(res["ok"], res)
+        _, a = self.s.get("/api/portfolio?live=0")
+        self.assertGreater(a["margin_blocked"], 0)
+        s = a["fno"]["strategies"][0]
+        self.assertEqual(len(s["positions"]), 4)
+        self.assertEqual(len(s["payoff"]["x"]), len(s["payoff"]["y"]))
+        self.assertIn("delta", s["greeks"])
+        _, f = self.s.get("/api/fno")
+        self.assertEqual(f["strategies"][0]["id"], s["id"])
+        placed = len([r for r in self.jl("state", "broker.json")["orders"] if r.get("status") == "placed"])
+        self.assertEqual(self.s.post("/api/fno/adjust", {"strategy": "x", "action": "close-all"})[0], 400)
+        self.assertEqual(self.s.post("/api/fno/adjust", {"strategy": s["id"], "action": "sell-all"})[0], 400)
+        status, res = self.s.post("/api/fno/adjust", {"strategy": s["id"], "action": "close-leg", "leg": 3})
+        self.assertTrue(res["ok"], res)
+        self.assertFalse(res["placed"])
+        doc = self.jl("orders.json")
+        self.assertEqual((doc["adjust"]["action"], len(doc["orders"]), doc["orders"][0]["side"]), ("close", 1, "BUY"))
+        self.assertEqual(len([r for r in self.jl("state", "broker.json")["orders"] if r.get("status") == "placed"]),
+                         placed)                                      # a proposal only: nothing placed
+        _, o = self.s.get("/api/orders")
+        self.assertFalse(o["basket"]["ready"])                       # needs trader-risk again
 
 
 class PaperFlow(unittest.TestCase):

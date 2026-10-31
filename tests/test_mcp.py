@@ -24,7 +24,7 @@ DISCLAIMER = "Education and tooling, not financial advice."
 FP = "9ba8b90f83f96546"        # tests/fixtures/ui/trader/orders.json ticket 1, PASS in state/risk.json
 TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit_plan", "timemachine_run",
          "size_trade", "risk_check", "paper_orders_show", "paper_order_draft", "paper_order_confirm",
-         "portfolio_status", "options_chain", "options_summary", "results_analyse", "insider_deals",
+         "portfolio_status", "paper_mtm", "options_chain", "options_summary", "results_analyse", "insider_deals",
          "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "lab_forward", "strategy_build",
          "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor"]
 # one offline call per tool, on the real saved answers in tests/fixtures (see tests/fixtures/mcp/offline.json)
@@ -41,6 +41,7 @@ CALLS = [
     ("risk_check", {}),
     ("paper_orders_show", {}),
     ("portfolio_status", {}),
+    ("paper_mtm", {}),
     ("options_chain", {"symbol": "NIFTY", "strikes": 3}),
     ("options_summary", {"symbol": "NIFTY"}),
     ("results_analyse", {"symbols": "TCS"}),

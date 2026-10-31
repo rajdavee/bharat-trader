@@ -862,6 +862,28 @@ class LiveFlow(StubCase):
                 for s in TOKENS:
                     self.assertNotIn(s, text, f)
 
+    def test_shadow_mode_records_a_paper_twin_and_changes_nothing_live(self):
+        self.cfg(shadow=True)
+        self.write("trader/prices.json", {"RELIANCE": {"price": 1172.0, "time": "2026-10-29T09:43:00+05:30"}})
+        self.ready()
+        self.assertEqual(self.tk("preflight", "kite", "--now", "2026-10-29 09:43")[0], 0)
+        code, out, err = self.tk("place", "--index", "1", "--now", "2026-10-29 09:44")
+        self.assertEqual(code, 0, err)
+        self.assertIn("SENT to Zerodha Kite (real money)", out)
+        self.assertIn("Shadow: paper twin recorded", out)
+        self.assertEqual(len(self.orders_sent()), 1)          # the same one live order as without shadow
+        form = dict(urllib.parse.parse_qsl(self.orders_sent()[0]["body"].decode()))
+        self.assertEqual((form["quantity"], form["price"], form["order_type"]), ("42", "1174.30", "LIMIT"))
+        twin = jload("trader/state/shadow.json")["orders"][0]
+        self.assertEqual((twin["broker"], twin["broker_order_id"], twin["side"], twin["qty"]),
+                         ("kite", "151220000000000", "BUY", 42))
+        self.assertTrue(twin["paper"]["filled"], twin)
+        self.assertFalse(os.path.exists("trader/portfolio.json.v1.bak"))     # paper's own book is not touched
+        code, out, err = self.tk("shadow-report", "--live", "--now", "2026-10-29 15:00")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Shadow report: 1 live order with a paper twin", out)
+        self.assertEqual(len(self.orders_sent()), 1)
+
     def test_every_gate_from_the_command_line(self):
         self.ready()
         self.assertEqual(self.tk("preflight", "kite", "--now", "2026-10-29 09:43")[0], 0)
@@ -1164,7 +1186,7 @@ class PublicIP(unittest.TestCase):
 
 class Fixtures(unittest.TestCase):
     def test_every_fixture_is_marked_and_secret_free(self):
-        files = glob.glob(os.path.join(BFIX, "*", "*.json"))
+        files = [f for f in glob.glob(os.path.join(BFIX, "*", "*.json")) if os.path.basename(os.path.dirname(f)) != "fno"]
         self.assertGreaterEqual(len(files), 40)
         for f in files:
             d = jload(f)

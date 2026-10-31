@@ -657,6 +657,14 @@ def t_portfolio_status(kit, a, call):
     return view, []
 
 
+def t_paper_mtm(kit, a, call):
+    view = api.fno_view(kit.ctx)
+    if a.get("strategy"):
+        view["strategies"] = [s for s in view["strategies"] if s["id"] == a["strategy"]]
+        view["positions"] = [p for p in view["positions"] if p["strategy_id"] == a["strategy"]]
+    return view, ["Read only: marks from trader/options.json (refresh it with options_chain). Nothing was written."]
+
+
 # ---------------------------------------------------------------- tools: options, results, insider, config
 
 def _opt_argv(kit, a, cmd, tool, strikes):
@@ -1098,8 +1106,15 @@ def build_tools():
                   "The paper account: cash, positions marked to a delayed price, P&L if closed now after charges, "
                   "working stop/target legs, today's fills and limits.", t_portfolio_status,
                   {"live_quotes": S("boolean", "mark positions to a delayed Yahoo quote (default true)")},
-                  data=obj({"cash": S("number"), "positions": ANY_LIST, "today": ANY_OBJ},
-                           ["cash", "positions"], extra=True)))
+                  data=obj({"cash": S("number"), "positions": ANY_LIST, "today": ANY_OBJ, "fno": ANY_OBJ,
+                            "margin_blocked": S("number")}, ["cash", "positions"], extra=True)))
+    T.append(tool("paper_mtm", "Paper F&O mark to market",
+                  "The paper F&O book marked to the latest chain (trader/options.json): positions grouped by "
+                  "strategy, P&L (open and realised), Black-76 Greeks per leg, per strategy and in all, margin "
+                  "blocked, and the payoff at expiry of each open structure. Read only.", t_paper_mtm,
+                  {"strategy": S("string", "only this strategy id, like S-20261102-1", pattern=r"^S-\d{8}-\d{1,4}$")},
+                  data=obj({"positions": ANY_LIST, "strategies": ANY_LIST, "totals": ANY_OBJ},
+                           ["positions", "strategies", "totals"], extra=True), network=False))
     T.append(tool("options_chain", "Option chain",
                   "NSE option chain for an index or F&O stock and expiry: LTP, bid/ask, OI and change, volume, our "
                   "Black-76 IV and Greeks per strike around the money, lot size, forward, ATM straddle.",

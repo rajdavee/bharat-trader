@@ -362,7 +362,7 @@ export async function render(root, ctx) {
     });
     return card('Send to paper (a proposal, never a live order)',
       h('p', { class: 'small' }, 'This writes each leg as a proposed order in trader/orders.json and the strategy in trader/strategy.json. ' +
-        'Nothing is placed: trader-risk checks every leg, then the paper broker asks for your typed yes, one leg at a time.'),
+        'Nothing is placed: trader-risk checks every leg, then the paper broker shows the legs as ONE basket ticket and asks for your typed yes to it (every leg or none).'),
       h('div', { class: 'form-row' }, field('Product', prod), h('label', { class: 'chk' }, rep, 'Replace other proposals'), btn), res);
   }
 

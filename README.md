@@ -81,6 +81,8 @@ python3 trader-options/options.py iv NIFTY             # IV smile, skew, IV rank
 python3 trader-lab/lab.py run orb15-vwap               # backtest + robustness + gates, after charges
 python3 trader-lab/lab.py report orb15-vwap            # the scorecard, and what it does NOT prove
 python3 trader-strategy/strategy.py build iron-condor NIFTY --wings 200 --width 100   # payoff, margin, PoP
+python3 trader-broker/ticket.py confirm --basket --yes-text "yes"   # the strategy as ONE paper basket (after risk)
+python3 trader-broker/ticket.py mtm                    # paper F&O P&L, Greeks, margin
 python3 trader-doctor/doctor.py                        # is every NSE and Yahoo source answering? (exit 1 if not)
 ```
 
@@ -97,7 +99,7 @@ See [docs/ui.md](docs/ui.md).
 ## Use it from your AI assistant (MCP)
 
 `mcp/server.py` is a standard-library [MCP](https://modelcontextprotocol.io/)
-server: connect any MCP-compatible AI assistant and it can call 29 tools
+server: connect any MCP-compatible AI assistant and it can call 30 tools
 (market status, scans, news, entry and exit plans, the time machine, sizing,
 risk, the paper broker, option chains, results, insider deals, the strategy lab,
 the data self-test, your broker's holdings and positions, read only) and 5 prompts
