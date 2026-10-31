@@ -118,7 +118,7 @@ CHARGES_DEFAULTS = {
     "brokerage_cap": 20,
     "stt_sell_pct": 0.025,
     "stt_delivery_pct": 0.1,
-    "exchange_txn_pct": 0.00297,
+    "exchange_txn_pct": 0.00307,
     "sebi_per_crore": 10,
     "stamp_buy_pct": 0.003,
     "stamp_delivery_pct": 0.015,

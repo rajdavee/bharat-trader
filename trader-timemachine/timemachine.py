@@ -119,7 +119,7 @@ DEFAULTS = {
     "capital": 100000, "risk_per_trade_pct": 1.0, "max_loss_per_trade": 1000, "max_order_value": 50000,
     "no_entries_after": "14:45", "flat_by": "15:10", "product": "MIS", "tick_size": "auto", "include_charges": True,
     "charges": {"brokerage_pct": 0.03, "brokerage_cap": 20, "stt_sell_pct": 0.025, "stt_delivery_pct": 0.1,
-                "exchange_txn_pct": 0.00297, "sebi_per_crore": 10, "stamp_buy_pct": 0.003,
+                "exchange_txn_pct": 0.00307, "sebi_per_crore": 10, "stamp_buy_pct": 0.003,
                 "stamp_delivery_pct": 0.015, "gst_pct": 18},
     "extra_holidays": [], "special_sessions": [],
 }

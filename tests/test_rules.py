@@ -263,7 +263,7 @@ class FnoCharges(unittest.TestCase):
         def t(m):
             base = {"product": "MIS"}
             eq = m.round_trip_charges(1174.30, 1163.30, 83, base)
-            self.assertEqual(eq["total"], 81.28)
+            self.assertEqual(eq["total"], 81.52)
             self.assertEqual(m.round_trip_charges(1174.30, 1163.30, 83, base, "EQ", "2026-03-31"), eq)
         self.each(t)
 

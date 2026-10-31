@@ -845,7 +845,7 @@ class LiveFlow(StubCase):
                          ("RELIANCE", "42", "1174.30", "LIMIT"))
         rec = jload("trader/state/broker.json")["orders"][-1]
         self.assertEqual((rec["status"], rec["broker_order_id"], rec["live"], rec["max_loss"]),
-                         ("placed", "151220000000000", True, 514.0))
+                         ("placed", "151220000000000", True, 514.11))
         # one yes, one order
         code, _, err = self.tk("place", "--index", "1", "--now", "2026-10-29 09:45")
         self.assertEqual(code, 1)

@@ -250,6 +250,8 @@ class InSync(unittest.TestCase):
                     r = fn(e, x, q, cfg)
                     got.append({k: round(float(v), 2) for k, v in r.items()})
                     self.assertEqual(fn(e, x, q, cfg, "EQ", "2026-03-31"), r, s)   # EQ has no dated table
+                    if product == "MIS":       # each copy's built-in defaults are the example config's
+                        self.assertEqual(fn(e, x, q, {}), r, s)
             for seg, e, x, q, ex in fno:
                 for day in ("2026-03-31", "2026-04-01"):
                     r = fn(e, x, q, base, seg, day, ex)

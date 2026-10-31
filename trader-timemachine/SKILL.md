@@ -152,9 +152,9 @@ HDFCBANK, Monday 2026-10-26. The 15-minute opening range is ₹687.85 to
   green          31.6 %   target first, or above the entry at 15:10
   Price at 15:10: median 691.96, 90 % of replays between 683.87 and 700.59.
   Average R: -0.170 gross (R = the 2.80 risk: +2R at the target, -1R at the stop).
-  Average R: -0.432 net of charges (₹53.15 at the target, ₹52.77 at the stop, round trip on 72 shares, MIS).
+  Average R: -0.433 net of charges (₹53.27 at the target, ₹52.88 at the stop, round trip on 72 shares, MIS).
 History: the same rule (15-min opening range, stop at the opening-range midpoint, 2R target) on each of
-those 55 real sessions fired 33 times: 5 target, 18 stop, 10 neither. Average R -0.155 gross, -0.442 net of charges.
+those 55 real sessions fired 33 times: 5 target, 18 stop, 10 neither. Average R -0.155 gross, -0.443 net of charges.
 Leans toward the stop: at 2R the target has to come first in 33 % of the replays that hit one side;
 it did in 24 % (target first 19.7 % vs stop first 64.0 %).
 ```

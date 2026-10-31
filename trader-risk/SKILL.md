@@ -268,17 +268,17 @@ the example config:
 ```
 PASS  #1 BUY 42 RELIANCE (MIS), entry
           entry 1174.30 (the limit price), stop 1163.30, target 1196.30: risk 11.00 a share
-          loss at the stop ₹462.00 + ₹52.00 charges = ₹514.00 (limit ₹1,000.00), reward:risk 2.00 (min 1.5)
+          loss at the stop ₹462.00 + ₹52.11 charges = ₹514.11 (limit ₹1,000.00), reward:risk 2.00 (min 1.5)
           today before this: 0 of 3 trades, ₹0.00 of ₹3,000.00 daily loss
 
 1 passed, 0 blocked at 2026-10-29 09:40 IST. Cash after the passed orders: ₹50,679.40 (paper account).
 ```
 
-With the position limits opened up, 83 shares pass (₹913.00 + ₹81.28 =
-₹994.28) and 84 are blocked:
+With the position limits opened up, 83 shares pass (₹913.00 + ₹81.52 =
+₹994.52) and 84 are blocked:
 
 ```
-        - loss: 84 shares x 11.00 risk a share = ₹924.00 + ₹81.71 charges = ₹1,005.71 at the stop, over your ₹1,000.00 max loss per trade
+        - loss: 84 shares x 11.00 risk a share = ₹924.00 + ₹81.94 charges = ₹1,005.94 at the stop, over your ₹1,000.00 max loss per trade
 ```
 
 With the same open limits, a MARKET entry of 70 shares checked at 10:25

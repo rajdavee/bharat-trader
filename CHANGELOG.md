@@ -309,6 +309,12 @@ All notable changes are documented here. The format follows
   the "every bar is there" check failed. Stage 1 now puts those bars back on
   that line between two bars of the same session; stage 2 still checks each
   candidate on the full v8 chart, where a missing bar still makes it unusable.
+- Equity exchange transaction charge default is now 0.00307% (#22), the NSE
+  transaction charge plus the IPFT contribution per NSE/FA/73061 (27 Feb
+  2026), in every copy of the charges helper, `config.example.json` and
+  `size.py init`. It was 0.00297%, which left out the ₹10 a crore IPFT part.
+  The worked examples move by a few paise: 42 RELIANCE at the stop now costs
+  ₹52.11 in charges (was ₹52.00). The dated F&O rates are unchanged.
 
 ## [0.1.0] - 2026-10-29
 
