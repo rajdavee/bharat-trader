@@ -24,13 +24,14 @@ of these are official APIs with stability guarantees: when one changes, open a
 | `nsearchives.nseindia.com/content/fo/fo_mktlots.csv` | options | F&O lot size per underlying per expiry month. |
 | `nseindia.com/api/historicalOR/vixhistory`, `nseindia.com/api/allIndices` | options | India VIX history (70 rows a call) and the live value. |
 | `nseindia.com/api/holiday-master?type=trading` | maintainers | Source of the holiday table shipped in the tools. |
+| `nseindia.com/api/master-quote` | scanner, entry, exit, timemachine (cached in `trader/fno_stocks.json`; read by alerts, risk, broker) | NSE's F&O underlying list: a JSON array of stock symbols (218 on 2026-11-01). These stocks close in the Closing Auction Session. Fetched at most once a day, only by a run that is online anyway. |
 
 ## Known quirks
 
 - **Index symbols** (`^NSEI`, `^NSEBANK`, `^INDIAVIX`) go to Yahoo without `.NS`.
 - **`M&M`** and other symbols with `&` must be URL-encoded (`M%26M.NS`).
 - **Yahoo's 09:15 bar reports zero volume** for NSE stocks; volume checks leave it out.
-- **Yahoo leaves late bars empty** (often 15:15–15:25) and occasionally drops one mid-session; the Time Machine keeps sessions that are complete up to your flat-by time.
+- **Yahoo's late bars for F&O stocks are the closing auction.** From 2026-08-03 an F&O stock stops continuous trading at 15:15; Yahoo then shows a near-empty 15:15 bar, an empty 15:20 bar and one auction print in the 15:25 bar (RELIANCE, 2026-10-29). The tools end those stocks' sessions at continuous trading's end (see [market rules](#market-rules-dated)). Yahoo also occasionally drops a bar mid-session; the Time Machine keeps sessions that are complete up to your flat-by time.
 - **Yahoo rate-limits** with HTTP 429 after heavy use; the tools back off and retry, then report it.
 - **NSE needs a browser-like User-Agent** and a `Referer` of `https://www.nseindia.com/`. No cookies are needed today.
 - **Corporate announcements without a date window** return thousands of rows; the tools always send `from_date`/`to_date`.
@@ -38,9 +39,70 @@ of these are official APIs with stability guarantees: when one changes, open a
 - **Banks** use a separate XBRL template (bank flag `B`); the analyst shows NII, operating profit and provisions instead of EBITDA.
 - **The historical bulk-deals JSON caps at 70 rows**; the CSV form returns all of them. NSE's bulk list repeats block trades; they are kept once, labelled block.
 - **PIT holding percentages** in the XBRL are fractions (0.3049 = 30.49 %). Some filers enter the per-share price as the value; those rows are flagged and left out of totals.
-
 - **Option chain v3** returns only the expiry asked for. A wrong expiry returns HTTP 200 with no rows and spot 0. `openInterest` and `totalTradedVolume` are in contracts (x lot = units), while the bhavcopy's open interest is in shares. `optionType` is always null. NSE's `impliedVolatility` disagrees between calls and puts and is 0 for skipped strikes; `trader-options` computes its own.
 - **Spot after 15:30.** The cash index stops at 15:30 while equity derivatives trade until 15:40, so the chain's `underlyingValue` is stale against option prices in that window.
+
+## Market rules (dated)
+
+Session timings changed three times in 2026. The tools carry them as a dated
+table, `SESSION_RULES` (the same block in entry, exit, alerts, risk,
+timemachine, scanner and broker; `tests/test_repo.py` keeps the copies equal).
+Each row holds from its date until the next. A new NSE or SEBI change is a new
+row, never an edit. Times are IST. "F&O stock" means a stock in NSE's F&O
+list; other cash stocks keep 09:15-15:30.
+
+| from | pre-open (order entry; market orders until) | F&O stocks: continuous trading ends | Closing Auction Session (F&O stocks) | other cash stocks | futures and options | post-close | source |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| before 2026-08-03 | 09:00-09:08, random close 09:07-09:08 | 15:30 | none | 09:15-15:30 | to 15:30 | 15:40-16:00 | [NSE/CMTR/74969](https://nsearchives.nseindia.com/content/circulars/CMTR74969.zip) (1 Jul 2026, "current" pre-open); [NSE/FAOP/74467](https://nsearchives.nseindia.com/content/circulars/FAOP74467.zip) (29 May 2026, F&O close moved from 15:30) |
+| 2026-08-03 | unchanged | **15:15** | 15:15 reference price; 15:20 limit and market orders; 15:25 limit only; random close 15:28-15:30; matching to 15:35 | 09:15-15:30 | **to 15:40** | 15:50-16:00 | SEBI circular of 16 Jan 2026, para 4.2 and 6.1, sent with [NSE/CMTR/72394](https://nsearchives.nseindia.com/content/circulars/CMTR72394.zip) (19 Jan 2026); [NSE/FAOP/74467](https://nsearchives.nseindia.com/content/circulars/FAOP74467.zip); go-live [NSE/CMTR/75479](https://nsearchives.nseindia.com/content/circulars/CMTR75479.pdf) and [NSE/FAOP/75472](https://nsearchives.nseindia.com/content/circulars/FAOP75472.pdf) (30 Jul 2026) |
+| 2026-09-07 | **09:00-09:10; market orders until 09:05; random close 09:08-09:10; matching 09:10-09:12** | 15:15 | as above | 09:15-15:30 | to 15:40 | 15:50-16:00 | SEBI circular of 16 Jan 2026, para 5 and 6.2 ([NSE/CMTR/72394](https://nsearchives.nseindia.com/content/circulars/CMTR72394.zip)); [NSE/CMTR/74969](https://nsearchives.nseindia.com/content/circulars/CMTR74969.zip); [NSE/CMTR/76187](https://nsearchives.nseindia.com/content/circulars/CMTR76187.pdf) (4 Sep 2026, live from Monday 7 Sep) |
+| 2026-12-07 | as above | **15:30** | **15:30 reference price; 15:31 limit and market orders; 15:36 limit only; random close 15:38-15:40** | 09:15-15:30 | **to 15:45** (expiring index contracts stop at 15:30 on expiry day) | 15:50-16:00 | SEBI circular HO/47/11/11(3)2025-MRD-POD2/I/23843/2026 of 15 Oct 2026, para 4.2 and 6.1; [Zerodha bulletin, 16 Oct 2026](https://zerodha.com/marketintel/bulletin/461085/changes-to-closing-auction-session-cas-from-december-7-2026) |
+
+Not modelled yet: the expiry-day 15:30 stop for expiring index contracts
+(it is in the table for the options tools), and the transition of unexecuted
+iceberg orders into CAS from 2027-02-08 (para 4.8 of the October circular).
+No stop-loss orders are accepted in the auction; the exit plan says so.
+
+### Broker MIS square-off
+
+Brokers square off intraday (MIS) positions on their own, usually for a fee,
+and earlier for F&O stocks. Pick yours with `broker_profile`; the tools then
+flat by 5 minutes (`square_off_margin_min`) before the earlier of that time and
+continuous trading's end. As read on 2026-11-01:
+
+| profile | F&O stocks | other stocks | F&O contracts | from | source |
+| --- | --- | --- | --- | --- | --- |
+| `zerodha` | 15:12 (15:10 from 3 Aug) | 15:25 | 15:26 | 2026-08-10 | [support.zerodha.com: intraday auto square-off timings](https://support.zerodha.com/category/trading-and-markets/trading-faqs/market-sessions/articles/intraday-auto-square-off-timings); [product update, 10 Aug 2026](https://zerodha.com/z-connect/updates/track-closing-auction-session-on-kite-web) |
+| `upstox` | 15:10 (15:05 before) | 15:25 (15:20 before) | 15:25 (15:20 before) | 2026-09-11 | [Upstox announcement, 4 Sep 2026](https://upstox.com/announcements/revised-timings/important-update-intraday-square-off-timings-are-changing/) |
+| `dhan` | 15:10 | 15:10 | 15:25 | 2026-08-03 | [Dhan support: intraday auto square-off timings](https://dhan.co/support/general/market-session-status-and-timing/what-are-the-dhan-intraday-auto-square-off-timings/) |
+| `angel` | 15:10 | 15:10 | 15:20 | 2026-08-03 | [SmartAPI forum notice, CAS changes from 3 Aug 2026](https://smartapi.angelone.in/smartapi/forum/post/19209) (Angel One's [support page](https://www.angelone.in/support/your-orders/square-off) still says 15:15 for equity; the earlier time is kept) |
+| `groww` | 15:05 | 15:20 | 15:20 | 2026-08-03 | [Groww risk policy](https://groww.in/p/risk-policy) |
+| `custom` | your `square_off` | | | | |
+
+None of these brokers had announced times for the 2026-12-07 CAS change by
+2026-11-01. Until they do, the tools keep the times above: for an F&O stock
+they are earlier than the new 15:30 end of continuous trading, so they stay on
+the safe side.
+
+### F&O charges
+
+`round_trip_charges(..., segment="OPT" | "FUT", on=date)` adds options and
+futures to the shared charges helper (budget, risk, broker, exit,
+timemachine). Equity (`segment` "EQ", the default) is unchanged and still
+reads `charges` from the config. F&O rates are a dated table, `FNO_CHARGES`;
+`fno_charges` in the config overrides any of them.
+
+| levy | options | futures | from | source |
+| --- | --- | --- | --- | --- |
+| STT, sell | 0.15% of the premium (0.10% to 31 Mar 2026) | 0.05% of the traded value (0.02% to 31 Mar 2026) | 2026-04-01 | Finance Act 2026; [NSE/FATAX/73524](https://nsearchives.nseindia.com/content/circulars/FATAX73524.pdf) (31 Mar 2026) |
+| STT, option exercised | 0.15% of the intrinsic (settlement) value, paid by the buyer (0.125% to 31 Mar 2026) | | 2026-04-01 | same |
+| NSE transaction charge + IPFT | 0.03553% of the premium (₹3,553 a crore) | 0.00183% of the traded value (₹183 a crore) | 2024-10-01 | [NSE/FA/73061](https://nsearchives.nseindia.com/content/circulars/FA73061.pdf) (27 Feb 2026: from 1 Mar 2026 the split is ₹3,552.99 + ₹0.01 and ₹182.99 + ₹0.01, the total unchanged) |
+| SEBI turnover fee | ₹10 a crore | ₹10 a crore | | [Zerodha charges](https://zerodha.com/charges) |
+| Stamp duty, buy | 0.003% of the premium | 0.002% of the traded value | | [Zerodha charges](https://zerodha.com/charges) |
+| GST | 18% of brokerage + exchange + SEBI | same | | same |
+| Brokerage (a typical discount broker) | ₹20 per executed order | lower of 0.03% and ₹20 per order | | same; set yours in `fno_charges` |
+
+An exercised option has no sell order: the exercise leg pays STT only.
 
 ## Calendar
 

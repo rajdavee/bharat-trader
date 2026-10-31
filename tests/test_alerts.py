@@ -80,7 +80,8 @@ class Calendar(unittest.TestCase):
         self.assertEqual(st("2026-10-29 08:59")["reason"], "before the pre-open")
         pre = st("2026-10-29 09:00")
         self.assertEqual((pre["open"], pre["phase"]), (False, "pre-open"))
-        self.assertIn("order entry until 09:08", pre["reason"])
+        self.assertIn("order entry until 09:10", pre["reason"])      # revised pre-open from 2026-09-07
+        self.assertIn("order entry until 09:08", st("2026-08-20 09:00")["reason"])
         self.assertEqual(pre["next_open"], "2026-10-29 09:15")
         self.assertEqual(st("2026-10-29 09:14")["phase"], "pre-open")
         self.assertTrue(st("2026-10-29 09:15")["open"])

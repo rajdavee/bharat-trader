@@ -487,7 +487,7 @@ class Orb(unittest.TestCase):
         self.assertIn("NSE holiday: Dussehra", msg("2026-10-20 10:15"))
         m = msg("2026-10-29 09:05")
         self.assertIn("Run orb again after 09:35", m)
-        self.assertIn("pre-open call auction runs 09:00 to 09:08", m)
+        self.assertIn("pre-open call auction runs 09:00 to 09:10", m)   # revised from 2026-09-07
         self.assertIn("Run orb again after 09:35", msg("2026-10-29 09:34"))
         self.assertIn("expired", msg("2026-10-29 14:50"))
         self.assertIn("expired", msg("2026-10-29 11:30", until=datetime.time(11, 0)))

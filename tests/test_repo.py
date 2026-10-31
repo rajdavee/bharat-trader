@@ -167,6 +167,10 @@ class InSync(unittest.TestCase):
         with open(os.path.join(ROOT, "trader-budget", "config.example.json"), encoding="utf-8") as fh:
             base = json.load(fh)
         trades = [(1174.30, 1163.30, 83), (692.70, 698.30, 72), (123.45, 120.10, 900), (25210.0, 25500.0, 2)]
+        # F&O: premiums for options (one lot of 65), traded value for futures, both sides of the
+        # 1 April 2026 STT change, plus an exercised option
+        fno = [("OPT", 120.50, 135.25, 65, False), ("OPT", 10.0, 50.0, 65, True), ("FUT", 1174.30, 1180.00, 500, False),
+               ("FUT", 25210.0, 25100.0, 65, False)]
         expected, found = None, 0
         for s, name in scripts():
             fn = getattr(load(s, name), "round_trip_charges", None)
@@ -179,10 +183,47 @@ class InSync(unittest.TestCase):
                 for e, x, q in trades:
                     r = fn(e, x, q, cfg)
                     got.append({k: round(float(v), 2) for k, v in r.items()})
+                    self.assertEqual(fn(e, x, q, cfg, "EQ", "2026-03-31"), r, s)   # EQ has no dated table
+            for seg, e, x, q, ex in fno:
+                for day in ("2026-03-31", "2026-04-01"):
+                    r = fn(e, x, q, base, seg, day, ex)
+                    got.append({k: round(float(v), 2) for k, v in r.items()})
             if expected is None:
                 expected = got
             self.assertEqual(got, expected, s)
-        self.assertGreaterEqual(found, 4)
+        self.assertGreaterEqual(found, 5)
+
+    def shared_block(self, start, end, at_least):
+        blocks = {}
+        for s, name in scripts():
+            text = read(os.path.join(ROOT, s, name + ".py"))
+            i = text.find(start)
+            if i < 0:
+                continue
+            j = text.index(end, i)
+            blocks[s] = text[text.index("\n", i):j]       # the header line names the copies; the body must match
+        self.assertGreaterEqual(len(blocks), at_least, sorted(blocks))
+        self.assertEqual(len(set(blocks.values())), 1, "copies differ: %s" % sorted(blocks))
+        return blocks
+
+    def test_dated_market_rules_are_identical_everywhere(self):
+        blocks = self.shared_block("# ---------------------------------------------------------------- dated market rules",
+                                   "# ---------------------------------------------------------------- end of dated market rules",
+                                   7)
+        for s in ("trader-entry", "trader-exit", "trader-alerts", "trader-risk", "trader-timemachine",
+                  "trader-scanner", "trader-broker"):
+            self.assertIn(s, blocks)
+        body = next(iter(blocks.values()))
+        for date in ("2026-08-03", "2026-09-07", "2026-12-07"):
+            self.assertIn('"effective_from": "%s"' % date, body)
+        for broker in ("zerodha", "upstox", "dhan", "angel", "groww"):
+            self.assertIn('"%s": [' % broker, body)
+
+    def test_fno_charge_tables_are_identical_everywhere(self):
+        blocks = self.shared_block("# ---------------------------------------------------------------- F&O charges, dated",
+                                   "# ---------------------------------------------------------------- end of F&O charges", 5)
+        self.assertEqual(sorted(blocks), sorted(s for s, name in scripts()
+                                                 if getattr(load(s, name), "round_trip_charges", None)))
 
     def test_order_path_safety_blocks_are_identical(self):
         blocks = {}

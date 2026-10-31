@@ -54,7 +54,7 @@ bars), `--qty N` (shares for the charges), `--no-charges`, `--config PATH`,
 | file | what |
 | --- | --- |
 | `trader/plan.json` | the plan from trader-exit: symbol, date, entry, entry_time ("10:10") / entry_bar, stop, stop_rule, target, target_r, opening range, flat_by, charges.qty |
-| `trader/config.json` | `flat_by` (15:10), `no_entries_after` (14:45), `tick_size` ("auto", by NSE price band), `include_charges`, `charges`, `product`, max loss settings, `extra_holidays`, `special_sessions`. Missing keys take the defaults |
+| `trader/config.json` | `flat_by` (15:10), `broker_profile`, `square_off_margin_min` (5), `fno_stocks`, `no_entries_after` (14:45), `tick_size` ("auto", by NSE price band), `include_charges`, `charges`, `product`, max loss settings, `extra_holidays`, `special_sessions`. Missing keys take the defaults |
 | Yahoo chart API | one request: `SYMBOL.NS`, 60 days of 5-minute bars (`range=60d&interval=5m`), free and unofficial, can lag |
 | `trader/timemachine.json` | with `--write`: `{plan, charges, mc, history}` plus the verdict. `mc` holds the odds, average R gross and net, percentiles, the fan-chart bands, 160 sample paths and a 24-bin histogram of the price at the flat-by |
 
@@ -64,8 +64,14 @@ bars), `--qty N` (shares for the charges), `--no-charges`, `--config PATH`,
    IST (the last bar starts 15:25). It keeps past sessions before the plan's
    date that have every bar from 09:15 up to the flat-by. Sessions with a
    gap, special sessions (Muhurat trading) and today are left out, and
-   listed. Yahoo leaves the 15:15 to 15:25 bars of most NSE sessions empty,
-   so a flat-by after 15:15 usually leaves too few sessions; it says so.
+   listed. An F&O stock stops continuous trading at 15:15 from 3 Aug 2026
+   (15:30 from 7 Dec 2026) for the Closing Auction Session, and Yahoo shows
+   those bars empty or as one auction print. So for an F&O stock the
+   plan's flat-by is pulled in to the safe time for the day (5 minutes
+   before that end, or before your `broker_profile`'s square-off), an
+   `--until` after it is refused, and a past session whose auction would
+   fall inside the replay is left out. For other stocks a flat-by after
+   15:15 can still leave too few sessions; it says so.
    Every bar becomes four ratios to the bar before it: open, high, low and
    close over the previous close.
 2. **One replay.** Start at the entry price. For each bar left until the

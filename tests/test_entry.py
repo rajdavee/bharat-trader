@@ -148,7 +148,7 @@ class Reliance(unittest.TestCase):
     def test_pre_open_and_while_the_range_forms(self):
         r = at("2026-10-29 08:45")
         self.assertEqual((r["status"], r["phase"]), ("waiting", "pre-open"))
-        self.assertIn("pre-open order entry 09:00 to 09:08", r["reason"])
+        self.assertIn("pre-open order entry 09:00 to 09:10", r["reason"])
         r = at("2026-10-29 09:05")
         self.assertEqual(r["phase"], "pre-open")
         self.assertIn("NOT OPEN YET", "\n".join(entry.describe(r)))
@@ -516,7 +516,7 @@ class Watch(unittest.TestCase):
     def test_from_before_the_open_prints_the_range_bar_by_bar(self):
         code, res, lines, fired, clock = self.loop(live_provider(doc()), "2026-10-29 08:55", every=30)
         self.assertEqual(code, 0)
-        self.assertIn("not open yet (pre-open order entry 09:00 to 09:08)", lines[0])
+        self.assertIn("not open yet (pre-open order entry 09:00 to 09:10)", lines[0])
         text = "\n".join(lines)
         self.assertIn("09:25 bar  closed ₹1,169.00  opening range set: high ₹1,170.50, low ₹1,156.20", text)
         self.assertEqual(sum(1 for x in lines if " bar  closed " in x), 5)    # 09:15 ... 09:35, one line each

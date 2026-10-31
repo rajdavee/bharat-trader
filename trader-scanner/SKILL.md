@@ -54,7 +54,8 @@ found nothing or could not run (the reason is one plain line).
 | --- | --- |
 | `trader/universe.txt` | written by `universe`: one `SYMBOL\|Name\|ISIN` a line, read by `daily` and `orb` |
 | `trader/watchlist.json` | written by `daily` and `orb`: `mode`, `as_of`, `exchange`, `universe`, `scanned`, `failed`, `index`, `hits[]`. Symbols are NSE symbols (`M&M`, not `M&M.NS`). trader-news and trader-entry read `hits[].symbol` |
-| `trader/config.json` | optional: `min_price`, `min_turnover`, `no_entries_after` (14:45), `extra_holidays`, `special_sessions`. Missing keys take the defaults |
+| `trader/config.json` | optional: `min_price`, `min_turnover`, `no_entries_after` (14:45), `extra_holidays`, `special_sessions`, `fno_stocks`. Missing keys take the defaults |
+| `trader/fno_stocks.json` | NSE's F&O stock list (`nseindia.com/api/master-quote`), refreshed once a day by `daily` and `orb` when online. An F&O stock's 5-minute session ends when its continuous trading does (15:15 from 3 Aug 2026, 15:30 from 7 Dec 2026): the closing auction's bars are not breakout bars. The other tools read this file |
 
 ## The universe
 

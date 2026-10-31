@@ -6,8 +6,10 @@ description: >-
   so you are not spammed. Turns the trade plan into three alerts in one go
   (the stop, the target and "flat by 15:10" before the broker's MIS
   square-off), plus above / below levels, percent moves from the previous
-  close, any IST time of day, the 09:00 pre-open and the 09:15 opening bell.
-  Knows NSE hours (pre-open 09:00-09:08, normal session 09:15-15:30 IST), the
+  close, any IST time of day, the 09:00 pre-open, the 09:15 opening bell and
+  the closing auction bell for F&O stocks. Knows NSE hours (pre-open
+  09:00-09:10, normal session 09:15-15:30 IST, F&O stocks in the Closing
+  Auction Session from 15:15, from 15:30 after 7 Dec 2026), the
   2026 NSE trading holidays, extra holidays and special sessions such as
   Muhurat trading from your config, cross-checks NSE's own market status,
   fetches free delayed Yahoo quotes for NSE symbols and Nifty (^NSEI), and
@@ -39,6 +41,7 @@ python3 "<skill dir>/alerts.py" clock --verify                 # also ask nseind
 python3 "<skill dir>/alerts.py" add --from-plan                # stop, target, flat by 15:10 from trader/plan.json
 python3 "<skill dir>/alerts.py" add --opening-bell             # 09:15
 python3 "<skill dir>/alerts.py" add --pre-open                 # 09:00
+python3 "<skill dir>/alerts.py" add --closing-auction          # F&O stocks leave continuous trading (15:15)
 python3 "<skill dir>/alerts.py" add --symbol RELIANCE --stop 1163.30
 python3 "<skill dir>/alerts.py" add --symbol RELIANCE --target 1196.30
 python3 "<skill dir>/alerts.py" add --symbol ^NSEI --below 22800   # Nifty 50 as a symbol
@@ -59,7 +62,8 @@ quote files instead of the network.
 | file | what |
 | --- | --- |
 | `trader/plan.json` | the trade from trader-exit, for `add --from-plan` |
-| `trader/config.json` | `flat_by` (default "15:10"), `extra_holidays`, `special_sessions` |
+| `trader/config.json` | `flat_by` (default "15:10"), `broker_profile`, `square_off_margin_min`, `fno_stocks`, `extra_holidays`, `special_sessions` |
+| `trader/fno_stocks.json` | NSE's F&O stock list, written by the scanner or the entry timer; read for the flat-by of a plan's stock |
 | `trader/alerts.json` | the rules (`alerts.example.json` in this folder) |
 | `trader/state/alerts.json` | which rules rang and when, so each rings once |
 | `trader/prices.json` | the latest quotes, merged in, for trader-budget and trader-risk |
@@ -84,6 +88,7 @@ quote files instead of the network.
 | `time` | the IST clock passed `at` ("15:10") on a trading day | once per trading day |
 | `opening_bell` | NSE's normal session is open (09:15) | once per trading day |
 | `pre_open` | the pre-open has started (09:00), checked before 09:15 | once per trading day |
+| `closing_auction` | continuous trading in F&O stocks has ended and the Closing Auction Session is running (15:15-15:35; 15:30-15:40 from 7 Dec 2026) | once per trading day |
 
 A rule with `"date"` is watched on that IST date only; `--from-plan` rules
 carry the plan's date, so yesterday's stop never rings today. A short plan
@@ -108,10 +113,18 @@ Prices print in rupees with Indian grouping (₹1,23,456.50); an index like
 
 ## The NSE clock
 
-Capital Market segment, Monday to Friday: pre-open 09:00-09:08 (order entry;
-the open price is discovered by 09:08), normal session 09:15-15:30 IST.
-Intraday (MIS) positions are squared off by most brokers around 15:15-15:25,
-so plans here are flat by 15:10.
+Capital Market segment, Monday to Friday: pre-open from 09:00 (order entry
+to 09:08, to 09:10 with market orders only until 09:05 from 7 Sep 2026),
+normal session 09:15-15:30 IST. A stock in NSE's F&O list stops continuous
+trading at 15:15 from 3 Aug 2026 and closes in the Closing Auction Session
+(15:15-15:35); from 7 Dec 2026 it trades to 15:30 and the auction runs
+15:30-15:40. F&O contracts trade to 15:40 (15:45 from 7 Dec). `clock` prints
+these for the day. Intraday (MIS) positions are squared off by the broker
+(Zerodha 15:12, Upstox 15:10, Dhan 15:10, Angel One 15:10, Groww 15:05 for
+F&O stocks), so plans here are flat by 15:10 or 5 minutes before your
+`broker_profile`'s time. `add --from-plan` pulls a late flat-by in to that
+safe time and notes why. Every timing, with its NSE or SEBI circular, is in
+docs/data-sources.md.
 
 2026 NSE trading holidays (from NSE's holiday master): Jan 15 (Municipal
 Corporation Election, Maharashtra), Jan 26 (Republic Day), Feb 15
