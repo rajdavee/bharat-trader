@@ -1,0 +1,11 @@
+{
+ "id": "nse-results",
+ "url": "https://www.nseindia.com/api/option-chain-equities?symbol=RELIANCE",
+ "fetched_at": "2026-11-01T02:48:00+05:30",
+ "status": 200,
+ "content_type": "application/json; charset=utf-8",
+ "elapsed": 0.351,
+ "error": null,
+ "body": "{}",
+ "note": "real: the {} that the retired /api/option-chain-equities sends, replayed as the results answer"
+}

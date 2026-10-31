@@ -1,0 +1,11 @@
+{
+ "id": "nse-fno-list",
+ "url": "https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY",
+ "fetched_at": "2026-11-01T02:48:00+05:30",
+ "status": 404,
+ "content_type": "text/html; charset=utf-8",
+ "elapsed": 0.457,
+ "error": null,
+ "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <title>Resource not found</title>\n</head>\n<body style=\"background-color: #e8e8e8;\">\n  <div style=\"font-size: 32px; padding: 50px 25px; text-align: center;\">\n    Resource not found\n  </div>\n<script type=\"text/javascript\"  src=\"/STyD6bCWV/OiWTyp1H-/mffNFtufc/uYiEGpDVbLSmDNaiYz/XgtkODEzAw/SBhYVUMB/EAQ\"></script></body>\n</html>\n",
+ "note": "real: the 404 page of the retired /api/option-chain-indices, replayed as master-quote's answer"
+}

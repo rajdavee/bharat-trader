@@ -146,6 +146,9 @@ h1, h2, h3 { line-height: 1.25; margin: 0; }
 .pill.open::before { color: var(--up); }
 .pill.pre::before { color: var(--warn); }
 .pill.closed::before { color: var(--down); }
+button.pill.data { cursor: pointer; font: inherit; font-size: 12px; }
+button.pill.data:hover { color: var(--text); }
+button.pill.data:disabled { cursor: progress; }
 .icon-btn {
   background: transparent; border: 1px solid var(--border); color: var(--text); border-radius: 7px;
   width: 32px; height: 32px; font-size: 16px; cursor: pointer; flex: none;

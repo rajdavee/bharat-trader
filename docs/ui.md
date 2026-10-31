@@ -69,6 +69,7 @@ free endpoints again.
 | GET | `/api/scanner`, `/api/plan`, `/api/alerts` | the scanner, exit and alerts files |
 | GET | `/api/portfolio`, `/api/orders`, `/api/risk`, `/api/config` | account, tickets, verdicts, settings |
 | GET | `/api/options`, `/api/strategy` | placeholders until v0.2 |
+| GET | `/api/doctor` | the last data self-test from `trader/doctor.json` (the header's Data badge) |
 | GET | `/api/stream` | Server-Sent Events: `status`, `prices`, `alerts` |
 | POST | `/api/risk/check` | `check.py`: record verdicts in `trader/state/risk.json` |
 | POST | `/api/prices/refresh` | `alerts.py quote --holdings --write` |
@@ -77,6 +78,7 @@ free endpoints again.
 | POST | `/api/orders/fill` | `ticket.py fill` (paper) |
 | POST | `/api/config/validate` | check a config without saving |
 | POST | `/api/config` | validate and save `trader/config.json` (the old one becomes `config.json.bak`) |
+| POST | `/api/doctor/run` | `doctor.py --json`: probe every data source now (about 30 s) and update `trader/doctor.json`; offline it replays `<offline>/doctor/` |
 
 The stream polls once for every open tab, only while a tab is open: every 15 s
 while NSE is open, every 2 minutes when it is closed.

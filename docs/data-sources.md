@@ -26,6 +26,50 @@ of these are official APIs with stability guarantees: when one changes, open a
 | `nseindia.com/api/holiday-master?type=trading` | maintainers | Source of the holiday table shipped in the tools. |
 | `nseindia.com/api/master-quote` | scanner, entry, exit, timemachine (cached in `trader/fno_stocks.json`; read by alerts, risk, broker) | NSE's F&O underlying list: a JSON array of stock symbols (218 on 2026-11-01). These stocks close in the Closing Auction Session. Fetched at most once a day, only by a run that is online anyway. |
 
+## Self-test
+
+`python3 trader-doctor/doctor.py` probes 19 of the sources above, one request
+each, and prints one table. Not probed: the older results and PIT lists,
+`allIndices`, and the XBRL documents (links found in the other answers). The same check is the **Data** badge in the UI header (click it to run)
+and the `doctor` MCP tool.
+
+```
+Data self-test, Sun 2026-11-01 11:41 IST. NSE closed (weekend); fresh data is from Fri 2026-10-30 or later.
+source                              status        since             affects                                       fallback
+NSE equity list (EQUITY_L.csv)      ok 0.5s       2026-11-01 10:41  scanner universe                              -
+NSE market status                   down          2026-11-01 11:41  alerts clock --verify, UI                     the built-in NSE calendar (the tools' own clock)
+    no answer: timed out after 10 s; last ok 2026-11-01 10:41
+...
+Yahoo chart (RELIANCE.NS)           down          2026-11-01 11:41  scanner, entry, exit, timemachine, alerts, UI  query1: answering
+    no answer: timed out after 10 s; last ok 2026-11-01 10:41
+...
+17 ok, 0 slow, 0 changed, 2 down, 0 blocked.
+```
+
+- **Status.** `ok`; `slow` (over 4 s); `changed` (a field the tools read is
+  gone, a number is out of its sane range, e.g. NIFTY at 230 instead of
+  23,000, the data is stale, or HTTP 404); `down` (no answer in 10 s, or 5xx);
+  `blocked` (401, 403, 429, or a web page instead of data). Exit code 1 when
+  any source is changed, down or blocked.
+- **Shape.** Each answer is checked for the fields the tools read: e.g.
+  `marketState[].tradeDate`, `records.data[].CE.openInterest`,
+  `EOD_CLOSE_INDEX_VAL`, the EQUITY_L and deals CSV columns, the chart's
+  `meta.gmtoffset` (19800) and `currency` (INR).
+- **Freshness, in IST.** Live answers should be from the latest session that
+  has opened (today after 09:15 on a trading day, else the last trading day;
+  yesterday's is still fine in the first half hour). End-of-day files (bulk
+  and block deals, PIT, VIX history) may lag one session. A weekend or holiday
+  answer from the last session is fresh. The holiday master is compared with
+  the tools' own 2026 table, so a new or moved NSE holiday shows up as
+  `changed`.
+- **Since when.** `trader/doctor.json` keeps each source's status, since when,
+  the last ok time and the last 30 runs.
+- **Politeness.** NSE's headers as above, 1.5 s between NSE calls, one retry
+  after 5 s on 403 or 429, then no more NSE calls that run.
+- **Offline.** `--offline DIR` replays recorded answers (`--record DIR` saves
+  them); `tests/fixtures/trader-doctor/` holds real ok, changed, down and
+  blocked answers.
+
 ## Known quirks
 
 - **Index symbols** (`^NSEI`, `^NSEBANK`, `^INDIAVIX`) go to Yahoo without `.NS`.
