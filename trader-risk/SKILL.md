@@ -201,6 +201,50 @@ The same NIFTY short strangle on Tuesday (expiry day) blocks: `naked` (short
 legs not covered), `stop` (no stop rule), and its margin carries ₹59,857.56 of
 expiry-day ELM.
 
+**Adjustments.** A trader-broker `ticket.py adjust` ticket (roll a leg, close a
+leg, add a hedge, close all) changes a strategy that is already open, so it is
+checked on the position it leaves, not on its own legs. The open legs come
+from portfolio.json `fno_positions` with the ticket's strategy id (the
+`"adjust": {"strategy_id": ...}` block, or a `strategy_id` on a leg; a leg tagged `bt-adjust` makes it an adjustment too). If the
+ticket has no id, or no open position has it, the check takes every open leg
+of the same underlying and expiry and says so in a warning. Each ticket leg
+first closes the open leg of the same contract, and whatever is left over
+opens a new leg. Then:
+
+- **defined risk or naked** is decided on the position the ticket leaves.
+  Rolling the covered short call of an iron condor passes. A roll that leaves
+  a short uncovered blocks with `naked` unless `allow_naked_short` is on, and
+  then it needs a `risk_rule`. One example is rolling the short call to a
+  later expiry than its bought call.
+- **loss** is that position's max loss at expiry from the open legs' last
+  prices, plus the cost of the closing orders now. It is checked against
+  `max_loss_per_trade`. Only what the adjustment adds to the max loss counts
+  toward `max_daily_loss`. A roll is not a new trade for `max_trades_per_day`.
+- **margin** is the change: the margin of the position after the ticket minus
+  the margin of the open legs now, against the free cash.
+- **greeks** and **scenario** use the book with the strategy's open legs
+  replaced by what the adjustment leaves.
+- **exits are never blocked.** A ticket that only closes legs is an exit
+  (close all, or buying back a short), even with the kill switch on. There is
+  one exception: closing a bought leg that leaves a short uncovered blocks
+  with `naked`, and the reason names the short.
+
+Rolling the short 23200 CE of that condor (filled on paper) up to 23250, at
+11:00 with ₹2,00,000 capital:
+
+```
+PASS  #1 BUY 65 NIFTY 23200 CE 2026-11-03 (NRML), adjust
+          the position after this roll of S-20261102-1 on NIFTY, defined risk: can lose ₹4,991.19 (the most it can lose at expiry, charges included), ₹4,185.97 before it (limit ₹6,000.00)
+          margin about ₹79,669.61 after it, ₹79,322.52 now: ₹347.09 more (the upper bound (+15%), trader-risk (same SPAN-style method as trader-strategy)), ₹1,18,275.67 free; premium paid ₹2,915.25, received ₹2,161.25
+          roll of S-20261102-1: checked with its 4 open legs in portfolio.json; after it: NIFTY 22700 PE 2026-11-03 +65, NIFTY 23300 CE 2026-11-03 +65, NIFTY 22800 PE 2026-11-03 -65, NIFTY 23250 CE 2026-11-03 -65
+```
+
+Closing its bought 23300 CE instead blocks:
+
+```
+        - naked: after this close of S-20261102-1, NIFTY 23200 CE 2026-11-03 would be short with no bought leg of the strategy to cover it (a loss without limit); naked shorts are off ("allow_naked_short": false)
+```
+
 ## Behaviour: circuit-breakers, the kill switch, the order rate
 
 SEBI's study of F&O traders found that the more often people trade, the more

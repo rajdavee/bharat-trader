@@ -309,6 +309,16 @@ All notable changes are documented here. The format follows
   the "every bar is there" check failed. Stage 1 now puts those bars back on
   that line between two bars of the same session; stage 2 still checks each
   candidate on the full v8 chart, where a missing bar still makes it unusable.
+- trader-risk blocked a roll of a covered short leg as naked (#33): it checked
+  a `ticket.py adjust` ticket on its own legs, without the strategy's open
+  legs. An adjustment is now checked on the position it leaves. The open legs
+  in portfolio.json `fno_positions` are found by the ticket's strategy id, or
+  by underlying and expiry with a warning when there is no id. Defined risk or
+  naked, the max loss at expiry, the margin change, the Greeks and the scenario
+  grid all come from that position. A roll that keeps the position covered
+  passes. A roll, or a close of a bought leg, that leaves a short uncovered
+  blocks unless `allow_naked_short` is on. A ticket that only closes legs
+  otherwise stays an exit and is never blocked.
 
 ## [0.1.0] - 2026-10-29
 
