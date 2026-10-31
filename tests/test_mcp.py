@@ -25,7 +25,8 @@ FP = "9ba8b90f83f96546"        # tests/fixtures/ui/trader/orders.json ticket 1, 
 TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit_plan", "timemachine_run",
          "size_trade", "risk_check", "paper_orders_show", "paper_order_draft", "paper_order_confirm",
          "portfolio_status", "options_chain", "options_summary", "results_analyse", "insider_deals",
-         "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "lab_forward"]
+         "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "lab_forward", "strategy_build",
+         "strategy_price"]
 # one offline call per tool, on the real saved answers in tests/fixtures (see tests/fixtures/mcp/offline.json)
 CALLS = [
     ("market_status", {}),
@@ -50,6 +51,8 @@ CALLS = [
     ("lab_run", {"strategy": "rsi2-nifty50"}),
     ("lab_report", {"strategy": "rsi2-nifty50"}),
     ("lab_forward", {"strategy": "rsi2-nifty50"}),
+    ("strategy_build", {"template": "iron-condor", "symbol": "NIFTY", "wings": 200, "width": 100, "paths": 1000}),
+    ("strategy_price", {"symbol": "NIFTY", "legs": "-1 CE 23000, +1 CE 23000 @01-Dec-2026", "simulate": False}),
     ("paper_order_draft", {}),
     ("paper_order_confirm", {"index": 1, "risk_fingerprint": FP, "yes_text": "yes 42 RELIANCE"}),
 ]
@@ -380,6 +383,8 @@ class Errors(ServerCase):
 # ---------------------------------------------------------------- tools
 
 class Tools(ServerCase):
+    ARGS = ("--rate-limit", "60")       # one call per tool and then some: above the default 30 a minute
+
     def test_tools_list_schema_validity(self):
         r = self.result(self.c.request("tools/list"))
         self.assertEqual(r["resultType"], "complete")
@@ -442,6 +447,32 @@ class Tools(ServerCase):
         self.assertNotIn("rows", d)
         self.assertIsNotNone(d["iv_rank"]["rank"])
 
+    def test_strategy_tools_are_trader_strategy_numbers(self):
+        d = self.result(self.c.call("strategy_build", {"template": "iron-condor", "symbol": "NIFTY", "wings": 200,
+                                                       "width": 100, "paths": 1000}))["structuredContent"]["data"]
+        self.assertEqual(d["schema"], "bharat-trader/strategy/1")
+        self.assertEqual([(l["side"], l["option_type"], l["strike"]) for l in d["legs"]],
+                         [("BUY", "PE", 22700), ("SELL", "PE", 22800), ("SELL", "CE", 23200), ("BUY", "CE", 23300)])
+        self.assertEqual(d["margin"]["label"], "Margin required (estimate, +/-15%)")
+        self.assertEqual(d["margin"]["required"], 67408.76)
+        self.assertEqual(d["margin"]["max_loss"], 4129.12)
+        self.assertEqual(d["expiry"]["breakevens"], [22763.53, 23236.47])
+        self.assertIsNotNone(d["probability"]["simulated"])
+        self.assertNotIn("orders", d)                   # read only: no proposal, no order path
+        self.assertNotIn("x", d["curve"])
+        r = self.result(self.c.call("strategy_price", {"symbol": "NIFTY", "legs": "-1 CE 23000", "simulate": False,
+                                                       "include_curve": True}))
+        d = r["structuredContent"]["data"]
+        self.assertTrue(d["expiry"]["unlimited_loss"])
+        self.assertEqual(d["margin"]["method"], "span-style")
+        self.assertEqual(len(d["curve"]["x"]), len(d["curve"]["expiry_net"]))
+        bad = self.result(self.c.call("strategy_price", {"symbol": "NIFTY", "legs": "-1 CE 23010"}))
+        self.assertTrue(bad.get("isError"))
+        self.assertIn("not a listed strike", bad["content"][0]["text"])
+        tools = {t["name"]: t for t in self.result(self.c.request("tools/list"))["tools"]}
+        for n in ("strategy_build", "strategy_price"):
+            self.assertTrue(tools[n]["annotations"]["readOnlyHint"])
+
     def test_pagination(self):
         c2 = Client("--page-size", "5")
         try:
@@ -455,7 +486,7 @@ class Tools(ServerCase):
                 if not cursor:
                     break
             self.assertEqual(names, TOOLS)
-            self.assertEqual(pages, 5)
+            self.assertEqual(pages, -(-len(TOOLS) // 5))
             r = c2.request("prompts/list", {"cursor": json.dumps({"k": "tools", "o": 5})})
             self.assertEqual(r["error"]["code"], -32602)
         finally:

@@ -7,6 +7,33 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `trader-strategy`: option strategy builder on the real NSE chain.
+  Templates for bull/bear call and put spreads, long/short straddles and
+  strangles, iron condor, iron fly, call/put butterflies (broken wing with
+  `--skip`), ratio spreads, covered call, protective put and calendars, plus
+  custom legs picked by strike, ATM offset, delta or premium. Payoff at expiry
+  and at any date (Black-76, IV per leg, IV shift), breakevens, max profit and
+  loss with unlimited sides detected, net premium and Greeks, the same curve
+  after the dated 2026 F&O charges (STT on exercise for in-the-money longs)
+  with the breakeven shift and an STT-on-exercise warning; margin required
+  (what a broker would block: a SPAN-style estimate, scan risk on the whole
+  position plus exposure on every short leg, +/-15% index, +/-35% stock,
+  checked against NSE's SPAN file; the premium for bought options only),
+  with the exact max loss and the return on margin shown apart from it; probability of profit textbook
+  (lognormal at IV) vs a seeded bootstrap of the underlying's own daily and
+  five-minute returns with IV-shift scenarios, expected value and 5% tail
+  after charges. `--write` saves `trader/strategy.json`
+  (`bharat-trader/strategy/1`); `--orders` writes broker-neutral NFO
+  proposals for trader-risk and the paper broker. Works copied alone from a
+  trader-options JSON file. See `docs/options.md`.
+- Local UI: the Option chain page (ITM shading, OI bars, OI change, IV, Greeks
+  toggle, PCR, max pain, walls, expected move, IV smile, expiry picker, why
+  panels) and the Strategy builder page (templates, legs editor, payoff gross
+  vs after charges with spot and breakevens, today vs expiry, Greeks, margin
+  required with method and error, max loss and return on margin, PoP textbook vs simulated, Send to paper as a
+  proposal through trader-risk and a typed yes). Routes `/api/options`,
+  `/api/strategy`, `/api/strategy/price`, `/api/strategy/draft`.
+- MCP tools `strategy_build` and `strategy_price` (read only).
 - `mcp/server.py`: an MCP server, standard library only, so any
   MCP-compatible AI assistant can use bharat-trader. JSON-RPC 2.0 over stdio
   (logs to stderr only) and optional streamable HTTP on 127.0.0.1 (Host and
