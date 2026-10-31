@@ -7,6 +7,36 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Agent team (`agents/`, issue #17): six personas as portable markdown files
+  (frontmatter `name`, `description`, `tools`, `skills`, `mcp-tools`,
+  `metadata`) with a mandate, a routine of exact skill commands and MCP tools,
+  hard limits, hand-offs, a never-do list and a report format:
+  intraday-trader and swing-trader (Strategy Lab WATCH or PROMOTE rules only),
+  options-seller (defined-risk credit structures at IV rank 50+, margin,
+  Greeks and expiry-day rules), researcher (hypotheses into trader-lab, never
+  trades), risk-officer (final veto: trader-risk, `check.py scenarios`,
+  breakers, the kill switch with the user's agreement) and journal-coach
+  (weekly review from the paper logs). None can place a live order.
+- Persona tag: `--persona NAME` on `trader-budget/size.py` and on
+  `trader-strategy/strategy.py build ... --orders`, and a `persona` argument
+  on the MCP tools `paper_order_draft` and `lab_forward`. It rides in each
+  order's `plan` note (not sent, not part of the fingerprint) and is logged
+  in `trader/state/personas.json`.
+- Persona scorecards, read only, rebuilt from `trader/state/trades.json`:
+  closed trades, P&L after every charge, profit factor, expectancy,
+  drawdown, losing streaks, tickets drafted, confirmed and declined, and
+  flags for overtrading, revenge trades, late MIS exits and off-ticket fills.
+  On the UI's Agents page (`g t`, `GET /api/agents`) and the MCP tool
+  `persona_scorecards` (31 tools).
+- MCP prompts `persona_intraday_trader`, `persona_options_seller`,
+  `persona_swing_trader`, `persona_researcher`, `persona_risk_officer` and
+  `persona_journal_coach`: the persona's instructions plus the current
+  context from `trader/` (session, limits, lab verdicts, its scorecard).
+- `docs/agents.md`, `agents/README.md`, and `tests/test_agents.py`: every
+  persona's frontmatter, every skill, tool, command, flag, lab spec, template
+  and config key it names checked against the repo, the scorecards on a
+  fixture trades log, and an offline flow scan -> lab check -> tagged paper
+  draft -> risk -> ticket with nothing placed.
 - `trader-risk` v2 (F&O, behaviour, kill switch). With `allow_fno`, the legs
   of one basket (orders.json `basket`, or a shared `basket_id`) are checked
   as ONE position and pass or block together, so a hedged iron condor passes

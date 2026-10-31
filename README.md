@@ -104,9 +104,10 @@ See [docs/ui.md](docs/ui.md).
 server: connect any MCP-compatible AI assistant and it can call 31 tools
 (market status, scans, news, entry and exit plans, the time machine, sizing,
 risk, the paper broker, option chains, results, insider deals, the strategy lab,
-the data self-test, your broker's holdings and positions, read only) and 5 prompts
-(morning briefing, intraday plan, options income scan, weekly review,
-research a strategy). Add it to your client's configuration:
+the data self-test, your broker's holdings and positions, read only, and the
+agent scorecards) and 11 prompts (morning briefing, intraday plan, options
+income scan, weekly review, research a strategy, and one per agent persona).
+Add it to your client's configuration:
 
 ```json
 {
@@ -129,6 +130,28 @@ questions to ask.
 With an agent, just ask: *"scan NSE for breakouts"*, *"any news on Reliance?"*,
 *"plan my exit for HDFCBANK"*, *"how many shares can I buy with ₹1,000 risk?"*,
 *"what are promoters buying?"*, *"does the opening-range breakout really work after charges?"*.
+
+## Agent team
+
+`agents/` holds six personas that run these skills like a disciplined desk:
+an **intraday trader** and a **swing trader** that trade only Strategy Lab
+rules with a WATCH or PROMOTE verdict, an **options seller** (defined-risk
+credit structures when IV rank is high, margin, Greeks and expiry-day rules),
+a **researcher** that turns ideas into lab tests and never trades, a **risk
+officer** with the final veto (trader-risk, the scenario grid, breakers, the
+kill switch) and a **journal coach** for the weekly review. Each file has a
+portable frontmatter (`name`, `description`, `tools`, `skills`, `mcp-tools`)
+and the persona's mandate, routine with exact commands, hard limits,
+hand-offs and report format.
+
+Use them as sub-agent definitions in any agent framework that supports them,
+or over MCP: the prompt `persona_options_seller` (and one per persona) returns
+the instructions plus your current limits, lab verdicts and the persona's
+paper scorecard. Tag a proposal with `--persona NAME` and the UI's Agents page
+and the `persona_scorecards` tool show each persona's paper track record
+after charges, with flags for overtrading and revenge trades. No persona can
+place a live order, and none promises a profit: evidence first, from the lab.
+See [agents/README.md](agents/README.md) and [docs/agents.md](docs/agents.md).
 
 ## A trading day
 

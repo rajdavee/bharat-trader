@@ -1,0 +1,161 @@
+{
+  "note": "Proposals tagged with the persona that drafted them, for the persona scorecard. Read only by the scorecard; nothing here is ever sent to a broker.",
+  "drafts": [
+    {
+      "at": "2026-10-26T04:40:00Z",
+      "persona": "intraday-trader",
+      "source": "trader/plan.json (HDFCBANK orb 2026-10-26)",
+      "orders": [
+        {
+          "symbol": "HDFCBANK",
+          "exchange": "NSE",
+          "product": "MIS",
+          "side": "BUY",
+          "qty": 72,
+          "order_type": "LIMIT",
+          "price": 692.7,
+          "stop_loss": {
+            "order_type": "SL-M",
+            "trigger_price": 689.9
+          },
+          "target": {
+            "order_type": "LIMIT",
+            "price": 698.3
+          },
+          "validity": "DAY",
+          "why": "opening-range breakout on HDFCBANK: 72 shares, bound by your position cap (50% of ₹1,00,000.00 = ₹50,000.00 / 692.70). At the stop: 72 x 2.80 = ₹201.60 plus about ₹52.77 charges = ₹254.37, inside your ₹1,000.00 max loss per trade.",
+          "plan": {
+            "entry": 692.7,
+            "stop": 689.9,
+            "target": 698.3,
+            "risk_per_share": 2.8,
+            "max_loss": 201.6,
+            "charges": 52.77,
+            "max_loss_with_charges": 254.37,
+            "setup": "orb",
+            "entry_time": "10:10",
+            "flat_by": "15:10",
+            "persona": "intraday-trader"
+          }
+        }
+      ]
+    },
+    {
+      "at": "2026-10-26T05:45:00Z",
+      "persona": "intraday-trader",
+      "source": "trader/plan.json (ICICIBANK level 2026-10-26)",
+      "orders": [
+        {
+          "symbol": "ICICIBANK",
+          "exchange": "NSE",
+          "product": "MIS",
+          "side": "BUY",
+          "qty": 36,
+          "order_type": "LIMIT",
+          "price": 1386.1,
+          "stop_loss": {
+            "order_type": "SL-M",
+            "trigger_price": 1379.1
+          },
+          "target": {
+            "order_type": "LIMIT",
+            "price": 1400.1
+          },
+          "validity": "DAY",
+          "why": "level on ICICIBANK: 36 shares, bound by your position cap (50% of ₹1,00,000.00 = ₹50,000.00 / 1386.10). At the stop: 36 x 7.00 = ₹252.00 plus about ₹52.76 charges = ₹304.76, inside your ₹1,000.00 max loss per trade.",
+          "plan": {
+            "entry": 1386.1,
+            "stop": 1379.1,
+            "target": 1400.1,
+            "risk_per_share": 7.0,
+            "max_loss": 252.0,
+            "charges": 52.76,
+            "max_loss_with_charges": 304.76,
+            "setup": "level",
+            "entry_time": "11:15",
+            "flat_by": "15:10",
+            "persona": "intraday-trader"
+          }
+        }
+      ]
+    },
+    {
+      "at": "2026-10-28T04:15:00Z",
+      "persona": "intraday-trader",
+      "source": "trader/plan.json (HDFCBANK orb 2026-10-28)",
+      "orders": [
+        {
+          "symbol": "HDFCBANK",
+          "exchange": "NSE",
+          "product": "MIS",
+          "side": "BUY",
+          "qty": 73,
+          "order_type": "LIMIT",
+          "price": 678.0,
+          "stop_loss": {
+            "order_type": "SL-M",
+            "trigger_price": 673.15
+          },
+          "target": {
+            "order_type": "LIMIT",
+            "price": 687.7
+          },
+          "validity": "DAY",
+          "why": "opening-range breakout on HDFCBANK: 73 shares, bound by your position cap (50% of ₹1,00,000.00 = ₹50,000.00 / 678.00). At the stop: 73 x 4.85 = ₹354.05 plus about ₹52.25 charges = ₹406.30, inside your ₹1,000.00 max loss per trade.",
+          "plan": {
+            "entry": 678.0,
+            "stop": 673.15,
+            "target": 687.7,
+            "risk_per_share": 4.85,
+            "max_loss": 354.05,
+            "charges": 52.25,
+            "max_loss_with_charges": 406.3,
+            "setup": "orb",
+            "entry_time": "09:45",
+            "flat_by": "15:10",
+            "persona": "intraday-trader"
+          }
+        }
+      ]
+    },
+    {
+      "at": "2026-10-29T04:10:00Z",
+      "persona": "intraday-trader",
+      "source": "trader/plan.json (RELIANCE orb 2026-10-29)",
+      "orders": [
+        {
+          "symbol": "RELIANCE",
+          "exchange": "NSE",
+          "product": "MIS",
+          "side": "BUY",
+          "qty": 42,
+          "order_type": "LIMIT",
+          "price": 1174.3,
+          "stop_loss": {
+            "order_type": "SL-M",
+            "trigger_price": 1163.3
+          },
+          "target": {
+            "order_type": "LIMIT",
+            "price": 1196.3
+          },
+          "validity": "DAY",
+          "why": "opening-range breakout on RELIANCE: 42 shares, bound by your position cap (50% of ₹1,00,000.00 = ₹50,000.00 / 1174.30). At the stop: 42 x 11.00 = ₹462.00 plus about ₹52.00 charges = ₹514.00, inside your ₹1,000.00 max loss per trade.",
+          "plan": {
+            "entry": 1174.3,
+            "stop": 1163.3,
+            "target": 1196.3,
+            "risk_per_share": 11.0,
+            "max_loss": 462.0,
+            "charges": 52.0,
+            "max_loss_with_charges": 514.0,
+            "setup": "orb",
+            "entry_time": "09:40",
+            "flat_by": "15:10",
+            "persona": "intraday-trader"
+          }
+        }
+      ]
+    }
+  ]
+}

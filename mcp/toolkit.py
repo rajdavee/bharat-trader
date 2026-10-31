@@ -88,6 +88,8 @@ SYMBOLS = S("string", "NSE symbols, comma separated, e.g. RELIANCE,TCS", maxLeng
 HHMM = S("string", "a time in IST, 24-hour HH:MM", pattern=r"^\d{1,2}:\d{2}$")
 DATE = S("string", "a date, YYYY-MM-DD", pattern=r"^\d{4}-\d{2}-\d{2}$")
 PRICE = S("number", "rupees", exclusiveMinimum=0)
+PERSONA = S("string", "the agent persona drafting it, e.g. intraday-trader (agents/): tags the proposal for its "
+                      "scorecard; changes no size and no check", pattern=r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$", maxLength=40)
 ANY_OBJ = {"type": "object"}
 ANY_LIST = {"type": "array"}
 
@@ -530,6 +532,7 @@ def _size_argv(kit, a, tool):
     _add(argv, "--capital", a.get("capital"))
     _add(argv, "--limit", a.get("limit"))
     _add(argv, "--market", bool(a.get("market")))
+    _add(argv, "--persona", a.get("persona"))
     return argv + kit.ctx.now_args()
 
 
@@ -920,7 +923,7 @@ def t_lab_forward(kit, a, call):
                             % (want, ", ".join(p["symbol"] for p in r["plans"]) or "none"))
         kit.backup("plan.json")
         lab.write_json(kit.p("plan.json"), plan[0])
-        drafted, dnotes = t_paper_order_draft(kit, {}, call)
+        drafted, dnotes = t_paper_order_draft(kit, {"persona": a.get("persona")} if a.get("persona") else {}, call)
         notes += list(dnotes) + ["The lab's plan for %s is now trader/plan.json (the old one kept as plan.json.bak)."
                                  % want]
     if drafted:
@@ -999,6 +1002,15 @@ def t_doctor(kit, a, call):
     notes = ["%s: %s (%s). Fallback: %s." % (r["name"], r["status"], r["detail"], r.get("fallback_used")
                                               or r["fallback"]) for r in bad]
     return report, notes or ["Every data source answered as the tools expect (%s)." % report.get("market")]
+
+
+# ---------------------------------------------------------------- tools: agent personas
+
+def t_persona_scorecards(kit, a, call):
+    data = api.persona_scorecards(kit.ctx, a.get("persona"))
+    data.pop("disclaimer", None)
+    return data, ["A paper record is simulated fills, and a short one says almost nothing about skill: compare it "
+                  "with the rule's lab scorecard. Read only."]
 
 
 # ---------------------------------------------------------------- the tool table
@@ -1111,7 +1123,8 @@ def build_tools():
                   "trader-risk's verdicts. Returns each ticket with its fingerprint. Places nothing.",
                   t_paper_order_draft,
                   {"capital": S("number", "override the capital in rupees", exclusiveMinimum=0),
-                   "limit": PRICE, "market": S("boolean", "a MARKET entry instead of a LIMIT")},
+                   "limit": PRICE, "market": S("boolean", "a MARKET entry instead of a LIMIT"),
+                   "persona": PERSONA},
                   data=obj({"tickets": ANY_LIST, "risk": ANY_OBJ, "next_step": S("string")},
                            ["tickets", "risk", "next_step"], extra=True),
                   annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True},
@@ -1231,7 +1244,7 @@ def build_tools():
                   "plans. draft: SYMBOL makes that plan trader/plan.json (keeps a .bak) and runs paper_order_draft "
                   "(trader-budget sizes it, trader-risk checks it). Places nothing: a paper order still needs the "
                   "user's own yes through paper_order_confirm.", t_lab_forward,
-                  {"strategy": lab_name, "draft": SYMBOL}, ["strategy"],
+                  {"strategy": lab_name, "draft": SYMBOL, "persona": PERSONA}, ["strategy"],
                   data=obj({"forward": ANY_OBJ, "drafted": {}, "next_step": S("string")},
                            ["forward", "next_step"], extra=True),
                   annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False}))
@@ -1312,6 +1325,16 @@ def build_tools():
                   {"only": S("string", "probe only NSE or only Yahoo", enum=["nse", "yahoo"])},
                   data=obj({"summary": ANY_OBJ, "sources": ANY_LIST, "market": S("string")},
                            ["summary", "sources"], extra=True)))
+    T.append(tool("persona_scorecards", "Agent persona scorecards",
+                  "Each agent persona's paper track record (agents/), rebuilt from trader/state/trades.json: closed "
+                  "trades, wins and losses, net P&L after every charge, profit factor, expectancy, max drawdown, "
+                  "losing streaks, entries per day, yes and no counts, and behaviour flags (overtrading, revenge "
+                  "trades, exits after flat_by, fills with no ticket). Fills are credited through the persona tag "
+                  "on the drafted proposal. Read only.", t_persona_scorecards,
+                  {"persona": S("string", "one persona, e.g. intraday-trader (default: the whole team)",
+                                enum=[p["name"] for p in api.personas()])},
+                  data=obj({"personas": ANY_LIST, "unattributed": ANY_OBJ}, ["personas", "unattributed"], extra=True),
+                  network=False))
     return T
 
 
@@ -1371,10 +1394,77 @@ def build_prompts():
                   "draft a paper ticket only if I ask, and wait for my own typed yes). Separate what the data shows "
                   "from what it cannot show (few samples, one regime, costs, slippage, survivorship). Say what "
                   "result would make you drop the idea. " + RULES)},
-    ]
+    ] + persona_prompts()
 
 
-def render_prompt(p, args):
+def _persona_context(kit, persona):
+    """What the persona needs to know right now, from the trader/ files and the NSE calendar (no network)."""
+    if kit is None:
+        return "(no server context: read trader/config.json and call persona_scorecards yourself)"
+    inr = api.skill("broker").inr
+    lines = []
+
+    def part(label, fn):
+        try:
+            lines.append("- %s: %s" % (label, fn()))
+        except (api.ApiError,) + api.skill_errors() as e:
+            lines.append("- %s: unavailable (%s)" % (label, getattr(e, "message", None) or e))
+
+    def market():
+        st = api.market(kit.ctx)
+        return "%s IST, %s (%s)" % (st["now_ist"], "NSE open" if st["open"] else "NSE closed", st.get("reason") or
+                                    st.get("phase"))
+
+    def limits():
+        if not kit.ctx.config():
+            return ("no trader/config.json yet: ask the user to set their own capital and limits with "
+                    "python3 trader-budget/size.py init (until then the skills fall back to example defaults)")
+        c = api.skill("broker").merged_config(kit.ctx.config())
+        return ("capital %s, max loss per trade %s, max daily loss %s, max trades per day %s, entries %s to %s, "
+                "flat by %s, %s" % (inr(c["capital"]), inr(c["max_loss_per_trade"]), inr(c["max_daily_loss"]),
+                                    c["max_trades_per_day"], c["no_entries_before"], c["no_entries_after"],
+                                    c["flat_by"], "paper account" if c.get("paper", True) else "NOT paper: "
+                                    "every order is refused"))
+
+    def lab():
+        rows = api.lab_verdicts(kit.ctx)
+        return ", ".join("%s %s" % (r["name"], r["verdict"]) for r in rows) or \
+            "no lab runs yet (trader/lab/ is empty): nothing has a WATCH or PROMOTE verdict"
+
+    def card():
+        c = api.persona_scorecards(kit.ctx, persona["name"])["personas"][0]
+        out = ("%d closed paper trades, net %s after charges, losing streak now %d, %s"
+               % (c["closed"], inr(c["net_pnl"]), c["losing_streak_now"], c["verdict"]))
+        if c["flags"]:
+            out += " Flags: " + "; ".join(f["text"] for f in c["flags"][-5:]) + "."
+        return out
+
+    part("now", market)
+    part("your limits (trader/config.json)", limits)
+    part("Strategy Lab verdicts", lab)
+    part("your paper scorecard", card)
+    return "\n".join(lines)
+
+
+def persona_prompts():
+    out = []
+    for p in api.personas():
+        def render(kit, args, _p=p):
+            focus = (args.get("focus") or "").strip()
+            return ("You are the %s of the bharat-trader agent team. Follow these instructions; they are "
+                    "%s.\n\n%s\n## Current context (from the server, no network)\n\n%s\n\n%sOver MCP, use the tool in "
+                    "brackets for each step; the command lines are the same checks run by hand. %s"
+                    % (_p["title"].lower(), _p["file"], _p["body"], _persona_context(kit, _p),
+                       ("Today's focus: %s.\n\n" % focus) if focus else "", RULES))
+        out.append({"name": "persona_" + p["name"].replace("-", "_"), "title": "Persona: " + p["title"],
+                    "description": p["description"],
+                    "arguments": [{"name": "focus", "description": "a symbol, a strategy or a question for today "
+                                                                   "(optional)", "required": False}],
+                    "render": render})
+    return out
+
+
+def render_prompt(p, args, kit=None):
     args = dict(args or {})
     for a in p.get("arguments", []):
         if a.get("required") and not str(args.get(a["name"]) or "").strip():
@@ -1385,6 +1475,8 @@ def render_prompt(p, args):
             raise ValueError("prompt %s has no argument %s" % (p["name"], k))
         if not isinstance(v, str) or len(v) > 400:
             raise ValueError("prompt argument %s must be short text" % k)
+    if p.get("render"):
+        return p["render"](kit, args)
     focus = args.get("focus")
     fill = {
         "focus": ("Focus on: %s. " % focus) if focus else "",
