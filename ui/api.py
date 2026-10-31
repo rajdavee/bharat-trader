@@ -39,6 +39,7 @@ SKILLS = {
     "broker": ("trader-broker", "ticket"),
     "budget": ("trader-budget", "size"),
     "scanner": ("trader-scanner", "scan"),
+    "options": ("trader-options", "options"),
 }
 # how long a live answer is reused, in seconds (free endpoints: be polite)
 TTL = {"quotes": 15, "nse": 120, "chart-1m": 30, "chart-5m": 60, "chart-1d": 900}
@@ -811,6 +812,7 @@ def known_keys():
         for k, v in skill(name).DEFAULTS.items():
             keys.setdefault(k, v)
     keys.setdefault("insider_watch_clients", [])
+    keys.setdefault("risk_free_rate", skill("options").DEFAULT_RATE)
     return keys
 
 

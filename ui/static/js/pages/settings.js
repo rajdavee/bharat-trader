@@ -10,7 +10,7 @@ const GROUPS = [
     'min_reward_risk', 'require_stop', 'include_charges']],
   ['Time (IST)', ['no_entries_before', 'no_entries_after', 'flat_by', 'extra_holidays', 'special_sessions']],
   ['Market and broker', ['exchange', 'product', 'tick_size', 'broker', 'paper', 'blocked', 'allow_short', 'allow_fno',
-    'min_price', 'min_turnover', 'insider_watch_clients']],
+    'min_price', 'min_turnover', 'insider_watch_clients', 'risk_free_rate']],
   ['Charges', ['charges']],
 ];
 

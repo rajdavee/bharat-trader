@@ -354,6 +354,7 @@ class Routes(unittest.TestCase):
         meanings = {s["key"]: s["doc"] for s in c["schema"]}
         self.assertIn("Trading capital", meanings["capital"])
         self.assertNotIn("`", meanings["product"])
+        self.assertIn("option pricing", meanings["risk_free_rate"])     # trader-options' key
         for p in ("/api/options", "/api/strategy"):
             _, d = self.s.get(p)
             self.assertFalse(d["available"])
@@ -483,6 +484,8 @@ class PaperFlow(unittest.TestCase):
         self.assertEqual(read_text(path), before)
         _, res = self.s.post("/api/config/validate", {"config": dict(cfg, no_entries_before="15:00")})
         self.assertFalse(res["ok"])
+        _, res = self.s.post("/api/config/validate", {"config": dict(cfg, risk_free_rate=0.06)})
+        self.assertEqual((res["errors"], res["warnings"]), ([], []))
         _, res = self.s.post("/api/config/validate", {"config": dict(cfg, mystery=1)})
         self.assertTrue(res["ok"])
         self.assertTrue(any("mystery" in w for w in res["warnings"]))
