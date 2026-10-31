@@ -552,6 +552,58 @@ class PaperFlow(unittest.TestCase):
         _, o = self.s.get("/api/orders")
         self.assertTrue(o["tickets"][0]["ready"])
 
+    def test_kill_switch_from_the_risk_panel(self):
+        _, r = self.s.get("/api/risk")
+        self.assertFalse(r["kill"]["active"])
+        self.assertEqual(r["kill"]["word"], "unkill")
+        self.assertIn("locks", r["breakers"])
+        self.assertEqual(r["rate"]["hard_cap"], 9)
+        self.assertEqual(r["scenarios"]["open"]["legs"], 0)        # a cash-only account: no F&O book
+        status, res = self.s.post("/api/risk/kill", {"reason": "testing the switch"})
+        self.assertEqual(status, 200)
+        self.assertTrue(res["ok"], res)
+        self.assertIn("KILL SWITCH ON", res["output"])
+        self.assertIn("Revoked 1 recorded entry PASS", res["output"])
+        self.assertEqual(self.state("state", "risk.json")["results"][0]["verdict"], "BLOCK")
+        _, o = self.s.get("/api/orders")
+        self.assertFalse(o["tickets"][0]["ready"])
+        _, r = self.s.get("/api/risk")
+        self.assertTrue(r["kill"]["active"])
+        self.assertEqual(r["kill"]["reason"], "testing the switch")
+        self.assertIn("kill", [x.split(":")[0] for x in r["preview"]["results"][0]["reasons"]])
+        status, res = self.s.post("/api/risk/unkill", {"typed": "yes"})
+        self.assertFalse(res["ok"])
+        self.assertIn("type the word unkill", res["output"])
+        status, _ = self.s.post("/api/risk/unkill", {})
+        self.assertEqual(status, 400)
+        status, res = self.s.post("/api/risk/unkill", {"typed": "unkill"})
+        self.assertTrue(res["ok"], res)
+        _, r = self.s.get("/api/risk")
+        self.assertFalse(r["kill"]["active"])
+        self.assertEqual(r["preview"]["results"][0]["verdict"], "PASS")
+
+    def test_risk_panel_shows_the_fno_book(self):
+        pf = self.state("portfolio.json")
+        pf.setdefault("fno_positions", []).append(
+            {"tradingsymbol": "NIFTY26N0322800PE", "exchange": "NFO", "qty": -65, "avg_price": 44.3, "lot_size": 65,
+             "ltp": 44.3, "iv": 14.0, "forward": 23022.14})
+        pf["margin_blocked"] = 60000
+        with open(os.path.join(self.s.dir, "trader", "portfolio.json"), "w", encoding="utf-8") as fh:
+            json.dump(pf, fh)
+        cfg = self.state("config.json")
+        cfg["allow_fno"] = True
+        with open(os.path.join(self.s.dir, "trader", "config.json"), "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh)
+        _, r = self.s.get("/api/risk")
+        book = r["scenarios"]["open"]
+        self.assertEqual(book["legs"], 1)
+        g = book["greeks"]["by_underlying"]["NIFTY"]
+        self.assertGreater(g["delta_lots"], 0)               # a short put is long delta
+        self.assertLess(g["vega"], 0)
+        self.assertEqual(len(book["scenarios"]["rows"]), 7)
+        self.assertIn("formula", r["why"]["scenarios"])
+        self.assertIn("max_scenario_loss", [x["key"] for x in r["fno_limits"]])
+
     def test_confirm_needs_a_real_yes_then_fill(self):
         status, res = self.s.post("/api/orders/confirm", {"index": 1, "yes_text": "sure"})
         self.assertEqual(status, 200)

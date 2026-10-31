@@ -636,6 +636,15 @@ def r_broker_positions(ctx, q, body):
 
 # ---------------------------------------------------------------- routes: risk
 
+def _risk_inputs(ctx, orders, doc, cfg):
+    """(portfolio, extra) for trader-risk: the F&O, behaviour and kill-switch files of trader/ (no network)."""
+    risk = skill("risk")
+    try:
+        return risk.gather_inputs(os.path.join(ctx.workdir, "trader"), orders, doc, cfg, ctx.today(), False)
+    except risk.RiskError as e:
+        raise ApiError(422, str(e))
+
+
 def r_risk(ctx, q, body):
     risk = skill("risk")
     cfg = ctx.config()
@@ -643,44 +652,75 @@ def r_risk(ctx, q, body):
     last = ctx.read("state", "risk.json")
     preview, err = None, None
     doc = ctx.read("orders.json")
+    orders = (doc.get("orders", doc) if isinstance(doc, dict) else doc) if doc is not None else []
+    now = risk.parse_now(ctx.now_ist().strftime("%Y-%m-%d %H:%M:%S"))
+    portfolio, extra = _risk_inputs(ctx, orders if isinstance(orders, list) else [], doc, cfg)
     if doc is not None:
-        orders = doc.get("orders", doc) if isinstance(doc, dict) else doc
         try:
             pdoc = ctx.read("prices.json") or {}
             prices, times = risk.load_prices(pdoc)
-            preview = risk.check(orders, cfg, ctx.read("portfolio.json"), prices, ctx.read("state", "broker.json"),
-                                 ctx.today(), risk.parse_now(ctx.now_ist().strftime("%Y-%m-%d %H:%M:%S")), times)
+            preview = risk.check(orders, cfg, portfolio, prices, ctx.read("state", "broker.json"),
+                                 ctx.today(), now, times, extra)
             if pdoc.get("as_of"):
                 preview["prices_as_of"] = pdoc["as_of"]
         except risk.RiskError as e:
             err = str(e)
+    view = risk.scenarios(cfg, portfolio, risk.load_prices(ctx.read("prices.json") or {})[0], now, extra,
+                          orders if isinstance(orders, list) else [])
     limits = [{"key": k, "value": c.get(k)} for k in (
         "capital", "max_loss_per_trade", "max_daily_loss", "max_trades_per_day", "max_orders_per_day",
         "max_position_pct", "max_order_value", "min_order_value", "cash_buffer_pct", "min_reward_risk",
         "require_stop", "no_entries_before", "no_entries_after", "flat_by", "include_charges", "allow_short",
-        "allow_fno", "paper")]
+        "allow_fno", "paper", "max_consecutive_losses", "max_daily_drawdown_pct", "cooloff_after_stop_min",
+        "revenge_window_min", "revenge_trade", "order_rate_per_sec", "allow_naked_short",
+        "defined_risk_counts_as_stop")]
+    fno = risk.fno_limits(c)
     now_s = ist_text(ctx.now_ist())
-    return {"limits": limits, "last_check": last, "preview": preview, "preview_error": err,
+    kill = view["kill"]
+    return {"limits": limits, "fno_limits": [{"key": k, "value": v} for k, v in sorted(fno.items())],
+            "last_check": last, "preview": preview, "preview_error": err,
             "stale": bool(last) and last.get("date") != ctx.today(),
+            "kill": {"active": bool(kill), "since": (kill or {}).get("at"), "reason": (kill or {}).get("reason"),
+                     "word": risk.KILL_WORD},
+            "breakers": view["breakers"], "rate": view["rate"], "scenarios": view,
             "why": {"verdict": why("each order against every rule in order, as if each PASS had filled: format, "
                                    "tick, exchange, F&O, short; for entries also size, position, cash, stop, "
                                    "target, loss at stop + charges, reward:risk, daily loss, trades, window, "
-                                   "duplicates, daily order limit",
+                                   "duplicates, daily order limit, kill switch, circuit-breakers, order rate; "
+                                   "an F&O basket is one position (lots, ban list, premium, margin, Greeks, "
+                                   "scenarios)",
                                    {"orders": "trader/orders.json", "config": "trader/config.json",
                                     "portfolio": "trader/portfolio.json", "prices": "trader/prices.json",
-                                    "placed today": "trader/state/broker.json"},
+                                    "placed today": "trader/state/broker.json", "fills": "trader/state/trades.json",
+                                    "kill switch": "trader/state/kill.json"},
                                    "trader-risk check (pure function, no network)", now_s,
                                    "The preview is not recorded. The paper broker only accepts a PASS that was "
-                                   "recorded today: use Run risk check.")},
+                                   "recorded today: use Run risk check."),
+                    "scenarios": why("Black-76 on each leg's forward and IV; every underlying moves k of its own "
+                                     "sigmas (at-the-money IV x sqrt(days / 252)) at once, IV shifts in vol "
+                                     "points; P&L after charges",
+                                     {"open positions": "trader/portfolio.json", "chain": "trader/options.json",
+                                      "strategy": "trader/strategy.json", "proposals": "trader/orders.json"},
+                                     "trader-risk scenarios (read only)", now_s,
+                                     "A model at today's IV, not a forecast."),
+                    "greeks": why("net per underlying: delta in lots (and rupees per 1% move), gamma as lots of "
+                                  "delta per 1% move, vega rupees per vol point, theta rupees per calendar day",
+                                  {k: v for k, v in fno.items() if k.startswith("max_net") or k.startswith("max_theta")},
+                                  "trader-risk book_greeks (Black-76)", now_s)},
             "disclaimer": DISCLAIMER}
+
+
+def _risk_paths(ctx):
+    return ["--orders", ctx.path("orders.json"), "--config", ctx.path("config.json"),
+            "--portfolio", ctx.path("portfolio.json"), "--prices", ctx.path("prices.json"),
+            "--state", ctx.path("state", "broker.json"), "--trades", ctx.path("state", "trades.json"),
+            "--kill", ctx.path("state", "kill.json")] + (["--offline"] if ctx.offline else [])
 
 
 def r_risk_check(ctx, q, body):
     if ctx.read("orders.json") is None:
         raise ApiError(409, "no trader/orders.json to check (trader-budget writes it)")
-    argv = ["--orders", ctx.path("orders.json"), "--config", ctx.path("config.json"),
-            "--portfolio", ctx.path("portfolio.json"), "--prices", ctx.path("prices.json"),
-            "--state", ctx.path("state", "broker.json"), "--out", ctx.path("state", "risk.json"), "--json"]
+    argv = _risk_paths(ctx) + ["--out", ctx.path("state", "risk.json"), "--json"]
     rc, out, err = run_skill(ctx, "risk", argv + ctx.now_args())
     res = _command_result(ctx, rc, out, err)
     res["ok"] = rc in (0, 1) and out.strip().startswith("{")
@@ -691,6 +731,31 @@ def r_risk_check(ctx, q, body):
     if res["result"]:
         res["output"] = ""
     return res
+
+
+def r_risk_kill(ctx, q, body):
+    """The kill switch: no new entries today (recorded entry PASSes are revoked); --flatten writes exit tickets."""
+    reason = (body or {}).get("reason")
+    if reason is not None and (not isinstance(reason, str) or len(reason) > 300):
+        raise ApiError(400, "reason is a short text")
+    argv = ["kill"] + _risk_paths(ctx) + ["--risk", ctx.path("state", "risk.json"),
+                                         "--plan", ctx.path("plan.json")]
+    if reason and reason.strip():
+        argv += ["--reason", reason.strip()]
+    if (body or {}).get("flatten") is True:
+        argv.append("--flatten")
+    rc, out, err = run_skill(ctx, "risk", argv + ctx.now_args())
+    return _command_result(ctx, rc, out, err)
+
+
+def r_risk_unkill(ctx, q, body):
+    """Lift today's kill switch: the typed word unkill, word for word."""
+    typed = (body or {}).get("typed")
+    if not isinstance(typed, str) or not typed.strip() or len(typed) > 50:
+        raise ApiError(400, "type the word %s to lift the kill switch" % skill("risk").KILL_WORD)
+    rc, out, err = run_skill(ctx, "risk", ["unkill", "--kill", ctx.path("state", "kill.json"), "--yes-text", typed]
+                             + ctx.now_args())
+    return _command_result(ctx, rc, out, err)
 
 
 # ---------------------------------------------------------------- routes: chart
@@ -1507,12 +1572,15 @@ ROUTES = [
     ("GET", "/api/broker", r_broker, "live broker connection: credentials set, capabilities, last preflight", False),
     ("GET", "/api/broker/holdings", r_broker_holdings, "holdings at the live broker, read only: ?broker=", False),
     ("GET", "/api/broker/positions", r_broker_positions, "positions at the live broker, read only: ?broker=", False),
-    ("GET", "/api/risk", r_risk, "your limits, the recorded verdicts and a fresh preview", False),
+    ("GET", "/api/risk", r_risk, "your limits, the verdicts, a fresh preview, Greeks, scenarios, kill switch",
+     False),
     ("GET", "/api/config", r_config, "trader/config.json, the effective settings and their meaning", False),
     ("GET", "/api/options", r_options, "option chain with IV, Greeks, PCR, max pain, walls: ?symbol=&expiry=", False),
     ("GET", "/api/strategy", r_strategy, "strategy templates, symbols and the saved trader/strategy.json", False),
     ("GET", "/api/doctor", r_doctor, "the last data self-test (trader/doctor.json), for the header badge", False),
     ("POST", "/api/risk/check", r_risk_check, "run trader-risk on trader/orders.json and record the verdicts", True),
+    ("POST", "/api/risk/kill", r_risk_kill, "kill switch on: no new entries today (exits still pass)", True),
+    ("POST", "/api/risk/unkill", r_risk_unkill, "lift the kill switch: the typed word unkill", True),
     ("POST", "/api/prices/refresh", r_refresh_prices, "trader-alerts quote --holdings --write", True),
     ("POST", "/api/orders/confirm", r_confirm, "record your typed yes for ONE order (paper broker)", True),
     ("POST", "/api/orders/decline", r_decline, "record a no for one order", True),
