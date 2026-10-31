@@ -217,9 +217,9 @@ do the network (or offline) reads.
    estimate of what the broker blocks; never present the max loss as the
    capital needed.
 4. If the user wants to trade it: `--orders` writes a proposal only. It goes
-   to `/trader-risk`, then `/trader-broker`, paper by default; each leg needs
-   its own PASS and the user's typed yes. Until trader-risk has F&O rules,
-   it blocks option legs unless the config allows F&O.
+   to `/trader-risk`, which checks the legs as ONE basket (and blocks every
+   F&O leg unless the config sets `allow_fno`), then `/trader-broker`, paper
+   by default: one basket ticket and one typed yes for every leg.
 
 ## Example
 
