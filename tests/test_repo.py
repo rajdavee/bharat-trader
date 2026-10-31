@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import subprocess
 import unittest
 
 import sys
@@ -19,7 +20,7 @@ SKILLS = ["trader-scanner", "trader-news", "trader-entry", "trader-exit", "trade
 ORDER_PATH = ["trader-scanner", "trader-entry", "trader-exit", "trader-timemachine", "trader-budget",
               "trader-insider", "trader-risk", "trader-broker", "trader-alerts", "trader-lab"]
 ROOT_FILES = {".github", ".gitignore", "CHANGELOG.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md",
-              "LICENSE", "NOTICE", "README.md", "SECURITY.md", "docs", "tests", "ui"}
+              "LICENSE", "NOTICE", "README.md", "SECURITY.md", "docs", "mcp", "tests", "ui"}
 
 NSE_HOLIDAYS_2026 = {
     "2026-01-15", "2026-01-26", "2026-02-15", "2026-03-03", "2026-03-21", "2026-03-26",
@@ -36,9 +37,21 @@ def frontmatter(path):
     return (m.group(1) if m else ""), text
 
 
+def ignored(names):
+    """The entries git ignores (local scratch, tool workspaces), so checks see only the project."""
+    try:
+        out = subprocess.run(["git", "check-ignore", "--"] + list(names), cwd=ROOT,
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return {line.strip().rstrip("/") for line in out.stdout.splitlines() if line.strip()}
+
+
 def text_files():
+    skip = ignored(os.listdir(ROOT))
     for base, dirs, files in os.walk(ROOT):
-        dirs[:] = [d for d in dirs if d not in (".git", "__pycache__")]
+        dirs[:] = [d for d in dirs if d not in (".git", "__pycache__")
+                   and not (base == ROOT and d in skip)]
         for f in files:
             path = os.path.join(base, f)
             if path == SELF:
@@ -67,7 +80,8 @@ class Layout(unittest.TestCase):
         self.assertEqual(found, sorted(SKILLS))
 
     def test_root_has_only_the_expected_entries(self):
-        root = {d for d in os.listdir(ROOT) if d != ".git" and not d.startswith("trader-")}
+        names = os.listdir(ROOT)
+        root = {d for d in names if d != ".git" and not d.startswith("trader-")} - ignored(names)
         root.discard(".DS_Store")
         self.assertEqual(root, ROOT_FILES)
 

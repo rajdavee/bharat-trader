@@ -46,6 +46,11 @@ config.json ▶│   budget   │ ───────────────�
 | `options.json` | options (`--write`) | strategy builder, UI (schema in `trader-options/SKILL.md`) |
 | `lab/<name>/` | lab (`run`, `forward`): spec, results, scorecard, equity, status, forward record, draft plans | you, UI; the draft plans go to budget (`size.py --plan`) |
 
+Two front ends sit on top and reuse the skills rather than reimplementing
+them: the local web UI (`ui/serve.py`, [ui.md](ui.md)) and the MCP server
+for your own AI assistant (`mcp/server.py`, [mcp.md](mcp.md)). Both load the
+skill scripts through `ui/api.py`, and both write only into `trader/`.
+
 ## The order shape
 
 Orders are broker-neutral so adapters can map them to any Indian broker:

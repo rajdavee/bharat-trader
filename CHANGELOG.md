@@ -7,6 +7,22 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `mcp/server.py`: an MCP server, standard library only, so any
+  MCP-compatible AI assistant can use bharat-trader. JSON-RPC 2.0 over stdio
+  (logs to stderr only) and optional streamable HTTP on 127.0.0.1 (Host and
+  Origin checks). MCP revision 2026-07-28 (per-request `_meta`,
+  `server/discover`, multi round-trip elicitation, `resultType`, cache hints)
+  plus the handshake-based 2025-11-25, 2025-06-18 and 2025-03-26. 19 tools
+  over the skills' own functions and commands (market status, daily and ORB
+  scans, news, entry check, exit plan, time machine, sizing, risk check,
+  paper tickets, draft and confirm, portfolio, option chain and summary,
+  results, bulk/block deals, PIT disclosures, config) with input and output
+  schemas, structured results and annotations; `trader/*.json` as resources;
+  5 prompts. No live-order tool: `paper_order_confirm` needs the exact
+  risk-PASS fingerprint and the user's typed yes (elicitation when the client
+  supports it). Rate limited; writes only under `<workdir>/trader/`;
+  `--offline DIR` with a per-tool manifest (`tests/fixtures/mcp`). See
+  `docs/mcp.md`.
 - Dated market rules (`SESSION_RULES`, with the NSE or SEBI circular for each
   row) in entry, exit, alerts, risk, timemachine, scanner and broker, read
   through `session_for(date, segment)`: the Closing Auction Session for F&O

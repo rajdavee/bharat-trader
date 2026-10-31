@@ -89,6 +89,33 @@ python3 ui/serve.py --offline tests/fixtures/ui --open # a demo on saved real da
 
 See [docs/ui.md](docs/ui.md).
 
+## Use it from your AI assistant (MCP)
+
+`mcp/server.py` is a standard-library [MCP](https://modelcontextprotocol.io/)
+server: connect any MCP-compatible AI assistant and it can call 19 tools
+(market status, scans, news, entry and exit plans, the time machine, sizing,
+risk, the paper broker, option chains, results, insider deals) and 5 prompts
+(morning briefing, intraday plan, options income scan, weekly review,
+research a strategy). Add it to your client's configuration:
+
+```json
+{
+  "mcpServers": {
+    "bharat-trader": {
+      "command": "python3",
+      "args": ["/path/to/bharat-trader/mcp/server.py", "--workdir", "/path/to/trading-folder"]
+    }
+  }
+}
+```
+
+Paper trading only, with no live-order tool at all: a paper order needs
+trader-risk PASS for that exact order and your own typed yes, which the server
+asks you for directly when the client supports it. Try it on saved data with
+`--offline /path/to/bharat-trader/tests/fixtures/mcp`. See
+[docs/mcp.md](docs/mcp.md) for every tool, the security model and good
+questions to ask.
+
 With an agent, just ask: *"scan NSE for breakouts"*, *"any news on Reliance?"*,
 *"plan my exit for HDFCBANK"*, *"how many shares can I buy with ₹1,000 risk?"*,
 *"what are promoters buying?"*, *"does the opening-range breakout really work after charges?"*.
@@ -107,7 +134,8 @@ With an agent, just ask: *"scan NSE for breakouts"*, *"any news on Reliance?"*,
 
 See [docs/architecture.md](docs/architecture.md) for how the skills hand off
 through `trader/`, [docs/configuration.md](docs/configuration.md) for every
-setting and the charges model, and [docs/ui.md](docs/ui.md) for the local web UI.
+setting and the charges model, [docs/ui.md](docs/ui.md) for the local web UI, and [docs/mcp.md](docs/mcp.md)
+for the MCP server.
 
 ## Tests
 
