@@ -42,6 +42,7 @@ config.json ▶│   budget   │ ───────────────�
 | `orders.json` | budget | risk, broker |
 | `prices.json` | alerts | budget, risk, broker |
 | `portfolio.json` | broker | budget, risk, insider |
+| `options.json` | options (`--write`) | strategy builder, UI (schema in `trader-options/SKILL.md`) |
 
 ## The order shape
 

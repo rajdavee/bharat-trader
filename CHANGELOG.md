@@ -6,6 +6,17 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `trader-options`: NSE option chain (v3 API) with expiries from the exchange's
+  list and lot sizes per expiry month from `fo_mktlots.csv`. Forward from
+  put-call parity, Black-76 implied volatility (bracketed Newton solver, `null`
+  for untradeable quotes) and Greeks (theta per calendar day, vega per vol
+  point), PCR by OI and volume, max pain, call/put walls, OI build-up, ATM
+  straddle and expected move, IV smile and 25-delta skew, IV rank and
+  percentile from India VIX history, stale-spot warnings after 15:30.
+  `--write` saves `trader/options.json` (schema `bharat-trader/options/1`).
+- Config key `risk_free_rate` (default 0.0557).
+
 ## [0.1.0] - 2026-10-29
 
 ### Added
