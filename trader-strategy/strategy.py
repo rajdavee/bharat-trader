@@ -18,6 +18,7 @@ next to a simulation that bootstraps the underlying's own returns.
     python3 strategy.py build bull-call-spread RELIANCE --json
     python3 strategy.py build iron-fly NIFTY --write               # -> trader/strategy.json
     python3 strategy.py build iron-fly NIFTY --orders              # -> trader/orders.json (a proposal)
+    python3 strategy.py build iron-condor NIFTY --orders --persona options-seller   # tagged for its scorecard
 
 Where the chain comes from, in order: --options FILE (trader-options' JSON,
 schema bharat-trader/options/1; repeat it for a second expiry), then
@@ -1469,6 +1470,62 @@ def charges_detail(pos, x, h):
     return rows
 
 
+# ---------------------------------------------------------------- persona tag (same in budget and strategy)
+# An optional tag naming the agent persona that drafted a proposal (agents/<name>.md). It rides in each
+# order's "plan" note, which is never sent to a broker and is not part of the trader-risk fingerprint,
+# and the tagged proposal is logged in trader/state/personas.json so the persona scorecard can credit
+# the paper fills to it after trader/orders.json is replaced. It changes no size, no check, no verdict.
+
+PERSONA_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
+PERSONA_LOG_MAX = 2000
+
+
+def persona_name(text):
+    """The persona tag, lower case (e.g. intraday-trader), or None. ValueError for a bad name."""
+    if text is None or not str(text).strip():
+        return None
+    name = str(text).strip().lower()
+    if len(name) > 40 or not PERSONA_RE.match(name):
+        raise ValueError("--persona is a short lowercase name such as intraday-trader (the agents/ file name)")
+    return name
+
+
+def tag_orders(orders, persona):
+    """Write the tag into each order's plan note. The broker-neutral order is untouched."""
+    for o in orders:
+        plan = dict(o.get("plan") or {})
+        plan["persona"] = persona
+        o["plan"] = plan
+    return orders
+
+
+def log_persona_orders(orders_path, persona, orders, source, created_at):
+    """Append the tagged proposal to state/personas.json next to the orders file. -> its path."""
+    base = os.path.dirname(os.path.abspath(orders_path))
+    path = os.path.join(base, "state", "personas.json")
+    doc = None
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                doc = json.load(fh)
+        except ValueError:
+            doc = None
+    rows = doc.get("drafts") if isinstance(doc, dict) and isinstance(doc.get("drafts"), list) else []
+    rows.append({"at": created_at, "persona": persona, "source": source, "orders": orders})
+    out = {"note": "Proposals tagged with the persona that drafted them, for the persona scorecard. "
+                   "Read only by the scorecard; nothing here is ever sent to a broker.",
+           "drafts": rows[-PERSONA_LOG_MAX:]}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(out, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    os.replace(tmp, path)
+    return path
+
+# ---------------------------------------------------------------- end of persona tag
+
+
 # ---------------------------------------------------------------- orders (proposals only)
 
 def tick_price(x, side):
@@ -1780,6 +1837,8 @@ def _parser():
         p.add_argument("--orders", nargs="?", const="trader/orders.json", metavar="PATH",
                        help="write the legs as a PROPOSAL to trader/orders.json (trader-risk, then a typed yes)")
         p.add_argument("--replace", action="store_true", help="let --orders replace other proposals in that file")
+        p.add_argument("--persona", help="with --orders: tag the legs with the agent persona drafting them, e.g. "
+                                         "options-seller (a note for the persona scorecard, never sent)")
         p.add_argument("--now", help="'YYYY-MM-DD HH:MM' IST (default: now)")
         p.add_argument("--offline", action="append", metavar="DIR", help="read saved chains and history from DIR")
         p.add_argument("--save", metavar="DIR", help="save fetched chains to DIR")
@@ -1831,8 +1890,9 @@ def write_json(path, payload):
     os.replace(tmp, path)
 
 
-def write_orders(path, doc, product="NRML", replace=False):
-    """Write the proposal; an existing file with other orders is kept unless replace is True."""
+def write_orders(path, doc, product="NRML", replace=False, persona=None):
+    """Write the proposal; an existing file with other orders is kept unless replace is True.
+    persona: an optional agent persona tag (see the persona tag block): logged for its scorecard."""
     if os.path.isfile(path) and not replace:
         try:
             old = load_json(path)
@@ -1842,8 +1902,16 @@ def write_orders(path, doc, product="NRML", replace=False):
         if orders and not (isinstance(old, dict) and old.get("created_by") == "trader-strategy"):
             raise StrategyError("%s already holds %d other proposed order(s); pass --replace to overwrite them"
                                 % (path, len(orders)))
+    try:
+        persona = persona_name(persona)
+    except ValueError as e:
+        raise StrategyError(str(e))
     body = orders_document(doc, product)
+    if persona:
+        tag_orders(body["orders"], persona)
     write_json(path, body)
+    if persona:
+        log_persona_orders(path, persona, body["orders"], body["source"], body["created_at"])
     return body
 
 
@@ -1932,7 +2000,7 @@ def run(args):
     if args.write:
         write_json(args.write, doc)
     if args.orders:
-        write_orders(args.orders, doc, args.product, args.replace)
+        write_orders(args.orders, doc, args.product, args.replace, args.persona)
     if args.json:
         print(json.dumps(doc, indent=2, ensure_ascii=False))
     else:

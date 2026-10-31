@@ -22,6 +22,7 @@ Three jobs:
             python3 size.py --market                         # a MARKET entry instead of LIMIT
             python3 size.py --limit 1175.00 --write          # a LIMIT entry at 1175.00
             python3 size.py --now "2026-10-29 09:40" --json  # pin the clock (IST)
+            python3 size.py --write --persona intraday-trader  # tag it for the persona scorecard
 
   weights   splits your capital across a list of NSE stocks by weight
             (long-term, CNC, whole shares, needs prices).
@@ -55,6 +56,7 @@ import datetime
 import json
 import math
 import os
+import re
 import sys
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -1008,6 +1010,62 @@ def report(result, orders, source=""):
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- persona tag (same in budget and strategy)
+# An optional tag naming the agent persona that drafted a proposal (agents/<name>.md). It rides in each
+# order's "plan" note, which is never sent to a broker and is not part of the trader-risk fingerprint,
+# and the tagged proposal is logged in trader/state/personas.json so the persona scorecard can credit
+# the paper fills to it after trader/orders.json is replaced. It changes no size, no check, no verdict.
+
+PERSONA_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
+PERSONA_LOG_MAX = 2000
+
+
+def persona_name(text):
+    """The persona tag, lower case (e.g. intraday-trader), or None. ValueError for a bad name."""
+    if text is None or not str(text).strip():
+        return None
+    name = str(text).strip().lower()
+    if len(name) > 40 or not PERSONA_RE.match(name):
+        raise ValueError("--persona is a short lowercase name such as intraday-trader (the agents/ file name)")
+    return name
+
+
+def tag_orders(orders, persona):
+    """Write the tag into each order's plan note. The broker-neutral order is untouched."""
+    for o in orders:
+        plan = dict(o.get("plan") or {})
+        plan["persona"] = persona
+        o["plan"] = plan
+    return orders
+
+
+def log_persona_orders(orders_path, persona, orders, source, created_at):
+    """Append the tagged proposal to state/personas.json next to the orders file. -> its path."""
+    base = os.path.dirname(os.path.abspath(orders_path))
+    path = os.path.join(base, "state", "personas.json")
+    doc = None
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                doc = json.load(fh)
+        except ValueError:
+            doc = None
+    rows = doc.get("drafts") if isinstance(doc, dict) and isinstance(doc.get("drafts"), list) else []
+    rows.append({"at": created_at, "persona": persona, "source": source, "orders": orders})
+    out = {"note": "Proposals tagged with the persona that drafted them, for the persona scorecard. "
+                   "Read only by the scorecard; nothing here is ever sent to a broker.",
+           "drafts": rows[-PERSONA_LOG_MAX:]}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(out, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    os.replace(tmp, path)
+    return path
+
+# ---------------------------------------------------------------- end of persona tag
+
+
 # ---------------------------------------------------------------- orders file
 
 def write_orders(path, orders, cfg, source="", now=None):
@@ -1070,9 +1128,13 @@ def run_plan(a, cfg):
         cash = _f(pf.get("cash")) if isinstance(pf, dict) else None
     s = size_trade(plan, cfg, a.capital, limit, price, cash, today, market=a.market)
     order = leg_order(s)
+    if order and a.persona:
+        tag_orders([order], a.persona)
     if order and a.write:
         src = "trader/plan.json (%s %s %s)" % (s["symbol"], s["setup"] or "plan", s["date"] or today)
         write_orders(a.write, [order], cfg, src, now)
+        if a.persona:
+            log_persona_orders(a.write, a.persona, [order], src, utc_iso(now))
     if a.json:
         print(json.dumps({"sizing": s, "orders": [order] if order else [], "notes": notes}, indent=2,
                          ensure_ascii=False))
@@ -1096,8 +1158,12 @@ def run_weights(a, cfg):
     prices = load_prices(ppath)
     result = size(rows, cfg, a.capital, prices, a.top)
     orders = orders_from(result, source)
+    if a.persona:
+        tag_orders(orders, a.persona)
     if a.write:
         write_orders(a.write, orders, cfg, source, parse_now(a.now))
+        if a.persona and orders:
+            log_persona_orders(a.write, a.persona, orders, source, utc_iso(parse_now(a.now)))
     if a.json:
         print(json.dumps({"result": result, "orders": orders}, indent=2, ensure_ascii=False))
     else:
@@ -1155,12 +1221,18 @@ def main(argv=None):
     ap.add_argument("--write", nargs="?", const="trader/orders.json", metavar="PATH",
                     help="write the proposed order (default trader/orders.json)")
     ap.add_argument("--json", action="store_true", help="print JSON instead of the report")
+    ap.add_argument("--persona", help="tag the proposal with the agent persona drafting it, e.g. intraday-trader "
+                                      "(a note for the persona scorecard: it changes no size and is never sent)")
     g = ap.add_argument_group("weights mode (split capital across a list, CNC, whole shares)")
     g.add_argument("--weights", help="inline weights: RELIANCE=30,TCS=25")
     g.add_argument("--targets", help="a weights file: {\"weights\": [{\"symbol\", \"weight\"}]}")
     g.add_argument("--top", type=int, help="keep only the N biggest weights")
     a = ap.parse_args(argv)
     try:
+        try:
+            a.persona = persona_name(a.persona)
+        except ValueError as e:
+            raise SizeError(str(e))
         cfg = load_config(a.config)
         if a.weights or a.targets:
             return run_weights(a, cfg)

@@ -39,11 +39,15 @@ python3 "<skill dir>/size.py"                                     # trader/plan.
 python3 "<skill dir>/size.py" --write                             # write trader/orders.json
 python3 "<skill dir>/size.py" --market --write                    # a MARKET entry instead of LIMIT
 python3 "<skill dir>/size.py" --limit 1175.00 --json              # a LIMIT at 1175.00
+python3 "<skill dir>/size.py" --write --persona intraday-trader   # tag it for that agent persona's scorecard
 python3 "<skill dir>/size.py" --targets "<skill dir>/targets.example.json"   # weights mode, below
 ```
 
 `--now "2026-10-29 09:40"` pins the clock (IST). A plan for another day is
-refused: make a new one with trader-exit.
+refused: make a new one with trader-exit. `--persona NAME` (an `agents/` file
+name) writes `"persona": NAME` into the order's `plan` note and logs the
+proposal in `trader/state/personas.json` for the persona scorecard; it changes
+no size and no check, and is never sent to a broker.
 
 ## What it reads and writes
 
@@ -54,6 +58,7 @@ refused: make a new one with trader-exit.
 | `trader/prices.json` | optional: for a MARKET entry, a fresh price above the plan's entry means a bigger risk (trader-alerts writes it) |
 | `trader/portfolio.json` | optional: `{"cash", "positions"}`; its cash caps the size (trader-broker keeps it) |
 | `trader/orders.json` | the one proposed order it writes with `--write` |
+| `trader/state/personas.json` | with `--persona`: the tagged proposals, for the persona scorecard |
 
 ## Step 1: set the rules once (`init`)
 

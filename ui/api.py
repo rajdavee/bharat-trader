@@ -1508,7 +1508,8 @@ def r_strategy_draft(ctx, q, body):
     doc = strategy_doc(ctx, dict(body or {}, simulate=False))
     doc.pop("why", None)
     try:
-        written = stg.write_orders(ctx.path("orders.json"), doc, product, bool((body or {}).get("replace")))
+        written = stg.write_orders(ctx.path("orders.json"), doc, product, bool((body or {}).get("replace")),
+                                   (body or {}).get("persona"))
     except stg.StrategyError as e:
         raise ApiError(409, str(e).replace(ctx.path("orders.json"), "trader/orders.json")
                        .replace("--replace", "replace (tick 'Replace other proposals')"))
@@ -1554,6 +1555,325 @@ def r_doctor_run(ctx, q, body):
     return r_doctor(ctx, {}, None) if isinstance(report, dict) else report
 
 
+# ---------------------------------------------------------------- routes: agent personas and their scorecards
+
+AGENTS = os.path.join(ROOT, "agents")
+REVENGE_MINUTES = 30
+MIN_SAMPLE = 20
+
+
+def _scalar(v):
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        return v[1:-1]
+    if v.startswith("[") and v.endswith("]"):
+        return [_scalar(x) for x in v[1:-1].split(",") if x.strip()]
+    return v
+
+
+def parse_frontmatter(text):
+    """The YAML subset the agents/ files use: `key: value`, flow lists `[a, b]`, and one level of
+    nested string map (metadata). -> (fields, body). ValueError when it is not that subset."""
+    m = re.match(r"^---\r?\n(.*?)\r?\n---\r?\n?(.*)$", text, re.S)
+    if not m:
+        raise ValueError("no --- frontmatter --- block at the top")
+    fields, parent = {}, None
+    for n, line in enumerate(m.group(1).splitlines(), 2):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        nested = line.startswith("  ")
+        km = re.match(r"^\s*([A-Za-z][A-Za-z0-9_-]*):(?:\s+(.*))?$", line)
+        if not km:
+            raise ValueError("line %d is not `key: value`" % n)
+        key, value = km.group(1), (km.group(2) or "").strip()
+        if nested:
+            if parent is None:
+                raise ValueError("line %d is indented under nothing" % n)
+            fields[parent][key] = _scalar(value)
+            continue
+        if key in fields:
+            raise ValueError("%s is set twice" % key)
+        if value:
+            fields[key], parent = _scalar(value), None
+        else:
+            fields[key], parent = {}, key
+    return fields, m.group(2)
+
+
+def personas():
+    """The agent personas in agents/*.md: frontmatter plus the instructions (the body)."""
+    out = []
+    if not os.path.isdir(AGENTS):
+        return out
+    for f in sorted(os.listdir(AGENTS)):
+        if not f.endswith(".md") or f.upper() == "README.MD":
+            continue
+        with open(os.path.join(AGENTS, f), encoding="utf-8") as fh:
+            fields, body = parse_frontmatter(fh.read())
+        meta = fields.get("metadata") if isinstance(fields.get("metadata"), dict) else {}
+        out.append({"name": fields.get("name"), "file": "agents/" + f, "description": fields.get("description", ""),
+                    "title": meta.get("title") or fields.get("name"), "role": meta.get("role", ""),
+                    "skills": fields.get("skills") or [], "mcp_tools": fields.get("mcp-tools") or [],
+                    "tools": fields.get("tools", ""), "metadata": meta, "body": body.strip() + "\n"})
+    return out
+
+
+def _persona_index(ctx):
+    """Order fingerprint -> what the drafting persona tagged, from trader/state/personas.json."""
+    broker = skill("broker")
+    doc = ctx.read("state", "personas.json") or {}
+    drafts = doc.get("drafts") if isinstance(doc, dict) else None
+    index = {}
+    for d in drafts if isinstance(drafts, list) else []:
+        orders = [o for o in (d.get("orders") or []) if isinstance(o, dict)] if isinstance(d, dict) else []
+        if not orders:
+            continue
+        fps = [broker.fingerprint(o) for o in orders]
+        basket = len(orders) > 1 and all(o.get("leg") for o in orders)       # a trader-strategy multi-leg
+        for o, fp in zip(orders, fps):
+            plan = o.get("plan") if isinstance(o.get("plan"), dict) else {}
+            setup = str(plan.get("setup") or "")
+            index[fp] = {"persona": str(d.get("persona") or plan.get("persona") or ""),
+                         "idea": fps[0] if basket else fp, "setup": setup,
+                         "strategy": setup[4:] if setup.startswith("lab:") else None,
+                         "drafted_at": d.get("at"), "source": d.get("source")}
+    return index
+
+
+def _instrument(t):
+    return tuple(str(t.get(k) or "") for k in ("symbol", "expiry", "strike", "option_type"))
+
+
+def _minutes(at):
+    m = re.match(r"^(\d{4}-\d\d-\d\d)[T ](\d\d):(\d\d)", str(at or ""))
+    return (m.group(1), int(m.group(2)) * 60 + int(m.group(3))) if m else (None, None)
+
+
+def persona_ideas(trades, index):
+    """Every paper trade idea, rebuilt from the fills in time order. A fill whose order fingerprint a
+    persona tagged opens (or adds to) that persona's idea; a fill that reduces an open position closes
+    the oldest lots first (the same idea first), so a stop, a target or a flatten ticket is credited to
+    the idea it closes. P&L is sells minus buys minus every charge of both sides."""
+    lots, ideas, order = {}, {}, []
+    for n, t in enumerate(sorted((t for t in trades if isinstance(t, dict)), key=lambda t: str(t.get("at") or ""))):
+        try:
+            qty, price = int(t.get("qty") or 0), float(t.get("price") or 0)
+            charges = float(t.get("charges") or 0)
+        except (TypeError, ValueError):
+            continue
+        side = str(t.get("side") or "").upper()
+        if qty <= 0 or price <= 0 or side not in ("BUY", "SELL"):
+            continue
+        sign = 1 if side == "BUY" else -1
+        tag = index.get(t.get("fingerprint")) if t.get("fingerprint") else None
+        key = _instrument(t)
+        book = lots.setdefault(key, [])
+        cpu = charges / qty
+        left = qty
+        mine = tag["idea"] if tag else None
+        for lot in sorted([l for l in book if l["qty"] * sign < 0], key=lambda l: (l["idea"] != mine, l["n"])):
+            if not left:
+                break
+            take = min(left, abs(lot["qty"]))
+            idea = ideas[lot["idea"]]
+            gross = (price - lot["price"]) * take * (1 if lot["qty"] > 0 else -1)
+            idea["pnl"] += gross - lot["cpu"] * take - cpu * take
+            idea["charges"] += lot["cpu"] * take + cpu * take
+            idea["open_qty"] -= take
+            idea["fills"] += 1
+            idea["exits"].append(str(t.get("leg") or ("order" if t.get("fingerprint") else "manual")))
+            idea["closed_at"] = t.get("at")
+            if t.get("product"):
+                idea["exit_products"].add(str(t["product"]).upper())
+            lot["qty"] += take * sign
+            left -= take
+        book[:] = [l for l in book if l["qty"]]
+        if left:
+            iid = mine or "manual:%s:%s:%d" % (key[0], t.get("at"), n)
+            idea = ideas.get(iid)
+            if idea is None:
+                idea = ideas[iid] = {
+                    "id": iid, "persona": (tag or {}).get("persona") or "", "strategy": (tag or {}).get("strategy"),
+                    "setup": (tag or {}).get("setup") or "", "symbol": key[0], "opened_at": t.get("at"),
+                    "date": t.get("date") or str(t.get("at") or "")[:10], "closed_at": None, "side": side,
+                    "pnl": 0.0, "charges": 0.0, "open_qty": 0, "fills": 0, "exits": [],
+                    "exit_products": set(), "ticketed": bool(tag), "product": str(t.get("product") or "").upper()}
+                order.append(iid)
+            idea["open_qty"] += left
+            idea["fills"] += 1
+            book.append({"qty": left * sign, "price": price, "cpu": cpu, "idea": iid, "n": n})
+    out = []
+    for iid in order:
+        i = ideas[iid]
+        i["closed"] = i["open_qty"] == 0
+        i["pnl"] = round(i["pnl"], 2) if i["closed"] else None
+        i["charges"] = round(i["charges"], 2)
+        i["exit_products"] = sorted(i["exit_products"])
+        out.append(i)
+    return out
+
+
+def _scorecard(name, ideas, records, index, cfg):
+    mine = [i for i in ideas if i["persona"] == name]
+    closed = [i for i in mine if i["closed"]]
+    closed.sort(key=lambda i: str(i["closed_at"] or ""))
+    pnls = [i["pnl"] for i in closed]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p < 0]
+    peak = run = dd = 0.0
+    streak = longest = 0
+    for p in pnls:
+        run += p
+        peak = max(peak, run)
+        dd = max(dd, peak - run)
+        streak = streak + 1 if p < 0 else 0
+        longest = max(longest, streak)
+    per_day = {}
+    for i in mine:
+        per_day[i["date"]] = per_day.get(i["date"], 0) + 1
+    flags = []
+    cap = int(cfg.get("max_trades_per_day") or 0)
+    for day, n in sorted(per_day.items()):
+        if cap and n > cap:
+            flags.append({"kind": "overtrading", "date": day,
+                          "text": "%d entries on %s, over your max_trades_per_day of %d" % (n, day, cap)})
+    flat = cfg.get("flat_by") or "15:10"
+    fm = int(flat[:2]) * 60 + int(flat[3:5]) if re.match(r"^\d\d:\d\d$", str(flat)) else None
+    for i in closed:
+        d, m = _minutes(i["closed_at"])
+        if fm is not None and m is not None and i["product"] == "MIS" and m > fm:
+            flags.append({"kind": "late-exit", "date": d, "text": "%s closed at %s IST, after flat_by %s (MIS)"
+                          % (i["symbol"], str(i["closed_at"])[11:16], flat)})
+        if i["pnl"] < 0:
+            for j in mine:
+                jd, jm = _minutes(j["opened_at"])
+                if j is not i and jd == d and m is not None and jm is not None and 0 <= jm - m <= REVENGE_MINUTES:
+                    flags.append({"kind": "revenge", "date": jd, "text": "a new %s entry %d minutes after a loss on "
+                                  "%s (%s IST): the classic revenge trade" % (j["symbol"], jm - m, i["symbol"],
+                                                                            str(i["closed_at"])[11:16])})
+    for i in mine:
+        if "manual" in i["exits"]:
+            flags.append({"kind": "off-ticket", "date": i["date"], "text": "%s was closed by a fill with no ticket "
+                          "(a manual fill, outside the trader-risk check)" % i["symbol"]})
+    fps = {fp for fp, v in index.items() if v["persona"] == name}
+    placed = [r for r in records if r.get("fingerprint") in fps and r.get("status") == "placed"]
+    declined = [r for r in records if r.get("fingerprint") in fps and r.get("status") == "declined"]
+    gross_w, gross_l = sum(wins), -sum(losses)
+    n = len(closed)
+    if n == 0:
+        verdict = "No closed paper trades yet: nothing to judge."
+    elif n < MIN_SAMPLE:
+        verdict = ("%d closed paper trade%s: far too few to tell skill from luck (want %d or more, and even then "
+                   "a record is not a forecast)." % (n, "" if n == 1 else "s", MIN_SAMPLE))
+    else:
+        verdict = ("%d closed paper trades. Still a record of the past, not a forecast: compare it with the "
+                   "strategy's lab scorecard and its out-of-sample expectancy." % n)
+    return {
+        "persona": name, "ideas": len(mine), "closed": n, "open": len(mine) - n, "wins": len(wins),
+        "losses": len(losses), "scratches": n - len(wins) - len(losses),
+        "win_rate": round(100.0 * len(wins) / n, 1) if n else None,
+        "net_pnl": round(sum(pnls), 2), "charges": round(sum(i["charges"] for i in mine), 2),
+        "avg_win": round(gross_w / len(wins), 2) if wins else None,
+        "avg_loss": round(-gross_l / len(losses), 2) if losses else None,
+        "profit_factor": round(gross_w / gross_l, 2) if gross_l else None,
+        "expectancy": round(sum(pnls) / n, 2) if n else None,
+        "best": max(pnls) if pnls else None, "worst": min(pnls) if pnls else None,
+        "max_drawdown": round(dd, 2), "losing_streak_now": streak, "longest_losing_streak": longest,
+        "days_traded": len(per_day), "max_entries_in_a_day": max(per_day.values()) if per_day else 0,
+        "drafted": len({fp for fp in fps}), "placed": len(placed), "declined": len(declined),
+        "strategies": sorted({i["strategy"] for i in mine if i["strategy"]}),
+        "first_at": mine[0]["opened_at"] if mine else None, "last_at": (closed[-1]["closed_at"] if closed else
+                                                                         (mine[-1]["opened_at"] if mine else None)),
+        "flags": flags, "verdict": verdict,
+        "recent": [{k: i[k] for k in ("symbol", "setup", "strategy", "opened_at", "closed_at", "pnl", "charges",
+                                      "exits", "closed")} for i in mine[-10:]],
+    }
+
+
+def persona_scorecards(ctx, only=None):
+    """Each persona's paper track record from trader/state/trades.json: closed ideas, P&L after every
+    charge, win rate, profit factor, drawdown, streaks, and behaviour flags (overtrading, revenge
+    trades, exits after flat_by, fills with no ticket). Read only."""
+    broker = skill("broker")
+    cfg = broker.merged_config(ctx.config())
+    try:
+        trades = (broker.read_json(ctx.path("state", "trades.json"), "trades log", required=False) or {}
+                  ).get("trades", [])
+        state = broker.load_state(ctx.path("state", "broker.json"))
+    except broker.TicketError as e:
+        raise ApiError(422, str(e))
+    index = _persona_index(ctx)
+    ideas = persona_ideas(trades if isinstance(trades, list) else [], index)
+    known = personas()
+    names = [p["name"] for p in known]
+    for i in ideas:
+        if i["persona"] and i["persona"] not in names:
+            names.append(i["persona"])
+    if only:
+        if only not in names:
+            raise ApiError(404, "no persona %s (agents/: %s)" % (only, ", ".join(names) or "none"))
+        names = [only]
+    about = {p["name"]: p for p in known}
+    cards = []
+    for n in names:
+        c = _scorecard(n, ideas, state.get("orders", []), index, cfg)
+        p = about.get(n) or {}
+        c.update({"title": p.get("title") or n, "role": p.get("role", ""), "description": p.get("description", ""),
+                  "file": p.get("file"), "known": n in about})
+        cards.append(c)
+    loose = [i for i in ideas if not i["persona"]]
+    now_s = ist_text(ctx.now_ist())
+    return {
+        "personas": cards,
+        "unattributed": {"ideas": len(loose), "closed": len([i for i in loose if i["closed"]]),
+                         "net_pnl": round(sum(i["pnl"] for i in loose if i["closed"]), 2)},
+        "as_of": now_s, "trades": len(trades) if isinstance(trades, list) else 0,
+        "why": why("per idea: sells minus buys minus every charge of both sides, once its position is flat; a fill "
+                   "is credited to the persona whose tagged proposal (trader/state/personas.json) has its order "
+                   "fingerprint, and a closing fill to the idea whose position it closes",
+                   {"trades": "trader/state/trades.json", "tags": "trader/state/personas.json",
+                    "yes and no": "trader/state/broker.json"}, "the paper broker's own fill log", now_s,
+                   "Paper fills are simulated: a real fill can be worse. Fewer than %d closed trades says almost "
+                   "nothing about skill." % MIN_SAMPLE),
+        "disclaimer": DISCLAIMER,
+    }
+
+
+def lab_verdicts(ctx):
+    """The Strategy Lab's current verdict per run (trader/lab/<name>/status.json), read from disk."""
+    out = []
+    base = ctx.path("lab")
+    if not os.path.isdir(base):
+        return out
+    for n in sorted(os.listdir(base)):
+        p = os.path.join(base, n, "status.json")
+        if not os.path.isfile(p):
+            continue
+        try:
+            with open(p, encoding="utf-8") as fh:
+                st = json.load(fh)
+        except ValueError:
+            continue
+        if isinstance(st, dict):
+            out.append({"name": n, "verdict": st.get("verdict"), "why": st.get("why"), "updated": st.get("updated")})
+    return out
+
+
+def r_agents(ctx, q, body):
+    cards = persona_scorecards(ctx)
+    by = {c["persona"]: c for c in cards["personas"]}
+    team = [{k: p[k] for k in ("name", "title", "role", "description", "file", "skills", "mcp_tools")}
+            for p in personas()]
+    for t in team:
+        t["scorecard"] = by.get(t["name"])
+    return {"team": team, "others": [c for c in cards["personas"] if not c["known"]],
+            "unattributed": cards["unattributed"], "lab": lab_verdicts(ctx), "as_of": cards["as_of"],
+            "why": cards["why"], "disclaimer": DISCLAIMER,
+            "how": "Tag a proposal with --persona NAME (trader-budget size.py, trader-strategy --orders) or the "
+                   "persona argument of the MCP tools paper_order_draft and lab_forward. Untagged fills show "
+                   "as unattributed."}
+
+
 # ---------------------------------------------------------------- the table
 
 # (method, path, handler, what it does, writes?)
@@ -1578,6 +1898,7 @@ ROUTES = [
     ("GET", "/api/options", r_options, "option chain with IV, Greeks, PCR, max pain, walls: ?symbol=&expiry=", False),
     ("GET", "/api/strategy", r_strategy, "strategy templates, symbols and the saved trader/strategy.json", False),
     ("GET", "/api/doctor", r_doctor, "the last data self-test (trader/doctor.json), for the header badge", False),
+    ("GET", "/api/agents", r_agents, "the agent personas (agents/) and each one's paper scorecard", False),
     ("POST", "/api/risk/check", r_risk_check, "run trader-risk on trader/orders.json and record the verdicts", True),
     ("POST", "/api/risk/kill", r_risk_kill, "kill switch on: no new entries today (exits still pass)", True),
     ("POST", "/api/risk/unkill", r_risk_unkill, "lift the kill switch: the typed word unkill", True),

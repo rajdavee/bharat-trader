@@ -54,6 +54,7 @@ python3 "<this skill folder>/strategy.py" price NIFTY --legs "-1 CE ATM+200, +1 
 python3 "<this skill folder>/strategy.py" build iron-fly NIFTY --at today --iv-shift 2 --json
 python3 "<this skill folder>/strategy.py" build iron-fly NIFTY --write          # -> trader/strategy.json
 python3 "<this skill folder>/strategy.py" build iron-fly NIFTY --orders         # -> trader/orders.json (a proposal)
+python3 "<this skill folder>/strategy.py" build iron-condor NIFTY --orders --persona options-seller   # tagged for its scorecard
 ```
 
 Template knobs: `--strike` (the centre or the long strike; default ATM),
@@ -89,7 +90,10 @@ NRML|MIS`, `--offline DIR` (saved chains and history, repeatable).
 - `trader/config.json`: `fno_charges` overrides the dated F&O rates.
 - Writes `trader/strategy.json` with `--write`, and a proposal in
   `trader/orders.json` with `--orders` (it refuses to overwrite someone else's
-  proposals without `--replace`).
+  proposals without `--replace`). With `--orders --persona NAME` (an `agents/`
+  file name) each leg's `plan` note carries `"persona": NAME` and the proposal
+  is logged in `trader/state/personas.json` for the persona scorecard; the
+  legs, the checks and the fingerprint are unchanged.
 
 ## Every number, explained
 
