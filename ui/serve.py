@@ -108,6 +108,12 @@ class UIServer(ThreadingHTTPServer):
         h = "127.0.0.1" if h in ("0.0.0.0", "") else ("[%s]" % h if ":" in h else h)
         return "http://%s:%d/" % (h, self.port)
 
+    def handle_error(self, request, client_address):
+        """A browser that closes a connection early is normal, not an error worth a traceback."""
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+            return
+        ThreadingHTTPServer.handle_error(self, request, client_address)
+
     def stop(self):
         self.stopping.set()
         self.poller.close()

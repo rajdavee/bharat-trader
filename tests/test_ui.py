@@ -548,7 +548,12 @@ class StaticFiles(unittest.TestCase):
     def files(self):
         for base, _, names in os.walk(STATIC):
             for n in names:
-                yield os.path.join(base, n)
+                if not n.startswith("."):       # vendor/.gitattributes is for git, never served
+                    yield os.path.join(base, n)
+
+    def test_vendored_files_are_byte_exact_in_git(self):
+        rules = read_text(os.path.join(STATIC, "vendor", ".gitattributes"))
+        self.assertIn("* -text", rules)    # no CRLF conversion on Windows checkouts: the SHA-256 must hold
 
     def test_no_external_urls_outside_vendor(self):
         vendor = os.path.join(STATIC, "vendor") + os.sep

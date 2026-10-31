@@ -14,7 +14,9 @@ Source: the npm registry tarball
 `https://registry.npmjs.org/lightweight-charts/-/lightweight-charts-5.2.1.tgz`,
 whose registry integrity is
 `sha512-IVwoK1RLFiLPubaKIjNbtjWLnpPMqiABSrTay6whmNa8L1+19292VtHJ+BWyPUuLCwF0tcQlhEWd1CLB2a1nsQ==`
-(checked 2026-11-01). `tests/test_ui.py` checks the SHA-256 values above.
+(checked 2026-11-01). `tests/test_ui.py` checks the SHA-256 values above;
+`.gitattributes` here stops git from converting line endings (on Windows), so
+they hold on every checkout.
 
 Attribution, as the license and upstream README ask:
 
