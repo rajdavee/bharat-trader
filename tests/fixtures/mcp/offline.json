@@ -12,6 +12,8 @@
     "timemachine_run": {"offline": "../trader-timemachine/{symbol}-60d5m.json.gz", "now": "2026-10-26 10:15"},
     "options_chain": {"offline": "../trader-options", "now": "2026-11-01 10:00"},
     "options_summary": {"offline": "../trader-options", "now": "2026-11-01 10:00"},
+    "strategy_build": {"offline": "../ui", "now": "2026-11-01 10:00"},
+    "strategy_price": {"offline": "../ui", "now": "2026-11-01 10:00"},
     "results_analyse": {"offline": "../trader-analyst", "now": "2026-10-29"},
     "insider_deals": {"offline": "../trader-insider", "now": "2026-10-29"},
     "insider_disclosures": {"offline": "../trader-insider", "now": "2026-10-29"}

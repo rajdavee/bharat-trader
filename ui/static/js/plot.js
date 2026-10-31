@@ -20,8 +20,8 @@ function ticks(lo, hi, target) {
 
 function shortNum(v) {
   const a = Math.abs(v);
-  if (a >= 1e7) return num(v / 1e7, 2) + ' cr';
-  if (a >= 1e5) return num(v / 1e5, 2) + ' L';
+  if (a >= 1e7) return num(v / 1e7, a >= 1e9 ? 0 : 1) + ' cr';
+  if (a >= 1e5) return num(v / 1e5, 1) + ' L';
   if (a >= 1e3) return num(v / 1e3, 1) + 'k';
   return num(v, a < 10 ? 2 : 0);
 }
@@ -61,7 +61,7 @@ export function plot(canvas, opts) {
   function draw() {
     const { w, h } = layout();
     const b = bounds();
-    const m = { l: 62, r: 14, t: 14, b: 30 };
+    const m = { l: 74, r: 14, t: 14, b: 30 };
     const X = (v) => m.l + (v - b.x0) / (b.x1 - b.x0 || 1) * (w - m.l - m.r);
     const Y = (v) => m.t + (b.y1 - v) / (b.y1 - b.y0 || 1) * (h - m.t - m.b);
     const fg = token('--muted');

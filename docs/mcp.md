@@ -30,7 +30,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 19 tools and 5 prompts from
+4. Restart the client. It should list 21 tools and 5 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -100,14 +100,20 @@ message.
 | `insider_deals` | **Bulk and block deals.** NSE bulk and block deals: who bought or sold how much, tagged when you hold or watch the stock or the client is on your watch list. | `symbol`?, `client`?, `min_value_cr`?, `side`?, `kind`?, `days`?, `mine`?, `limit`? | read-only; network |
 | `insider_disclosures` | **Insider trading disclosures.** SEBI PIT insider trading disclosures filed with NSE: promoters, directors and employees buying or selling, net by stock. | `symbol`?, `days`?, `promoters_only`?, `market_only`?, `mine`?, `max_filings`? | read-only; network |
 | `config_get` | **Your settings.** trader/config.json, the effective settings with defaults filled in, validation errors and warnings, and a plain-words summary. Read only. | `with_schema`? | read-only |
+| `strategy_build` | **Build an option strategy.** An option strategy from a template on the real NSE chain (spreads, straddles, strangles, iron condor, iron fly, butterflies, ratios, covered call, protective put, calendar): payoff at expiry and today, breakevens, max profit and loss (unlimited flagged), net premium and Greeks, the same after 2026 F&O charges with the STT-on-exercise warning, margin (exact for defined risk, a SPAN-style estimate with its error otherwise), probability of profit textbook vs simulated with expected value and 5% tail loss. Read only: it proposes nothing. | `symbol`, `expiry`?, `fill`?, `at`?, `iv_shift`?, `seed`?, `paths`?, `simulate`?, `include_curve`?, `template`, `far_expiry`?, `strike`?, `wings`?, `width`?, `delta`?, `skip`?, `ratio`?, `lots`?, `type`? | read-only; network |
+| `strategy_price` | **Price custom option legs.** Your own option legs (up to 12, strikes by number, offset from ATM, delta or premium, other expiries allowed) with every number strategy_build gives. Read only: it proposes nothing. | `symbol`, `expiry`?, `fill`?, `at`?, `iv_shift`?, `seed`?, `paths`?, `simulate`?, `include_curve`?, `legs` | read-only; network |
 <!-- tools:end -->
 
 `?` marks an optional argument. Every tool also carries MCP annotations:
 `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`
 ("network": it can reach Yahoo or NSE when not offline).
 
-The `trader-strategy` tools (`strategy_build`, `strategy_price`) and `doctor`
-are not on main yet; `mcp/toolkit.py` has a marked hook for each.
+`strategy_build` and `strategy_price` are read only: they price a position
+and propose nothing. To paper-trade a strategy the user writes a proposal
+with `strategy.py ... --orders` or the local UI's "Send to paper", then the
+same flow below: `risk_check`, and `paper_order_confirm` for each leg with
+the user's own typed yes. `doctor` is not on main yet; `mcp/toolkit.py` has a
+marked hook for it.
 
 ### The paper order flow
 

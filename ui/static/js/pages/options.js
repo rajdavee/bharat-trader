@@ -187,7 +187,8 @@ export async function render(root, ctx) {
       x: curve.map((c) => c.strike), series: [{ y: curve.map((c) => c.pain), color: '--warn', label: '₹', width: 2 }],
       vlines: [{ x: d.max_pain, label: 'max pain', color: '--warn' }, { x: d.forward, label: 'forward', color: '--muted' }],
       xlabel: 'strike' }, 'What option buyers together would be paid if the underlying settled at each strike.');
-    charts.append(h('div', null, sm.el, h('p', { class: 'small' }, why('Why this curve?', d.why.smile, 'the smile'))), mp.el);
+    sm.el.appendChild(h('p', { class: 'small' }, why('Why this curve?', d.why.smile, 'the smile')));
+    charts.append(sm.el, mp.el);
     STATE.plots.push(plot(sm.canvas, sm.opts), plot(mp.canvas, mp.opts));
     const b = d.buildup || {};
     const sum = (t) => Object.entries((b.summary || {})[t] || {}).map(([k, v]) => `${k} ${signedInt(v)}`).join(' · ') || '–';

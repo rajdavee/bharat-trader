@@ -140,7 +140,7 @@ function probabilityCard(d) {
     parts.push(table(['IV shift', { label: 'Vol', num: true }, { label: 'PoP', num: true }, { label: 'EV', num: true },
       { label: '5% tail', num: true }], sc.map((x) => h('tr', null, h('td', null, (x.iv_shift > 0 ? '+' : '') + num(x.iv_shift, 0) + ' pts'),
       h('td', { class: 'num' }, num(x.vol) + '%'), h('td', { class: 'num' }, num(x.pop) + '%'),
-      h('td', { class: 'num ' + tone(x.ev) }, inr(x.ev)), h('td', { class: 'num' }, inr(x.tail_5pct))))), { dense: true }));
+      h('td', { class: 'num ' + tone(x.ev) }, inr(x.ev)), h('td', { class: 'num' }, inr(x.tail_5pct)))), { dense: true }));
   }
   return card('Probability of profit: textbook vs simulated', ...parts);
 }
