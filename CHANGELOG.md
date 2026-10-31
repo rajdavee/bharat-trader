@@ -99,6 +99,23 @@ All notable changes are documented here. The format follows
   `trader/lab/<name>/{spec.json, results.json, scorecard.md, equity.csv}`.
   An `OPTIONS_HOOK` for trader-strategy. Method and limits in `docs/lab.md`.
 
+- `trader-doctor/doctor.py`: a self-test of every data source the tools read
+  (#12). One polite request each to NSE (EQUITY_L, marketStatus, holiday
+  master, corporate announcements, board meetings, integrated-filing results,
+  bulk.csv, block.csv, the deals history, PIT, option contract info and
+  option-chain-v3, fo_mktlots, master-quote, India VIX history) and Yahoo
+  (chart for RELIANCE.NS and ^NSEI, spark, headlines RSS). Checks the shape
+  the tools read, freshness against the NSE calendar in IST (a weekend
+  answer from the last session is fresh) and units; prints ok, slow,
+  changed, down or blocked with since when, the tools affected and the
+  fallback in use (Yahoo query1 is tried when query2 fails). History in
+  `trader/doctor.json`; `--json`, `--only nse|yahoo`, `--offline DIR`
+  (repeatable) and `--record DIR`; exit code 1 on any failure. Backs off
+  5 s on NSE 403/429 and stops asking NSE after a second block.
+- UI: a "Data" badge in the header (the last self-test; click to run it),
+  `GET /api/doctor` and `POST /api/doctor/run`. MCP: the read-only `doctor`
+  tool.
+
 ### Changed
 - Entry, exit, risk, alerts, timemachine, scanner and broker end an F&O
   stock's session at continuous trading's end and pull a too-late flat-by in,

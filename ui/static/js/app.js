@@ -1,5 +1,5 @@
 // The app shell: hash router, live stream, theme, keyboard shortcuts.
-import { get } from './api.js';
+import { get, post } from './api.js';
 import { h, clear, note } from './dom.js';
 import { hide as hideWhy } from './why.js';
 import { isDark } from './theme.js';
@@ -108,6 +108,39 @@ function connect() {
   };
 }
 
+// ---------------------------------------------------------------- data self-test badge
+
+function dataBadge(d) {
+  const el = document.getElementById('data');
+  if (!d || !d.checked) {
+    el.className = 'pill data';
+    el.textContent = 'Data: not checked';
+    el.title = (d && d.note) || 'Data sources self-test (trader-doctor). Click to run it now.';
+    return;
+  }
+  const bad = d.failing || [];
+  el.className = 'pill data ' + (bad.length ? 'closed' : 'open');
+  el.textContent = bad.length ? `Data: ${bad.length} ${bad.length === 1 ? 'problem' : 'problems'}` : 'Data ok';
+  const when = String(d.checked_at || '').slice(0, 16).replace('T', ' ');
+  el.title = (bad.length ? bad.map((r) => `${r.name}: ${r.status} (${r.detail}). Fallback: ${r.fallback}`).join('\n')
+    : 'Every data source answered as expected.') + `\nChecked ${when} IST. Click to run the self-test again.`;
+}
+
+async function runDoctor() {
+  const el = document.getElementById('data');
+  if (el.disabled) return;
+  el.disabled = true;
+  el.textContent = 'Data: checking…';
+  try {
+    dataBadge(await post('/api/doctor/run', {}));
+  } catch (e) {
+    el.textContent = 'Data: check failed';
+    el.title = e.message || String(e);
+  } finally {
+    el.disabled = false;
+  }
+}
+
 // ---------------------------------------------------------------- theme
 
 function storedTheme() {
@@ -206,6 +239,8 @@ function start() {
   document.addEventListener('keydown', onKey);
   window.addEventListener('hashchange', route);
   get('/api/status').then(marketPill).catch(() => marketPill(null));
+  document.getElementById('data').addEventListener('click', runDoctor);
+  get('/api/doctor').then(dataBadge).catch(() => dataBadge(null));
   banner();
   route();
   connect();

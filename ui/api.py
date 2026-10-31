@@ -41,6 +41,7 @@ SKILLS = {
     "scanner": ("trader-scanner", "scan"),
     "options": ("trader-options", "options"),
     "strategy": ("trader-strategy", "strategy"),
+    "doctor": ("trader-doctor", "doctor"),
 }
 # how long a live answer is reused, in seconds (free endpoints: be polite)
 TTL = {"quotes": 15, "nse": 120, "chart-1m": 30, "chart-5m": 60, "chart-1d": 900, "history": 900}
@@ -1317,6 +1318,40 @@ def r_strategy_draft(ctx, q, body):
                     "config allows F&O (\"allow_fno\": true)."}
 
 
+# ---------------------------------------------------------------- routes: data self-test
+
+def r_doctor(ctx, q, body):
+    """The last self-test from trader/doctor.json, for the header badge. Nothing is fetched."""
+    hist = ctx.read("doctor.json")
+    last = hist.get("last") if isinstance(hist, dict) else None
+    if not isinstance(last, dict):
+        return {"checked": False, "note": "not checked yet: run python3 trader-doctor/doctor.py, or click the badge"}
+    failing = [r for r in last.get("sources") or [] if r.get("status") in ("changed", "down", "blocked")]
+    return dict(last, checked=True, failing=failing)
+
+
+def r_doctor_run(ctx, q, body):
+    """Run the self-test now (about 30 s live: one polite request per source) and update trader/doctor.json."""
+    argv = ["--json", "--history", ctx.path("doctor.json")]
+    only = (body or {}).get("only")
+    if only is not None:
+        if only not in ("nse", "yahoo"):
+            raise ApiError(400, "only is nse or yahoo")
+        argv += ["--only", only]
+    if ctx.offline:
+        rec = os.path.join(ctx.offline, "doctor")
+        if not os.path.isdir(rec):
+            raise ApiError(409, "offline demo: no recorded answers for the self-test (a doctor/ folder in %s)"
+                           % ctx.offline)
+        argv += ["--offline", rec]
+    rc, out, err = run_skill(ctx, "doctor", argv + ctx.now_args())
+    try:
+        report = json.loads(out)
+    except ValueError:
+        raise ApiError(502, (err or out).strip() or "the self-test stopped with exit code %s" % rc)
+    return r_doctor(ctx, {}, None) if isinstance(report, dict) else report
+
+
 # ---------------------------------------------------------------- the table
 
 # (method, path, handler, what it does, writes?)
@@ -1336,6 +1371,7 @@ ROUTES = [
     ("GET", "/api/config", r_config, "trader/config.json, the effective settings and their meaning", False),
     ("GET", "/api/options", r_options, "option chain with IV, Greeks, PCR, max pain, walls: ?symbol=&expiry=", False),
     ("GET", "/api/strategy", r_strategy, "strategy templates, symbols and the saved trader/strategy.json", False),
+    ("GET", "/api/doctor", r_doctor, "the last data self-test (trader/doctor.json), for the header badge", False),
     ("POST", "/api/risk/check", r_risk_check, "run trader-risk on trader/orders.json and record the verdicts", True),
     ("POST", "/api/prices/refresh", r_refresh_prices, "trader-alerts quote --holdings --write", True),
     ("POST", "/api/orders/confirm", r_confirm, "record your typed yes for ONE order (paper broker)", True),
@@ -1346,6 +1382,7 @@ ROUTES = [
     ("POST", "/api/strategy/price", r_strategy_price, "price a template or custom legs (trader-strategy evaluate)",
      True),
     ("POST", "/api/strategy/draft", r_strategy_draft, "write the legs as a paper PROPOSAL to trader/orders.json", True),
+    ("POST", "/api/doctor/run", r_doctor_run, "run the data self-test now and update trader/doctor.json", True),
 ]
 _TABLE = {(m, p): (fn, w) for m, p, fn, _, w in ROUTES}
 STREAM_PATH = "/api/stream"

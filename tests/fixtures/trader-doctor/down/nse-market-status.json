@@ -1,0 +1,11 @@
+{
+ "id": "nse-market-status",
+ "url": "https://www.nseindia.com/api/marketStatus",
+ "fetched_at": "2026-11-01T02:48:00+05:30",
+ "status": null,
+ "content_type": "",
+ "elapsed": 10.284,
+ "error": "timed out after 10 s",
+ "body": "",
+ "note": "real: /api/marketStatus with a non-browser User-Agent, no answer before the 10 s timeout"
+}

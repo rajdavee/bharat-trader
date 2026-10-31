@@ -71,6 +71,7 @@ free endpoints again.
 | GET | `/api/portfolio`, `/api/orders`, `/api/risk`, `/api/config` | account, tickets, verdicts, settings |
 | GET | `/api/options?symbol=&expiry=&strikes=` | trader-options' analysis of one expiry, the expiry list, why panels |
 | GET | `/api/strategy` | the templates, symbols and the saved `trader/strategy.json` |
+| GET | `/api/doctor` | the last data self-test from `trader/doctor.json` (the header's Data badge) |
 | GET | `/api/stream` | Server-Sent Events: `status`, `prices`, `alerts` |
 | POST | `/api/risk/check` | `check.py`: record verdicts in `trader/state/risk.json` |
 | POST | `/api/prices/refresh` | `alerts.py quote --holdings --write` |
@@ -81,6 +82,7 @@ free endpoints again.
 | POST | `/api/config` | validate and save `trader/config.json` (the old one becomes `config.json.bak`) |
 | POST | `/api/strategy/price` | price a template or custom legs (nothing is written) |
 | POST | `/api/strategy/draft` | write the legs as a paper PROPOSAL to `trader/orders.json` and the strategy to `trader/strategy.json`; refuses other proposals unless `replace`, and a non-paper config |
+| POST | `/api/doctor/run` | `doctor.py --json`: probe every data source now (about 30 s) and update `trader/doctor.json`; offline it replays `<offline>/doctor/` |
 
 Send to paper never places anything: the proposal goes through Run risk check
 and a typed yes per leg on the Portfolio page, like any other order. Until

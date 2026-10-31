@@ -1,0 +1,11 @@
+{
+ "id": "yahoo-rss",
+ "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=RELIANCE.NS&region=IN&lang=en-IN",
+ "fetched_at": "2026-11-01T02:45:26+05:30",
+ "status": 200,
+ "content_type": "application/xml",
+ "elapsed": 0.712,
+ "error": null,
+ "body": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<rss version=\"2.0\">\n    <channel>\n        <copyright>Copyright (c) 2026 Yahoo Inc. All rights reserved.</copyright>\n        <description>Latest Financial News for </description>\n        <image>\n            <height>45</height>\n            <link>http://finance.yahoo.com/q/h?s=</link>\n            <title>Yahoo! Finance:  News</title>\n            <url>https://s.yimg.com/rz/stage/p/yahoo_finance_en-US_h_p_finance_2.png</url>\n            <width>144</width>\n        </image>\n        <language>en-US</language>\n        <lastBuildDate>Sat, 31 Oct 2026 21:15:57 +0000</lastBuildDate>\n        <link>http://finance.yahoo.com/q/h?s=</link>\n        <title>Yahoo! Finance:  News</title>\n    </channel>\n</rss>\n",
+ "note": "recorded live by doctor.py --record, Sun 1 Nov 2026"
+}
