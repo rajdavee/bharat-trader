@@ -38,6 +38,6 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Compile every script
-        run: python -m compileall -q trader-* tests ui
+        run: python -m compileall -q trader-* tests ui mcp
       - name: Run the offline test suite
         run: python -m unittest discover -s tests -v

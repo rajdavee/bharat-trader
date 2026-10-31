@@ -1,0 +1,1016 @@
+"""The tools, resources and prompts of the bharat-trader MCP server. Standard library only.
+
+Every number comes from a skill script, loaded from its folder through ui/api.py's own loader
+(the same modules the local UI uses): either one of the skill's pure functions, or the skill's
+own command line run in-process with --json, so the checks a command makes are the checks the
+assistant gets. Nothing here reimplements a calculation.
+
+There is no live-order tool. The only order-path writes are the paper broker's own commands,
+and paper_order_confirm still needs trader-risk PASS for that exact order (its fingerprint)
+plus the user's own typed yes.
+"""
+
+import contextlib
+import importlib.util
+import io
+import json
+import os
+import re
+import shutil
+import threading
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+DISCLAIMER = "Education and tooling, not financial advice."
+PAPER_NOTE = "Paper trading only: this server has no way to place a live order."
+URI_PREFIX = "bharat-trader://trader/"
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}\.json$")
+SYMBOL_RE = re.compile(r"^[A-Za-z0-9&\-^.]{1,24}$")
+FP_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+def _load_api():
+    path = os.path.join(ROOT, "ui", "api.py")
+    spec = importlib.util.spec_from_file_location("bt_mcp_ui_api", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    # one loader and one module cache for every skill: add the skills the UI does not use yet
+    mod.SKILLS.update({
+        "news": ("trader-news", "news"),
+        "exit": ("trader-exit", "exit"),
+        "timemachine": ("trader-timemachine", "timemachine"),
+        "insider": ("trader-insider", "insider"),
+        "analyst": ("trader-analyst", "facts"),
+    })
+    return mod
+
+
+api = _load_api()
+VERSION = api.VERSION
+
+
+class ToolError(Exception):
+    """A tool execution error: the message goes back to the assistant with isError: true."""
+
+
+class NeedInput(Exception):
+    """The tool needs the user's input (elicitation) before it can finish."""
+
+    def __init__(self, key, request, bind):
+        Exception.__init__(self, key)
+        self.key, self.request, self.bind = key, request, bind
+
+
+# ---------------------------------------------------------------- schema helpers
+
+def S(type_, desc=None, **kw):
+    out = {"type": type_}
+    if desc:
+        out["description"] = desc
+    out.update(kw)
+    return out
+
+
+def obj(props=None, required=None, extra=False):
+    out = {"type": "object", "properties": props or {}}
+    if required:
+        out["required"] = list(required)
+    if not extra:
+        out["additionalProperties"] = False
+    return out
+
+
+SYMBOL = S("string", "NSE symbol, e.g. RELIANCE, HDFCBANK, M&M (no .NS)", pattern=SYMBOL_RE.pattern, maxLength=24)
+SYMBOLS = S("string", "NSE symbols, comma separated, e.g. RELIANCE,TCS", maxLength=400,
+            pattern=r"^[A-Za-z0-9&\-^.,\s]{1,400}$")
+HHMM = S("string", "a time in IST, 24-hour HH:MM", pattern=r"^\d{1,2}:\d{2}$")
+DATE = S("string", "a date, YYYY-MM-DD", pattern=r"^\d{4}-\d{2}-\d{2}$")
+PRICE = S("number", "rupees", exclusiveMinimum=0)
+ANY_OBJ = {"type": "object"}
+ANY_LIST = {"type": "array"}
+
+
+def envelope_schema(data_schema):
+    """Every tool returns the same envelope; `data` is the skill's own answer."""
+    return {
+        "type": "object",
+        "properties": {
+            "tool": S("string"),
+            "as_of": S("string", "IST time the answer was worked out"),
+            "offline": S("boolean", "true when the answer came from saved fixtures, not the network"),
+            "paper_only": {"const": True},
+            "data": data_schema,
+            "notes": {"type": "array", "items": {"type": "string"}},
+            "disclaimer": {"const": DISCLAIMER},
+        },
+        "required": ["tool", "as_of", "offline", "paper_only", "data", "notes", "disclaimer"],
+    }
+
+
+# ---------------------------------------------------------------- the offline bundle
+
+class Offline(object):
+    """--offline DIR: saved answers instead of the network.
+
+    DIR/offline.json may map each tool to its own saved file or folder and pin its clock:
+        {"now": "...", "ui": "../ui", "trader": "../ui/trader",
+         "tools": {"scan_orb": {"offline": "../trader-scanner/wall5m.json.gz", "now": "..."}}}
+    "{symbol}" in a path is the tool's symbol. Without an entry a skill gets DIR/<skill folder>
+    when that folder exists, else DIR itself.
+    """
+
+    def __init__(self, folder):
+        self.dir = os.path.abspath(folder) if folder else None
+        self.manifest = {}
+        if self.dir:
+            if not os.path.isdir(self.dir):
+                raise ValueError("--offline %s is not a folder" % folder)
+            p = os.path.join(self.dir, "offline.json")
+            if os.path.isfile(p):
+                with open(p, encoding="utf-8") as fh:
+                    self.manifest = json.load(fh)
+
+    def __bool__(self):
+        return bool(self.dir)
+
+    __nonzero__ = __bool__
+
+    def _rel(self, p):
+        return os.path.normpath(os.path.join(self.dir, p))
+
+    def entry(self, tool):
+        return (self.manifest.get("tools") or {}).get(tool) or {}
+
+    def path(self, tool, folder, symbol=None):
+        if not self.dir:
+            return None
+        e = self.entry(tool)
+        if e.get("offline"):
+            p = e["offline"]
+            if symbol:
+                p = p.replace("{symbol}", symbol.replace("&", ""))
+            return self._rel(p)
+        sub = os.path.join(self.dir, folder)
+        return sub if os.path.isdir(sub) else self.dir
+
+    def now(self, tool):
+        return self.entry(tool).get("now") or self.manifest.get("now")
+
+    def ui_dir(self):
+        if not self.dir:
+            return None
+        if self.manifest.get("ui"):
+            return self._rel(self.manifest["ui"])
+        sub = os.path.join(self.dir, "ui")
+        return sub if os.path.isdir(sub) else self.dir
+
+    def trader_dir(self):
+        if not self.dir:
+            return None
+        if self.manifest.get("trader"):
+            return self._rel(self.manifest["trader"])
+        sub = os.path.join(self.dir, "trader")
+        return sub if os.path.isdir(sub) else None
+
+
+class RateLimit(object):
+    """A token bucket: `per_minute` tool calls a minute, bursts up to the same number."""
+
+    def __init__(self, per_minute=30):
+        self.rate = max(1, int(per_minute)) / 60.0
+        self.cap = float(max(1, int(per_minute)))
+        self.tokens = self.cap
+        self.at = time.monotonic()
+        self.lock = threading.Lock()
+
+    def take(self):
+        """0 if a call may go now, else the seconds to wait."""
+        with self.lock:
+            now = time.monotonic()
+            self.tokens = min(self.cap, self.tokens + (now - self.at) * self.rate)
+            self.at = now
+            if self.tokens >= 1:
+                self.tokens -= 1
+                return 0
+            return (1 - self.tokens) / self.rate
+
+
+# ---------------------------------------------------------------- the kit
+
+class Call(object):
+    """What a tool sees of the request: elicitation, cancellation, logging."""
+
+    def __init__(self, can_elicit=False, elicit_now=None, responses=None, state=None, cancel=None, log=None):
+        self.can_elicit = can_elicit
+        self._elicit_now = elicit_now          # legacy era: ask the client and wait
+        self.responses = responses or {}       # modern era: inputResponses of the retry
+        self.state = state                     # modern era: the verified requestState
+        self.cancel = cancel or threading.Event()
+        self.log = log or (lambda level, data: None)
+
+    def elicit(self, key, message, schema, bind):
+        """The user's answer {"action", "content"}, or None when this client cannot ask."""
+        if not self.can_elicit:
+            return None
+        if self._elicit_now is not None:
+            return self._elicit_now({"mode": "form", "message": message, "requestedSchema": schema})
+        if self.state is not None and self.state.get("bind") == bind and key in self.responses:
+            return self.responses[key]
+        raise NeedInput(key, {"method": "elicitation/create",
+                              "params": {"mode": "form", "message": message, "requestedSchema": schema}}, bind)
+
+
+class Kit(object):
+    def __init__(self, workdir, offline=None, now=None, rate_per_minute=30):
+        self.offline = Offline(offline)
+        self.now_override = now
+        self.workdir = os.path.abspath(workdir)
+        ui_now = now or (self.offline.manifest.get("now") if self.offline else None)
+        self.ctx = api.Context(self.workdir, offline=self.offline.ui_dir(), now=ui_now)
+        self.limit = RateLimit(rate_per_minute)
+        self.tools = build_tools()
+        self.by_name = {t["name"]: t for t in self.tools}
+        self.prompts = build_prompts()
+        self.prompt_by_name = {p["name"]: p for p in self.prompts}
+        if self.offline:
+            for name in api.SKILLS:
+                mod = api.skill(name)
+                if hasattr(mod, "fetch_fno_stocks"):
+                    # offline means no network: the F&O list comes from the config or the cache only
+                    def no_network(timeout=20, _m=mod):
+                        raise _m.RulesError("offline: the F&O list is not fetched")
+                    mod.fetch_fno_stocks = no_network
+
+    # paths: everything a tool writes is under <workdir>/trader/
+    def p(self, *parts):
+        return self.ctx.path(*parts)
+
+    def now_text(self, tool):
+        n = self.now_override or (self.offline.now(tool) if self.offline else None)
+        return n
+
+    def now_args(self, tool, flag="--now"):
+        n = self.now_text(tool)
+        return [flag, n] if n else []
+
+    def today(self, tool):
+        n = self.now_text(tool)
+        if n:
+            return str(n)[:10]
+        return self.ctx.today()
+
+    def off_args(self, tool, folder, symbol=None):
+        p = self.offline.path(tool, folder, symbol)
+        return ["--offline", p] if p else []
+
+    def backup(self, *parts):
+        path = self.p(*parts)
+        if os.path.exists(path):
+            shutil.copyfile(path, path + ".bak")
+
+    def run(self, skill, argv):
+        """The skill's own command, in-process, its printing captured. -> (rc, stdout, stderr)"""
+        mod = api.skill(skill)
+        out, err = io.StringIO(), io.StringIO()
+        with self.ctx.cmd_lock:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    rc = mod.main(argv)
+                except SystemExit as e:
+                    rc = e.code if isinstance(e.code, int) else 2
+        self.ctx.forget("quotes")
+        return rc, out.getvalue(), err.getvalue()
+
+    def run_json(self, skill, argv):
+        rc, out, err = self.run(skill, argv)
+        text = out.strip()
+        if text[:1] in ("{", "["):
+            try:
+                return json.loads(text), err.strip()
+            except ValueError:
+                pass
+        msg = err.strip() or text or ("%s stopped with exit code %s" % (skill, rc))
+        raise ToolError(_clean(msg))
+
+    # the envelope
+    def wrap(self, tool, data, notes=()):
+        return {"tool": tool, "as_of": api.ist_text(self.ctx.now_ist()) if not self.now_text(tool)
+                else str(self.now_text(tool)), "offline": bool(self.offline), "paper_only": True,
+                "data": data, "notes": [n for n in notes if n], "disclaimer": DISCLAIMER}
+
+    def call(self, name, args, call=None):
+        t = self.by_name[name]
+        call = call or Call()
+        try:
+            data, notes = t["fn"](self, args, call)
+        except (ToolError, NeedInput):
+            raise
+        except api.ApiError as e:
+            raise ToolError(e.message)
+        except api.skill_errors() as e:
+            raise ToolError(str(e))
+        return self.wrap(name, data, notes)
+
+    # resources
+    def resources(self):
+        base = os.path.join(self.workdir, "trader")
+        out = []
+        for sub in ("", "state"):
+            folder = os.path.join(base, sub) if sub else base
+            if not os.path.isdir(folder):
+                continue
+            for f in sorted(os.listdir(folder)):
+                p = os.path.join(folder, f)
+                if not (NAME_RE.match(f) and os.path.isfile(p)):
+                    continue
+                rel = (sub + "/" + f) if sub else f
+                about = RESOURCE_ABOUT.get(rel) or ("trader/%s" % rel)
+                out.append({"uri": URI_PREFIX + rel, "name": rel, "title": "trader/" + rel,
+                            "description": about, "mimeType": "application/json",
+                            "size": os.path.getsize(p)})
+        return out
+
+    def resource_path(self, uri):
+        """The file behind a bharat-trader://trader/ URI, or None (bad URI or not there)."""
+        if not isinstance(uri, str) or not uri.startswith(URI_PREFIX):
+            return None
+        rel = uri[len(URI_PREFIX):]
+        parts = rel.split("/")
+        if len(parts) == 2 and parts[0] == "state":
+            name = parts[1]
+        elif len(parts) == 1:
+            name = parts[0]
+        else:
+            return None
+        if not NAME_RE.match(name) or ".." in name:
+            return None
+        base = os.path.realpath(os.path.join(self.workdir, "trader"))
+        p = os.path.realpath(os.path.join(base, *parts))
+        if not p.startswith(base + os.sep) or not os.path.isfile(p):
+            return None
+        return p
+
+
+def _clean(msg):
+    """A skill's stderr line without its script prefix."""
+    lines = [l for l in msg.strip().splitlines() if l.strip()]
+    text = " ".join(lines[-3:])
+    return re.sub(r"^[a-z]+(\.py)?: ", "", text)
+
+
+RESOURCE_ABOUT = {
+    "config.json": "your rules: capital, limits, charges, the paper-only switch (trader-budget init)",
+    "watchlist.json": "the last scan's hits (trader-scanner)",
+    "entry.json": "the last entry trigger (trader-entry)",
+    "plan.json": "the trade plan: entry, stop, target, flat-by (trader-exit)",
+    "orders.json": "order tickets sized from the plan (trader-budget)",
+    "prices.json": "fresh prices for the risk check and paper fills (trader-alerts quote --write)",
+    "portfolio.json": "the paper account: cash and positions (trader-broker)",
+    "options.json": "the last option chain analysis (trader-options --write)",
+    "strategy.json": "the strategy being built (trader-strategy)",
+    "journal.json": "your trade journal",
+    "timemachine.json": "the last time-machine replay (trader-timemachine --write)",
+    "alerts.json": "alert rules (trader-alerts)",
+    "state/risk.json": "trader-risk's recorded verdicts, with each order's fingerprint",
+    "state/broker.json": "the paper broker's decisions log: every yes and no, word for word",
+    "state/trades.json": "paper fills with charges and realised P&L",
+}
+
+RESOURCE_TEMPLATES = [
+    {"uriTemplate": URI_PREFIX + "{file}", "name": "trader-file", "title": "A trader/ file",
+     "description": "Any JSON file in your trader/ folder, e.g. plan.json, watchlist.json, portfolio.json, "
+                    "options.json, strategy.json, journal.json", "mimeType": "application/json"},
+    {"uriTemplate": URI_PREFIX + "state/{file}", "name": "trader-state-file", "title": "A trader/state/ file",
+     "description": "The tools' own records: risk.json (verdicts), broker.json (decisions), trades.json (fills)",
+     "mimeType": "application/json"},
+]
+
+
+# ---------------------------------------------------------------- argument helpers
+
+def _sym(args, key="symbol", required=True):
+    v = args.get(key)
+    if v is None:
+        if required:
+            raise ToolError("%s is required" % key)
+        return None
+    v = v.strip().upper()
+    if v.endswith(".NS"):
+        v = v[:-3]
+    if not SYMBOL_RE.match(v):
+        raise ToolError("%r is not an NSE symbol" % args.get(key))
+    return v
+
+
+def _add(argv, flag, value):
+    if value is not None and value is not False:
+        argv += [flag] if value is True else [flag, str(value)]
+    return argv
+
+
+def _cfg(kit):
+    return ["--config", kit.p("config.json")]
+
+
+# ---------------------------------------------------------------- tools: market and research
+
+def t_market_status(kit, a, call):
+    st = api.market(kit.ctx, verify=bool(a.get("verify")))
+    return st, ["NSE equity session per the 2026 holiday calendar and your extra_holidays / special_sessions."]
+
+
+def _scan_common(kit, a, tool, argv):
+    _add(argv, "--symbols", a.get("symbols") and ",".join(s.strip().upper() for s in a["symbols"].split(",")
+                                                          if s.strip()))
+    _add(argv, "--limit", a.get("limit"))
+    _add(argv, "--min-price", a.get("min_price"))
+    _add(argv, "--min-turnover", a.get("min_turnover"))
+    argv += _cfg(kit) + ["--no-write", "--json", "--quiet"] + kit.off_args(tool, "trader-scanner") \
+        + kit.now_args(tool)
+    data, err = kit.run_json("scanner", argv)
+    return data, [err if err else None, "A scan is a list of charts that match a rule, not a list of stocks to buy."]
+
+
+def t_scan_daily(kit, a, call):
+    return _scan_common(kit, a, "scan_daily", ["daily"])
+
+
+def t_scan_orb(kit, a, call):
+    argv = ["orb"]
+    _add(argv, "--at", a.get("at"))
+    _add(argv, "--or-minutes", a.get("or_minutes"))
+    _add(argv, "--until", a.get("until"))
+    return _scan_common(kit, a, "scan_orb", argv)
+
+
+def t_news(kit, a, call):
+    argv = ["--json", "--dry-run", "--state", kit.p("state", "news.json"), "--portfolio", kit.p("portfolio.json"),
+            "--watchlist", kit.p("watchlist.json"), "--plan", kit.p("plan.json")]
+    if a.get("tickers"):
+        argv += ["--tickers", ",".join(s.strip().upper() for s in a["tickers"].split(",") if s.strip())]
+    _add(argv, "--hours", a.get("hours"))
+    _add(argv, "--market", bool(a.get("market")))
+    _add(argv, "--all", bool(a.get("include_seen")))
+    argv += kit.off_args("news", "trader-news") + kit.now_args("news")
+    data, err = kit.run_json("news", argv)
+    return data, [err or None, "Headlines are context, not signals. Check the source before acting."]
+
+
+def t_entry_check(kit, a, call):
+    sym = _sym(a)
+    argv = ["check", sym, "--json"] + _cfg(kit)
+    _add(argv, "--setup", a.get("setup"))
+    _add(argv, "--level", a.get("level"))
+    _add(argv, "--or-minutes", a.get("or_minutes"))
+    _add(argv, "--interval", a.get("interval"))
+    if a.get("save"):
+        kit.backup("entry.json")
+        argv += ["--write", kit.p("entry.json")]
+    argv += kit.off_args("entry_check", "trader-entry", sym) + kit.now_args("entry_check")
+    data, err = kit.run_json("entry", argv)
+    return data, [err or None, "saved to trader/entry.json" if a.get("save") else None]
+
+
+def t_exit_plan(kit, a, call):
+    argv = ["plan", "--json"] + _cfg(kit)
+    sym = _sym(a, required=False)
+    if sym:
+        if a.get("entry") is None:
+            raise ToolError("symbol needs entry (the entry price in rupees)")
+        argv += ["--symbol", sym]
+    else:
+        argv += ["--from", kit.p("entry.json")]
+    for key, flag in (("entry", "--entry"), ("or_high", "--or-high"), ("or_low", "--or-low"),
+                      ("or_minutes", "--or-minutes"), ("setup", "--setup"), ("date", "--date"), ("time", "--time"),
+                      ("interval", "--interval"), ("stop", "--stop"), ("target", "--target"),
+                      ("flat_by", "--flat-by"), ("qty", "--qty")):
+        _add(argv, flag, a.get(key))
+    if a.get("save"):
+        kit.backup("plan.json")
+        argv += ["--write", kit.p("plan.json")]
+    argv += kit.off_args("exit_plan", "trader-exit", sym) + kit.now_args("exit_plan")
+    data, err = kit.run_json("exit", argv)
+    return data, [err or None, "saved to trader/plan.json (the old one kept as plan.json.bak)" if a.get("save")
+                  else "Not saved. Call again with save: true to make it the plan."]
+
+
+def t_timemachine_run(kit, a, call):
+    argv = ["run", "--json"] + _cfg(kit) + ["--replays", str(a.get("replays") or 2000),
+                                            "--seed", str(a.get("seed") if a.get("seed") is not None else 19)]
+    sym = _sym(a, required=False)
+    if sym:
+        for k in ("entry", "stop", "target"):
+            if a.get(k) is None:
+                raise ToolError("a plan given as arguments needs symbol, entry, stop and target")
+        argv += ["--symbol", sym]
+        for key, flag in (("entry", "--entry"), ("stop", "--stop"), ("target", "--target"), ("date", "--date"),
+                          ("entry_time", "--entry-time")):
+            _add(argv, flag, a.get(key))
+    else:
+        argv += ["--plan", kit.p("plan.json")]
+    if not sym:
+        plan = kit.ctx.read("plan.json") or {}
+        sym = str(plan.get("symbol") or "") or None
+    argv += kit.off_args("timemachine_run", "trader-timemachine", sym) + kit.now_args("timemachine_run")
+    call.log("info", "replaying the plan %s times" % (a.get("replays") or 2000))
+    data, err = kit.run_json("timemachine", argv)
+    return data, [err or None, "A replay of past sessions is not a forecast."]
+
+
+# ---------------------------------------------------------------- tools: sizing, risk, paper orders
+
+def _size_argv(kit, a, tool):
+    argv = ["--json", "--plan", kit.p("plan.json"), "--portfolio", kit.p("portfolio.json")] + _cfg(kit)
+    if os.path.exists(kit.p("prices.json")):
+        argv += ["--prices", kit.p("prices.json")]
+    _add(argv, "--capital", a.get("capital"))
+    _add(argv, "--limit", a.get("limit"))
+    _add(argv, "--market", bool(a.get("market")))
+    return argv + kit.ctx.now_args()
+
+
+def t_size_trade(kit, a, call):
+    if not os.path.exists(kit.p("plan.json")):
+        raise ToolError("no trader/plan.json yet: make one with exit_plan (save: true)")
+    data, err = kit.run_json("budget", _size_argv(kit, a, "size_trade"))
+    return data, [err or None, "Not written. paper_order_draft writes the order tickets."]
+
+
+def _risk_record(kit):
+    if kit.ctx.read("orders.json") is None:
+        raise ToolError("no trader/orders.json to check: make tickets with paper_order_draft")
+    argv = ["--orders", kit.p("orders.json"), "--config", kit.p("config.json"), "--portfolio", kit.p("portfolio.json"),
+            "--prices", kit.p("prices.json"), "--state", kit.p("state", "broker.json"),
+            "--out", kit.p("state", "risk.json"), "--json"] + kit.ctx.now_args()
+    data, err = kit.run_json("risk", argv)
+    return data, err
+
+
+def t_risk_check(kit, a, call):
+    if a.get("record"):
+        data, err = _risk_record(kit)
+        return data, [err or None, "Recorded in trader/state/risk.json: the paper broker accepts these verdicts today."]
+    view = api.r_risk(kit.ctx, {}, None)
+    view.pop("disclaimer", None)
+    return view, ["A preview, not recorded. Call with record: true to record the verdicts."]
+
+
+def t_paper_orders_show(kit, a, call):
+    return api.tickets(kit.ctx), ["One order at a time: a yes covers one ticket, never the batch."]
+
+
+def t_paper_order_draft(kit, a, call):
+    if not os.path.exists(kit.p("plan.json")):
+        raise ToolError("no trader/plan.json yet: make one with exit_plan (save: true)")
+    kit.backup("orders.json")
+    data, err = kit.run_json("budget", _size_argv(kit, a, "paper_order_draft") + ["--write", kit.p("orders.json")])
+    risk, rerr = _risk_record(kit)
+    view = api.tickets(kit.ctx)
+    ready = [t for t in view["tickets"] if t.get("ready")]
+    step = ("Show the user each READY ticket in plain words (side, qty, symbol, price, stop, target, the loss at the "
+            "stop with charges). Only if the user types a yes for that one order, call paper_order_confirm with its "
+            "index and fingerprint." if ready else "No ticket passed trader-risk; nothing can be confirmed.")
+    return {"sizing": data, "risk": risk, "tickets": view["tickets"], "next_step": step}, \
+        [err or None, rerr or None, "Wrote trader/orders.json (the old one kept as orders.json.bak) and recorded "
+                                    "the risk verdicts."]
+
+
+YES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "yes_text": {"type": "string", "title": "Your reply",
+                     "description": "Type yes to place this ONE order on the paper account, e.g. \"yes 42 RELIANCE\". "
+                                    "Anything else places nothing.", "minLength": 1, "maxLength": 500},
+    },
+    "required": ["yes_text"],
+}
+
+
+def t_paper_order_confirm(kit, a, call):
+    broker = api.skill("broker")
+    broker.paper_only(kit.ctx.config())            # a non-paper config stops here, before anything
+    idx, fp = a.get("index"), a.get("risk_fingerprint")
+    view = api.tickets(kit.ctx)
+    tks = view["tickets"]
+    if not tks:
+        raise ToolError("no order tickets: make them with paper_order_draft")
+    if not 1 <= idx <= len(tks):
+        raise ToolError("there is no ticket %d (there are %d)" % (idx, len(tks)))
+    t = tks[idx - 1]
+    if t["fingerprint"] != fp:
+        raise ToolError("ticket %d's fingerprint is %s, not %s: the order changed or this is a different ticket. "
+                        "Show the user the current ticket (paper_orders_show) first." % (idx, t["fingerprint"], fp))
+    risk = kit.ctx.read("state", "risk.json")
+    rv, why = broker.risk_verdict(risk, fp, kit.ctx.today())
+    if rv is None:
+        raise ToolError("not confirmed: %s" % why)
+    if rv.get("verdict") != "PASS":
+        raise ToolError("not confirmed: trader-risk BLOCKED this order: %s" % "; ".join(rv.get("reasons") or []))
+    if not t.get("ready"):
+        raise ToolError("not confirmed: %s" % t.get("status"))
+    bind = {"index": idx, "fingerprint": fp}
+    answer = call.elicit("confirm", "PAPER order %d: %s. Type yes to place this one order on the paper account "
+                                    "(no real money), or anything else to skip it. %s"
+                         % (idx, t["plain"], DISCLAIMER), YES_SCHEMA, bind)
+    via = "argument"
+    if answer is not None:
+        via = "elicitation"
+        if not isinstance(answer, dict) or answer.get("action") != "accept":
+            act = answer.get("action") if isinstance(answer, dict) else None
+            return {"confirmed": False, "index": idx, "fingerprint": fp, "via": via, "action": act or "cancel",
+                    "message": "The user did not accept. Nothing was placed or recorded."}, []
+        text = (answer.get("content") or {}).get("yes_text")
+    else:
+        text = a.get("yes_text")
+        if not text:
+            raise ToolError("not confirmed: this client cannot ask the user directly, so yes_text must be the "
+                            "user's own reply, word for word, after you showed them ticket %d. Never write it "
+                            "yourself." % idx)
+    if not isinstance(text, str) or not text.strip() or len(text) > 500:
+        raise ToolError("not confirmed: the reply must be short text")
+    argv = ["confirm", "--orders", kit.p("orders.json"), "--config", kit.p("config.json"),
+            "--risk", kit.p("state", "risk.json"), "--state", kit.p("state", "broker.json"),
+            "--index", str(idx), "--yes-text", text] + kit.ctx.now_args()
+    rc, out, err = kit.run("broker", argv)
+    if rc != 0:
+        msg = _clean(err or out) if (err or out) else "the paper broker refused"
+        if via == "elicitation" and out.strip().startswith("Not recorded"):
+            return {"confirmed": False, "index": idx, "fingerprint": fp, "via": via, "action": "accept",
+                    "message": out.strip()}, []
+        raise ToolError(msg)
+    state = broker.load_state(kit.p("state", "broker.json"))
+    recs = broker.records(state, fp=fp, today=kit.ctx.today(), status="placed")
+    rec = recs[-1] if recs else {}
+    return {"confirmed": True, "index": idx, "fingerprint": fp, "via": via,
+            "paper_order_id": rec.get("paper_order_id"), "yes_text": rec.get("yes_text"),
+            "plain": rec.get("plain"), "message": out.strip()}, \
+        ["Placed on the PAPER account only. A fill is simulated later with the paper broker's fill command."]
+
+
+def t_portfolio_status(kit, a, call):
+    view = api.account_view(kit.ctx, live_quotes=a.get("live_quotes", True))
+    view.pop("disclaimer", None)
+    return view, []
+
+
+# ---------------------------------------------------------------- tools: options, results, insider, config
+
+def _opt_argv(kit, a, cmd, tool, strikes):
+    sym = _sym(a)
+    argv = [cmd, sym, "--json", "--strikes", str(strikes)] + _cfg(kit)
+    _add(argv, "--expiry", a.get("expiry"))
+    return argv + kit.off_args(tool, "trader-options", sym) + kit.now_args(tool)
+
+
+def t_options_chain(kit, a, call):
+    strikes = a.get("strikes") if a.get("strikes") is not None else 10
+    data, err = kit.run_json("options", _opt_argv(kit, a, "chain", "options_chain", strikes))
+    return data, [err or None, "IV and Greeks are Black-76 on the put-call-parity forward, from delayed NSE data."]
+
+
+SUMMARY_KEYS = ("underlying", "kind", "expiry", "expiry_nse", "days_to_expiry", "asof", "spot", "forward", "basis",
+                "lot_size", "rate", "atm", "atm_iv", "atm_iv_ce", "atm_iv_pe", "straddle", "expected_move",
+                "pcr_oi", "pcr_volume", "pcr", "max_pain", "max_pain_detail", "walls", "skew", "iv_rank",
+                "warnings", "notes", "sources", "generated_at", "units")
+
+
+def t_options_summary(kit, a, call):
+    data, err = kit.run_json("options", _opt_argv(kit, a, "iv", "options_summary", 0))
+    out = {k: data.get(k) for k in SUMMARY_KEYS if k in data}
+    return out, [err or None, "PCR, max pain and walls describe positioning, not direction."]
+
+
+def t_results_analyse(kit, a, call):
+    syms = [s.strip().upper() for s in str(a.get("symbols") or "").split(",") if s.strip()]
+    if not syms:
+        raise ToolError("symbols is required, e.g. TCS or TCS,INFY")
+    if len(syms) > 5:
+        raise ToolError("at most 5 symbols per call (NSE is asked once for each)")
+    for s in syms:
+        if not SYMBOL_RE.match(s):
+            raise ToolError("%r is not an NSE symbol" % s)
+    argv = syms + ["--json", "--quarters", str(a.get("quarters") or 5), "--today", kit.today("results_analyse")]
+    _add(argv, "--standalone", bool(a.get("standalone")))
+    argv += kit.off_args("results_analyse", "trader-analyst")
+    data, err = kit.run_json("analyst", argv)
+    return data, [err or None, "Facts from the company's own XBRL filings with NSE; no ratings, no targets."]
+
+
+def _insider_common(kit, tool):
+    return ["--json", "--portfolio", kit.p("portfolio.json"), "--watchlist", kit.p("watchlist.json"),
+            "--config", kit.p("config.json"), "--today", kit.today(tool)] + kit.off_args(tool, "trader-insider")
+
+
+def t_insider_deals(kit, a, call):
+    argv = ["deals"] + _insider_common(kit, "insider_deals")
+    _add(argv, "--symbol", _sym(a, required=False))
+    for key, flag in (("client", "--client"), ("min_value_cr", "--min-value-cr"), ("side", "--side"),
+                      ("kind", "--kind"), ("days", "--days"), ("limit", "--limit")):
+        _add(argv, flag, a.get(key))
+    _add(argv, "--mine", bool(a.get("mine")))
+    data, err = kit.run_json("insider", argv)
+    return data, [err or None, "A bulk or block deal is one party's trade, with reasons we cannot see."]
+
+
+def t_insider_disclosures(kit, a, call):
+    argv = ["insider"] + _insider_common(kit, "insider_disclosures")
+    _add(argv, "--symbol", _sym(a, required=False))
+    _add(argv, "--days", a.get("days"))
+    _add(argv, "--max-filings", a.get("max_filings"))
+    _add(argv, "--promoters-only", bool(a.get("promoters_only")))
+    _add(argv, "--market-only", bool(a.get("market_only")))
+    _add(argv, "--mine", bool(a.get("mine")))
+    data, err = kit.run_json("insider", argv)
+    return data, [err or None, "SEBI PIT disclosures are filed after the trade, sometimes days later."]
+
+
+def t_config_get(kit, a, call):
+    view = api.r_config(kit.ctx, {}, None)
+    if not a.get("with_schema"):
+        view.pop("schema", None)
+    return view, ["Read only. Edit trader/config.json yourself, or use the local UI's Settings page."]
+
+
+# HOOK: trader-strategy (issue #7) is not on main yet. When trader-strategy/strategy.py lands, add
+# strategy_build and strategy_price here, calling its own functions (legs -> payoff after charges,
+# breakevens, Greeks, margin estimate), and append them in build_tools() below.
+# HOOK: doctor (issue #12) is not on main yet. When it lands, add a read-only `doctor` tool that runs
+# its self-test with --json.
+
+
+# ---------------------------------------------------------------- the tool table
+
+RO = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
+
+
+def tool(name, title, description, fn, props=None, required=None, data=None, annotations=None, network=True):
+    ann = dict(annotations or RO)
+    ann["title"] = title
+    ann.setdefault("openWorldHint", network)
+    return {"name": name, "title": title, "description": description.strip() + " " + DISCLAIMER,
+            "inputSchema": obj(props, required), "outputSchema": envelope_schema(data or ANY_OBJ),
+            "annotations": ann, "fn": fn, "network": network}
+
+
+def build_tools():
+    T = []
+    T.append(tool("market_status", "NSE market status",
+                  "Is NSE open right now? The session phase, today's hours, the next open, special sessions, from "
+                  "the NSE calendar (no network). verify: true also asks nseindia.com.",
+                  t_market_status, {"verify": S("boolean", "also ask nseindia.com's market status (network)")},
+                  data=obj({"open": S("boolean"), "phase": S("string"), "now_ist": S("string")},
+                           ["open"], extra=True)))
+    scan_props = {"symbols": SYMBOLS, "limit": S("integer", "scan only the first N symbols", minimum=1, maximum=3000),
+                  "min_price": S("number", "rupees (default: config min_price)", minimum=0),
+                  "min_turnover": S("number", "rupees a day (default: config min_turnover)", minimum=0)}
+    scan_data = obj({"mode": S("string"), "hits": ANY_LIST, "as_of": {}}, ["mode", "hits"], extra=True)
+    T.append(tool("scan_daily", "Daily setups scan",
+                  "Pre-market scan of the NSE universe (trader/universe.txt or symbols) on daily closes: breakouts, "
+                  "pullbacks, RSI, liquidity filters. Nothing is written.", t_scan_daily, scan_props, data=scan_data))
+    orb_props = dict(scan_props, at=HHMM, until=HHMM,
+                     or_minutes=S("integer", "opening range length in minutes (default 15)", minimum=5, maximum=60))
+    T.append(tool("scan_orb", "Opening-range breakout scan",
+                  "Opening-range breakouts so far today across the universe, on 5-minute bars. Nothing is written.",
+                  t_scan_orb, orb_props, data=scan_data))
+    T.append(tool("news", "News and announcements",
+                  "Headlines, NSE corporate announcements, upcoming board meetings and today's move for your "
+                  "holdings, plan and watchlist (or tickers). Read only (the seen-items state is not updated).",
+                  t_news, {"tickers": SYMBOLS, "hours": S("number", "ignore items older than this", minimum=1,
+                                                         maximum=720),
+                           "market": S("boolean", "add NIFTY 50 headlines and move"),
+                           "include_seen": S("boolean", "show items already seen too")},
+                  data=obj({"items": ANY_LIST}, ["items"], extra=True)))
+    T.append(tool("entry_check", "Entry trigger check",
+                  "Has this stock's setup triggered? Opening-range breakout (orb) or a close above a level, bar by "
+                  "bar on 5m or 1m Yahoo bars, inside the entry window. save: true writes trader/entry.json for "
+                  "exit_plan.", t_entry_check,
+                  {"symbol": SYMBOL, "setup": S("string", enum=["orb", "level"]), "level": PRICE,
+                   "or_minutes": S("integer", minimum=5, maximum=60), "interval": S("string", enum=["5m", "1m"]),
+                   "save": S("boolean", "write trader/entry.json (keeps a .bak)")}, ["symbol"],
+                  data=obj({"status": S("string"), "symbol": S("string")}, ["status"], extra=True),
+                  annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True}))
+    T.append(tool("exit_plan", "Stop and target plan",
+                  "Set the stop and target for a long entry, from trader/entry.json or from symbol + entry "
+                  "(+ or_high/or_low): or-mid, or-low, pct:X, atr:K or price:X stops; 1R/1.5R/2R or price:X targets; "
+                  "the flat-by time and a charges estimate. save: true writes trader/plan.json.", t_exit_plan,
+                  {"symbol": SYMBOL, "entry": PRICE, "or_high": PRICE, "or_low": PRICE,
+                   "or_minutes": S("integer", minimum=5, maximum=60), "setup": S("string", enum=["orb", "level"]),
+                   "date": DATE, "time": HHMM, "interval": S("string", enum=["5m", "1m"]),
+                   "stop": S("string", "or-mid, or-low, price:X, pct:X or atr:K", maxLength=32),
+                   "target": S("string", "1R, 1.5R, 2R or price:X", maxLength=32), "flat_by": HHMM,
+                   "qty": S("integer", "shares for the charges estimate", minimum=1, maximum=1000000),
+                   "save": S("boolean", "write trader/plan.json (keeps a .bak)")},
+                  data=obj({"symbol": S("string"), "entry": S("number"), "stop": S("number"),
+                            "target": S("number")}, ["symbol", "entry", "stop", "target"], extra=True),
+                  annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+                  network=False))
+    T.append(tool("timemachine_run", "Time machine replay",
+                  "Replay the plan (trader/plan.json, or symbol/entry/stop/target) over thousands of simulated "
+                  "sessions drawn from the stock's own recent 5-minute bars, plus the real history: odds of the "
+                  "target before the stop, R after charges, a fan of outcomes. Nothing is written.",
+                  t_timemachine_run,
+                  {"symbol": SYMBOL, "entry": PRICE, "stop": PRICE, "target": PRICE, "date": DATE,
+                   "entry_time": HHMM, "replays": S("integer", "simulated sessions (default 2000)", minimum=100,
+                                                    maximum=10000),
+                   "seed": S("integer", "random seed (default 19)", minimum=0, maximum=2 ** 31 - 1)},
+                  data=obj({"plan": ANY_OBJ}, ["plan"], extra=True)))
+    T.append(tool("size_trade", "Position size",
+                  "How many shares the plan allows under your rules: risk per trade, max position, cash buffer, "
+                  "charges, tick size. Reads trader/plan.json and trader/config.json. Nothing is written.",
+                  t_size_trade,
+                  {"capital": S("number", "override the capital in rupees", exclusiveMinimum=0),
+                   "limit": PRICE, "market": S("boolean", "a MARKET entry instead of a LIMIT")},
+                  data=obj({"sizing": ANY_OBJ}, ["sizing"], extra=True), network=False))
+    T.append(tool("risk_check", "Risk check",
+                  "trader-risk on trader/orders.json: every order against your limits (size, loss at stop + charges, "
+                  "reward:risk, daily loss, trades, entry window, duplicates). A preview by default; record: true "
+                  "records the verdicts the paper broker needs.", t_risk_check,
+                  {"record": S("boolean", "record the verdicts in trader/state/risk.json")},
+                  data=ANY_OBJ, annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+                  network=False))
+    T.append(tool("paper_orders_show", "Paper order tickets",
+                  "The order tickets in trader/orders.json, in plain words, each with its trader-risk status and "
+                  "fingerprint.", t_paper_orders_show, {},
+                  data=obj({"tickets": ANY_LIST}, ["tickets"], extra=True), network=False))
+    T.append(tool("paper_order_draft", "Draft paper orders",
+                  "Size trader/plan.json into order tickets (trader/orders.json, the old one kept as .bak) and record "
+                  "trader-risk's verdicts. Returns each ticket with its fingerprint. Places nothing.",
+                  t_paper_order_draft,
+                  {"capital": S("number", "override the capital in rupees", exclusiveMinimum=0),
+                   "limit": PRICE, "market": S("boolean", "a MARKET entry instead of a LIMIT")},
+                  data=obj({"tickets": ANY_LIST, "risk": ANY_OBJ, "next_step": S("string")},
+                           ["tickets", "risk", "next_step"], extra=True),
+                  annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True},
+                  network=False))
+    T.append(tool("paper_order_confirm", "Confirm one paper order",
+                  "Record the USER's yes for ONE ticket and place it on the PAPER account (no real money; no live "
+                  "broker exists in this server). Needs the ticket's index and its exact risk-PASS fingerprint. "
+                  "When the client supports elicitation the server asks the user directly and yes_text is ignored; "
+                  "otherwise yes_text must be the user's own reply, word for word, after you showed them the "
+                  "ticket. Never write a yes yourself.", t_paper_order_confirm,
+                  {"index": S("integer", "the ticket number, from paper_orders_show", minimum=1, maximum=100),
+                   "risk_fingerprint": S("string", "the ticket's fingerprint (16 hex characters)",
+                                         pattern=FP_RE.pattern),
+                   "yes_text": S("string", "the user's reply, word for word (only when the client cannot ask)",
+                                 minLength=1, maxLength=500)},
+                  ["index", "risk_fingerprint"],
+                  data=obj({"confirmed": S("boolean"), "index": S("integer"), "fingerprint": S("string"),
+                            "via": S("string", enum=["elicitation", "argument"])},
+                           ["confirmed", "index", "fingerprint", "via"], extra=True),
+                  annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+                  network=False))
+    T.append(tool("portfolio_status", "Paper portfolio",
+                  "The paper account: cash, positions marked to a delayed price, P&L if closed now after charges, "
+                  "working stop/target legs, today's fills and limits.", t_portfolio_status,
+                  {"live_quotes": S("boolean", "mark positions to a delayed Yahoo quote (default true)")},
+                  data=obj({"cash": S("number"), "positions": ANY_LIST, "today": ANY_OBJ},
+                           ["cash", "positions"], extra=True)))
+    T.append(tool("options_chain", "Option chain",
+                  "NSE option chain for an index or F&O stock and expiry: LTP, bid/ask, OI and change, volume, our "
+                  "Black-76 IV and Greeks per strike around the money, lot size, forward, ATM straddle.",
+                  t_options_chain,
+                  {"symbol": S("string", "NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, NIFTYNXT50 or an F&O stock",
+                               pattern=SYMBOL_RE.pattern, maxLength=24),
+                   "expiry": S("string", "DD-Mon-YYYY (default: the nearest)", pattern=r"^\d{2}-[A-Za-z]{3}-\d{4}$"),
+                   "strikes": S("integer", "strikes each side of ATM (default 10)", minimum=1, maximum=30)},
+                  ["symbol"], data=obj({"underlying": S("string"), "rows": ANY_LIST}, ["underlying", "rows"],
+                                       extra=True)))
+    T.append(tool("options_summary", "Options summary",
+                  "One expiry in numbers: PCR (OI and volume), max pain, call and put walls, ATM IV, 25-delta skew, "
+                  "expected move from the straddle and from IV, IV rank and percentile from India VIX (NIFTY).",
+                  t_options_summary,
+                  {"symbol": S("string", "NIFTY, BANKNIFTY, ... or an F&O stock", pattern=SYMBOL_RE.pattern,
+                               maxLength=24),
+                   "expiry": S("string", "DD-Mon-YYYY (default: the nearest)", pattern=r"^\d{2}-[A-Za-z]{3}-\d{4}$")},
+                  ["symbol"], data=obj({"underlying": S("string"), "max_pain": {}, "expected_move": {}},
+                                       ["underlying"], extra=True)))
+    T.append(tool("results_analyse", "Quarterly results",
+                  "Quarterly results from the company's XBRL filings with NSE: revenue, profit, margins, EPS, "
+                  "QoQ and YoY changes, plain-words notes and the next board meeting.", t_results_analyse,
+                  {"symbols": SYMBOLS, "quarters": S("integer", "quarters to show (default 5)", minimum=1, maximum=8),
+                   "standalone": S("boolean", "standalone instead of consolidated")}, ["symbols"],
+                  data=ANY_LIST))
+    T.append(tool("insider_deals", "Bulk and block deals",
+                  "NSE bulk and block deals: who bought or sold how much, tagged when you hold or watch the stock "
+                  "or the client is on your watch list.", t_insider_deals,
+                  {"symbol": SYMBOL, "client": S("string", "part of the client name", maxLength=80),
+                   "min_value_cr": S("number", "only deals worth at least this many crore", minimum=0),
+                   "side": S("string", enum=["BUY", "SELL"]), "kind": S("string", enum=["bulk", "block", "all"]),
+                   "days": S("integer", "the last N calendar days", minimum=1, maximum=365),
+                   "mine": S("boolean", "only stocks you hold or watch"),
+                   "limit": S("integer", minimum=1, maximum=500)},
+                  data=obj({"deals": ANY_LIST}, ["deals"], extra=True)))
+    T.append(tool("insider_disclosures", "Insider trading disclosures",
+                  "SEBI PIT insider trading disclosures filed with NSE: promoters, directors and employees buying or "
+                  "selling, net by stock.", t_insider_disclosures,
+                  {"symbol": SYMBOL, "days": S("integer", "the last N days (default 7)", minimum=1, maximum=365),
+                   "promoters_only": S("boolean"), "market_only": S("boolean", "market purchases and sales only"),
+                   "mine": S("boolean", "only stocks you hold or watch"),
+                   "max_filings": S("integer", "PIT filings to open (default 60)", minimum=1, maximum=200)},
+                  data=obj({"rows": ANY_LIST}, ["rows"], extra=True)))
+    T.append(tool("config_get", "Your settings",
+                  "trader/config.json, the effective settings with defaults filled in, validation errors and "
+                  "warnings, and a plain-words summary. Read only.", t_config_get,
+                  {"with_schema": S("boolean", "include every known key with its default and meaning")},
+                  data=obj({"exists": S("boolean"), "effective": ANY_OBJ}, ["exists", "effective"], extra=True),
+                  network=False))
+    return T
+
+
+# ---------------------------------------------------------------- prompts
+
+RULES = ("Use the bharat-trader tools for every number; do not guess prices or levels. Present the evidence "
+         "(what each tool returned, its source and time) and the risks (what would make it wrong, the loss at the "
+         "stop after charges). Never promise a profit, never call anything a sure thing, and say plainly that "
+         "this is education and tooling, not financial advice. Paper trading only: an order needs trader-risk "
+         "PASS and the user's own typed yes for that one ticket.")
+
+
+def build_prompts():
+    return [
+        {"name": "morning_briefing", "title": "Morning briefing",
+         "description": "Before the open: market status, news on your stocks, the daily scan, your paper account.",
+         "arguments": [{"name": "focus", "description": "symbols or a theme to focus on (optional)",
+                        "required": False}],
+         "text": ("Give me a pre-market briefing for NSE today. Call market_status, then news (market: true), "
+                  "then scan_daily, then portfolio_status. Summarise: is the market open and when, what changed "
+                  "overnight for my holdings and watchlist, which scan hits are liquid and why they matched, and "
+                  "what I am already carrying. {focus}" + RULES)},
+        {"name": "intraday_plan", "title": "Intraday plan",
+         "description": "From an opening-range breakout to a sized, risk-checked paper ticket.",
+         "arguments": [{"name": "symbol", "description": "NSE symbol, e.g. RELIANCE", "required": True}],
+         "text": ("Help me plan an intraday trade in {symbol}. Call entry_check for {symbol}; if it has "
+                  "triggered, call exit_plan (from the entry) and show the stop, target and flat-by; then "
+                  "timemachine_run on that plan and size_trade. Only if I ask, save the plan and call "
+                  "paper_order_draft, then show me the ticket in plain words and wait for my own typed yes before "
+                  "paper_order_confirm. " + RULES)},
+        {"name": "options_income_scan", "title": "Options income scan",
+         "description": "Read one expiry's positioning and volatility before any option-selling idea.",
+         "arguments": [{"name": "symbol", "description": "NIFTY, BANKNIFTY or an F&O stock", "required": True},
+                       {"name": "expiry", "description": "DD-Mon-YYYY (optional)", "required": False}],
+         "text": ("Look at {symbol} options{expiry_text}. Call options_summary and options_chain. Explain PCR, max "
+                  "pain, the call and put walls, ATM IV, IV rank and the expected move, and what an option seller "
+                  "would be exposed to (gap risk, unlimited loss on naked calls, margin, STT on exercise, lot size "
+                  "in rupees). Do not recommend a trade. " + RULES)},
+        {"name": "weekly_review", "title": "Weekly review",
+         "description": "Look back at the week's paper trades, decisions and the rules that blocked orders.",
+         "arguments": [],
+         "text": ("Review my trading week. Call portfolio_status, paper_orders_show, risk_check and config_get, "
+                  "and read the resources trader/state/trades.json and trader/state/broker.json if they exist. "
+                  "Summarise realised P&L after charges, what risk blocked and why, any yes that was refused, and "
+                  "which rule I came closest to breaking. Suggest one process change, not a stock. " + RULES)},
+        {"name": "research_strategy", "title": "Research a strategy",
+         "description": "Test an idea honestly: evidence for and against, after charges, out of sample.",
+         "arguments": [{"name": "idea", "description": "the strategy idea in plain words", "required": True},
+                       {"name": "symbol", "description": "a stock to try it on (optional)", "required": False}],
+         "text": ("I want to research this strategy idea: {idea}.{symbol_text} Use the tools to gather evidence: "
+                  "scan_daily or scan_orb for when the setup appears, entry_check and exit_plan to define it "
+                  "precisely, timemachine_run for the spread of outcomes after charges, results_analyse and news "
+                  "for context. Separate what the data shows from what it cannot show (few samples, one regime, "
+                  "costs, slippage). Say what result would make you drop the idea. " + RULES)},
+    ]
+
+
+def render_prompt(p, args):
+    args = dict(args or {})
+    for a in p.get("arguments", []):
+        if a.get("required") and not str(args.get(a["name"]) or "").strip():
+            raise ValueError("prompt %s needs the argument %s" % (p["name"], a["name"]))
+    known = {a["name"] for a in p.get("arguments", [])}
+    for k, v in args.items():
+        if k not in known:
+            raise ValueError("prompt %s has no argument %s" % (p["name"], k))
+        if not isinstance(v, str) or len(v) > 400:
+            raise ValueError("prompt argument %s must be short text" % k)
+    focus = args.get("focus")
+    fill = {
+        "focus": ("Focus on: %s. " % focus) if focus else "",
+        "symbol": (args.get("symbol") or "").strip().upper(),
+        "expiry_text": (" for the %s expiry" % args["expiry"]) if args.get("expiry") else " (nearest expiry)",
+        "idea": (args.get("idea") or "").strip(),
+        "symbol_text": (" Try it on %s." % args["symbol"].strip().upper()) if args.get("symbol") else "",
+    }
+    return p["text"].format(**fill)
+
+
+def tool_reference_md(tools=None):
+    """docs/mcp.md's tool reference, generated from the schemas."""
+    tools = tools or build_tools()
+    lines = ["| tool | what it does | arguments | hints |", "| --- | --- | --- | --- |"]
+    for t in tools:
+        props = t["inputSchema"].get("properties", {})
+        req = set(t["inputSchema"].get("required", []))
+        args = ", ".join("`%s`%s" % (k, "" if k in req else "?") for k in props) or "none"
+        ann = t["annotations"]
+        hints = []
+        if ann.get("readOnlyHint"):
+            hints.append("read-only")
+        else:
+            hints.append("writes trader/ (replaces a file, keeps a .bak)" if ann.get("destructiveHint")
+                         else "writes trader/")
+        if ann.get("openWorldHint"):
+            hints.append("network")
+        desc = t["description"].replace(" " + DISCLAIMER, "").replace("|", "/")
+        lines.append("| `%s` | **%s.** %s | %s | %s |" % (t["name"], t["title"], desc, args, "; ".join(hints)))
+    return "\n".join(lines) + "\n"
