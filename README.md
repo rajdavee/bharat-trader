@@ -71,6 +71,16 @@ python3 trader-analyst/facts.py TCS                    # last quarters from NSE 
 python3 trader-insider/insider.py deals                # today's bulk and block deals
 ```
 
+Prefer a screen? The local web UI shows the same numbers, from the same
+scripts, on `127.0.0.1` only:
+
+```bash
+python3 ui/serve.py --open                             # dashboard, charts, scanner, paper orders, risk, settings
+python3 ui/serve.py --offline tests/fixtures/ui --open # a demo on saved real data, no network
+```
+
+See [docs/ui.md](docs/ui.md).
+
 With an agent, just ask: *"scan NSE for breakouts"*, *"any news on Reliance?"*,
 *"plan my exit for HDFCBANK"*, *"how many shares can I buy with ₹1,000 risk?"*,
 *"what are promoters buying?"*.
@@ -87,8 +97,8 @@ With an agent, just ask: *"scan NSE for breakouts"*, *"any news on Reliance?"*,
 ```
 
 See [docs/architecture.md](docs/architecture.md) for how the skills hand off
-through `trader/`, and [docs/configuration.md](docs/configuration.md) for every
-setting and the charges model.
+through `trader/`, [docs/configuration.md](docs/configuration.md) for every
+setting and the charges model, and [docs/ui.md](docs/ui.md) for the local web UI.
 
 ## Tests
 

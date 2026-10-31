@@ -69,6 +69,15 @@ cancelled.
    your typed yes word for word.
 4. In v0.1 the broker is paper only.
 
+## The local UI
+
+`ui/serve.py` is a small standard-library web server on `127.0.0.1`. It does
+not compute anything itself: `ui/api.py` holds one table of routes, each
+calling the skill scripts (loaded from their folders) on the same `trader/`
+files. Writes go through the skills' own commands (`check.py`, `ticket.py
+confirm|decline|fill`, `alerts.py quote --write`), so the safety chain above is
+unchanged. See [ui.md](ui.md).
+
 ## Why each folder duplicates small helpers
 
 A user can install a single skill by copying its folder. Shared code would
