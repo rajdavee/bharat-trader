@@ -1,0 +1,20 @@
+{
+ "doc_derived": true,
+ "source": "https://dhanhq.co/docs/v2/authentication/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/app/consumeApp-consent"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "dhanClientId": "1000000001",
+   "dhanClientName": "TEST USER",
+   "dhanClientUcc": "UCC0000",
+   "givenPowerOfAttorney": true,
+   "accessToken": "REDACTED",
+   "expiryTime": "2025-09-23T12:37:23"
+  }
+ },
+ "repairs": "the docs' example is not valid JSON: placeholder {..} -> \"REDACTED\""
+}

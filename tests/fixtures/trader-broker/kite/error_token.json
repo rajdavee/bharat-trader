@@ -1,0 +1,17 @@
+{
+ "doc_derived": true,
+ "source": "https://kite.trade/docs/connect/v3/exceptions/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/user/profile"
+ },
+ "response": {
+  "status": 403,
+  "body": {
+   "status": "error",
+   "message": "Incorrect `api_key` or `access_token`.",
+   "error_type": "TokenException"
+  }
+ },
+ "note": "shape from the exceptions page; the message text is the one Kite returns for a bad token"
+}

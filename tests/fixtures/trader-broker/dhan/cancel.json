@@ -1,0 +1,15 @@
+{
+ "doc_derived": true,
+ "source": "https://dhanhq.co/docs/v2/orders/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "DELETE",
+  "path": "/v2/orders/112111182045"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "orderId": "112111182045",
+   "orderStatus": "CANCELLED"
+  }
+ }
+}

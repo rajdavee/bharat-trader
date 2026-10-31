@@ -30,7 +30,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 19 tools and 5 prompts from
+4. Restart the client. It should list 22 tools and 5 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -100,6 +100,9 @@ message.
 | `insider_deals` | **Bulk and block deals.** NSE bulk and block deals: who bought or sold how much, tagged when you hold or watch the stock or the client is on your watch list. | `symbol`?, `client`?, `min_value_cr`?, `side`?, `kind`?, `days`?, `mine`?, `limit`? | read-only; network |
 | `insider_disclosures` | **Insider trading disclosures.** SEBI PIT insider trading disclosures filed with NSE: promoters, directors and employees buying or selling, net by stock. | `symbol`?, `days`?, `promoters_only`?, `market_only`?, `mine`?, `max_filings`? | read-only; network |
 | `config_get` | **Your settings.** trader/config.json, the effective settings with defaults filled in, validation errors and warnings, and a plain-words summary. Read only. | `with_schema`? | read-only |
+| `broker_status` | **Broker connection.** The live broker connection, read only and without network: the config's broker and mode, for Upstox, Zerodha Kite and Dhan which BT_* environment variables are set (true/false, never the values), what each API can do, the plan notes and the last static-IP preflight. Places nothing. | none | read-only |
+| `broker_holdings` | **Broker holdings.** Delivery holdings read from the live broker's API (Upstox, Zerodha Kite or Dhan): symbol, qty, average, last price, P&L. Read only; needs the user's own token in the server's environment. | `broker`? | read-only; network |
+| `broker_positions` | **Broker positions.** Today's positions read from the live broker's API: symbol, exchange, product, qty, average, P&L. Read only; needs the user's own token in the server's environment. | `broker`? | read-only; network |
 <!-- tools:end -->
 
 `?` marks an optional argument. Every tool also carries MCP annotations:
@@ -170,9 +173,14 @@ order", "just buy it for me".
 
 ## Security model
 
-- **No live orders, at all.** There is no tool for a live broker and no code
-  that talks to one. The config must say `"broker": "paper", "paper": true`
-  or confirm refuses before doing anything (trader-broker's `paper_only`).
+- **No live orders, at all.** There is no order tool for a live broker. The
+  three broker tools (`broker_status`, `broker_holdings`, `broker_positions`)
+  only read: they call trader-broker's adapters for holdings and positions
+  with the token the user put in the server's environment, and never place,
+  change or cancel anything. `paper_order_confirm` refuses a live config
+  (`"paper": false`) before doing anything (trader-broker's `paper_only`); a
+  live order goes out only with `ticket.py place` in the user's own terminal
+  (see [brokers](brokers.md)).
 - **One order write, with two locks.** `paper_order_confirm` needs trader-risk
   PASS recorded today for that exact order (the fingerprint is a hash of the
   order's fields, so any change needs a new check) and the user's own typed

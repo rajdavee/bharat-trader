@@ -7,6 +7,46 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- Live broker adapters in `trader-broker/adapters/` (standard library only):
+  Upstox (v2 and v3), Zerodha Kite Connect v3 and Dhan v2, one contract in
+  `base.py` with capability flags (profile, funds, holdings, positions,
+  orders, quotes, history, instruments, basket margin, GTT/OCO, sandbox,
+  order placement), the broker-neutral shapes, normalised errors (token
+  expired, IP not whitelisted, rate limited, insufficient funds, rejected,
+  not in your plan, broker down), a token-bucket rate limiter (orders 3 a
+  second by default, never above 9) and timeouts with retries for reads
+  only. Instrument masters with symbol mapping, NFO included (Kite
+  `NIFTY26N0925000CE`, Upstox `NSE_FO|40037`, Dhan `40037`), joined on NSE's
+  exchange token. Refs #10.
+- `ticket.py accounts`, `funds`, `holdings`, `positions`, `orders` and
+  `instruments` read your real account (`--broker`, `--json`); `login
+  <broker>` is a one-shot 127.0.0.1 browser login that checks `state` and
+  prints `export BT_<BROKER>_ACCESS_TOKEN=...` for your shell (never written
+  to disk); `preflight <broker>` checks the public IP (two echo services must
+  agree) against `static_ip` and the IPs Upstox and Dhan have on record, the
+  token's daily cutoff and one harmless call, and explains SEBI's static-IP
+  and daily-2FA rules in plain words.
+- Live orders, off by default: `ticket.py place --index N` sends one order
+  only when the config broker is that broker, `"paper": false`,
+  `"live_enabled": {"<broker>": true}`, trader-risk passed that exact order
+  today, your typed yes for it is recorded and today's preflight passed with
+  the token in use. With a live config `confirm` only records the yes. One
+  yes, one order; orders are never retried; MARKET and SL-M only with the
+  broker's market protection (Kite, Upstox); `--leg stop|target` after the
+  fill, one exit leg at a time; `cancel`. New config keys `live_enabled`,
+  `static_ip`, `order_rate_per_sec`.
+- Local UI: broker connection on Settings (`/api/broker`: which `BT_*`
+  variables are set, never their values; the last preflight) and your
+  broker's holdings and positions on Portfolio
+  (`/api/broker/holdings`, `/api/broker/positions`), read only. MCP: three
+  read-only tools, `broker_status`, `broker_holdings`, `broker_positions`
+  (22 tools); still no order tool.
+- `tests/test_broker_adapters.py`: one contract suite for all three adapters
+  against a local stub HTTP server replaying doc-derived, secret-free
+  fixtures and real instrument-master slices; every live-order gate tested
+  on its own; login, preflight and scrubbing tests; opt-in Upstox and Dhan
+  sandbox smoke tests (`BT_SANDBOX=1`). `docs/brokers.md`: setup per broker,
+  static IP, daily login, sandboxes, plans and costs as of 1 Nov 2026.
 - `mcp/server.py`: an MCP server, standard library only, so any
   MCP-compatible AI assistant can use bharat-trader. JSON-RPC 2.0 over stdio
   (logs to stderr only) and optional streamable HTTP on 127.0.0.1 (Host and
@@ -49,6 +89,12 @@ All notable changes are documented here. The format follows
   Equity results are unchanged.
 
 ### Changed
+- A skill may keep helper modules in one subfolder (a package its entry
+  script loads by path), still standard library and self-contained; the repo
+  tests check it.
+- The UI's settings page can no longer change `broker`, `paper` or
+  `live_enabled` (going live is your own edit of the file), and its confirm,
+  like the MCP server's `paper_order_confirm`, refuses a live config.
 - Entry, exit, risk, alerts, timemachine, scanner and broker end an F&O
   stock's session at continuous trading's end and pull a too-late flat-by in,
   with a note. trader-risk blocks entries during the closing auction.

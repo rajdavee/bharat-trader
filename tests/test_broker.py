@@ -190,7 +190,7 @@ class PaperFlow(unittest.TestCase):
         self.assertIn("Nothing was sent", text)
         self.assertIn("DONE: declined", tk("show", "--now", "2026-10-29 09:42")[1])
 
-    def test_only_the_paper_broker(self):
+    def test_a_live_broker_name_with_paper_true_is_refused(self):
         risk("2026-10-29 09:40")
         c = jload("trader/config.json")
         c["broker"] = "zerodha"
@@ -198,7 +198,7 @@ class PaperFlow(unittest.TestCase):
             json.dump(c, fh)
         code, _, err = tk("confirm", "--index", "1", "--yes-text", "yes", "--now", "2026-10-29 09:41")
         self.assertEqual(code, 1)
-        self.assertIn("only the paper broker", err)
+        self.assertIn("the paper broker only works with \"broker\": \"paper\"", err)
         self.assertFalse(os.path.exists("trader/state/broker.json"))
 
     def test_the_entry_fill_applies_charges(self):

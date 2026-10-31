@@ -71,8 +71,11 @@ For each stock and day the tools work out:
 | `exchange` | `"NSE"` | Only NSE in v0.1. |
 | `product` | `"MIS"` | `MIS` intraday or `CNC` delivery. Changes STT and stamp duty. |
 | `tick_size` | `"auto"` | NSE tick by price band (see [data sources](data-sources.md#tick-sizes)); a number overrides. Stops round down. |
-| `broker` | `"paper"` | Only the paper broker in v0.1. |
-| `paper` | true | Keep it true until a live adapter exists and you have tested on paper. |
+| `broker` | `"paper"` | `paper`, or a live broker: `upstox`, `kite` (`zerodha` works too) or `dhan`. A live broker needs `paper` false. See [brokers](brokers.md). |
+| `paper` | true | Keep it true until you have tested on paper. false (with a live `broker`) makes `confirm` only record your yes; `ticket.py place` sends the order after every gate. |
+| `live_enabled` | `{}` | Per broker, e.g. `{"upstox": true}`: the last switch for live orders at that broker. Missing or false: no live order there, whatever else is set. |
+| `static_ip` | `""` | The static IP you registered with your broker (SEBI: API orders only from it): one IP, a list, or `{"kite": "..."}` per broker. `ticket.py preflight` compares it with this machine's public IP. |
+| `order_rate_per_sec` | 3 | Most live orders a second this tool sends; never above 9 (more than 10 a second needs exchange algo registration). |
 | `blocked` | `[]` | Symbols you never trade. |
 | `allow_short` | false | Intraday short selling. |
 | `allow_fno` | false | Futures and options symbols. |

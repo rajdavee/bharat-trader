@@ -1,0 +1,17 @@
+{
+ "doc_derived": true,
+ "source": "https://kite.trade/docs/connect/v3/orders/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "DELETE",
+  "path": "/orders/regular/151220000000000"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": "success",
+   "data": {
+    "order_id": "151220000000000"
+   }
+  }
+ }
+}

@@ -1,0 +1,29 @@
+{
+ "doc_derived": true,
+ "source": "https://upstox.com/developer/api-documentation/margin (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/v2/charges/margin"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": "success",
+   "data": {
+    "margins": [
+     {
+      "span_margin": 0,
+      "exposure_margin": 0,
+      "equity_margin": 33.6,
+      "net_buy_premium": 0,
+      "additional_margin": 0,
+      "total_margin": 33.6,
+      "tender_margin": 0
+     }
+    ],
+    "required_margin": 33.6,
+    "final_margin": 33.6
+   }
+  }
+ }
+}

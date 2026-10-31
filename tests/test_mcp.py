@@ -25,7 +25,7 @@ FP = "9ba8b90f83f96546"        # tests/fixtures/ui/trader/orders.json ticket 1, 
 TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit_plan", "timemachine_run",
          "size_trade", "risk_check", "paper_orders_show", "paper_order_draft", "paper_order_confirm",
          "portfolio_status", "options_chain", "options_summary", "results_analyse", "insider_deals",
-         "insider_disclosures", "config_get"]
+         "insider_disclosures", "config_get", "broker_status", "broker_holdings", "broker_positions"]
 # one offline call per tool, on the real saved answers in tests/fixtures (see tests/fixtures/mcp/offline.json)
 CALLS = [
     ("market_status", {}),
@@ -46,6 +46,9 @@ CALLS = [
     ("insider_deals", {}),
     ("insider_disclosures", {"days": 4}),
     ("config_get", {}),
+    ("broker_status", {}),
+    ("broker_holdings", {"broker": "upstox"}),
+    ("broker_positions", {}),
     ("paper_order_draft", {}),
     ("paper_order_confirm", {"index": 1, "risk_fingerprint": FP, "yes_text": "yes 42 RELIANCE"}),
 ]
@@ -409,6 +412,22 @@ class Tools(ServerCase):
         self.assertFalse(by["paper_order_confirm"]["annotations"]["readOnlyHint"])
         self.assertTrue(by["paper_order_draft"]["annotations"]["destructiveHint"])
         self.assertEqual(by["paper_order_confirm"]["inputSchema"]["required"], ["index", "risk_fingerprint"])
+        for n in ("broker_status", "broker_holdings", "broker_positions"):
+            self.assertTrue(by[n]["annotations"]["readOnlyHint"], n)
+            self.assertFalse(by[n]["annotations"]["destructiveHint"], n)
+        self.assertFalse(by["broker_status"]["annotations"]["openWorldHint"])
+
+    def test_broker_tools_read_only_and_offline(self):
+        st = self.result(self.c.call("broker_status", {}))["structuredContent"]["data"]
+        self.assertEqual(st["mode"], "paper")
+        self.assertEqual(sorted(b["broker"] for b in st["brokers"]), ["dhan", "kite", "upstox"])
+        for b in st["brokers"]:
+            self.assertTrue(all(isinstance(v, bool) for v in b["credentials"].values()))
+        h = self.result(self.c.call("broker_holdings", {"broker": "kite"}))["structuredContent"]["data"]
+        self.assertEqual((h["connected"], h["read_only"], h["rows"]), (False, True, []))
+        self.assertIn("Offline", h["note"])
+        r = self.result(self.c.call("broker_positions", {"broker": "angel"}))
+        self.assertTrue(r["isError"])
 
     def test_every_tool_offline(self):
         tools = {t["name"]: t for t in self.result(self.c.request("tools/list"))["tools"]}
@@ -451,7 +470,7 @@ class Tools(ServerCase):
                 if not cursor:
                     break
             self.assertEqual(names, TOOLS)
-            self.assertEqual(pages, 4)
+            self.assertEqual(pages, 5)
             r = c2.request("prompts/list", {"cursor": json.dumps({"k": "tools", "o": 5})})
             self.assertEqual(r["error"]["code"], -32602)
         finally:

@@ -1,0 +1,47 @@
+{
+ "doc_derived": true,
+ "source": "https://dhanhq.co/docs/v2/orders/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/v2/orders"
+ },
+ "response": {
+  "status": 200,
+  "body": [
+   {
+    "dhanClientId": "1000000003",
+    "orderId": "112111182198",
+    "correlationId": "123abc678",
+    "orderStatus": "PENDING",
+    "transactionType": "BUY",
+    "exchangeSegment": "NSE_EQ",
+    "productType": "INTRADAY",
+    "orderType": "MARKET",
+    "validity": "DAY",
+    "tradingSymbol": "",
+    "securityId": "11536",
+    "quantity": 5,
+    "disclosedQuantity": 0,
+    "price": 0.0,
+    "triggerPrice": 0.0,
+    "afterMarketOrder": false,
+    "boProfitValue": 0.0,
+    "boStopLossValue": 0.0,
+    "legName": "",
+    "createTime": "2021-11-24 13:33:03",
+    "updateTime": "2021-11-24 13:33:03",
+    "exchangeTime": "2021-11-24 13:33:03",
+    "drvExpiryDate": null,
+    "drvOptionType": null,
+    "drvStrikePrice": 0.0,
+    "omsErrorCode": null,
+    "omsErrorDescription": null,
+    "algoId": "string",
+    "remainingQuantity": 5,
+    "averageTradedPrice": 0,
+    "filledQty": 0
+   }
+  ]
+ },
+ "repairs": "the docs' example is not valid JSON: empty value -> \"\", missing comma added"
+}

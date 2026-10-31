@@ -73,7 +73,12 @@ cancelled.
 2. `trader-risk` checks the exact order against your limits: PASS or BLOCK.
 3. `trader-broker` shows a plain-language ticket only for a PASS, and records
    your typed yes word for word.
-4. In v0.1 the broker is paper only.
+4. Paper is the default broker. A live broker (Upstox, Zerodha Kite, Dhan:
+   `trader-broker/adapters/`) reads any time; it sends an order only from
+   `ticket.py place`, after six gates: the config broker, `"paper": false`,
+   `live_enabled` for that broker, trader-risk PASS for that exact order
+   today, your recorded yes, and today's static-IP preflight. See
+   [brokers](brokers.md).
 
 ## The local UI
 

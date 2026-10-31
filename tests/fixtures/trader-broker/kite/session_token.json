@@ -1,0 +1,56 @@
+{
+ "doc_derived": true,
+ "source": "https://kite.trade/docs/connect/v3/user/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/session/token"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": "success",
+   "data": {
+    "user_type": "individual",
+    "email": "user@example.invalid",
+    "user_name": "TEST USER",
+    "user_shortname": "TEST USER",
+    "broker": "ZERODHA",
+    "exchanges": [
+     "NSE",
+     "NFO",
+     "BFO",
+     "CDS",
+     "BSE",
+     "MCX",
+     "BCD",
+     "MF"
+    ],
+    "products": [
+     "CNC",
+     "NRML",
+     "MIS",
+     "BO",
+     "CO"
+    ],
+    "order_types": [
+     "MARKET",
+     "LIMIT",
+     "SL",
+     "SL-M"
+    ],
+    "avatar_url": "abc",
+    "user_id": "XX0000",
+    "api_key": "REDACTED",
+    "access_token": "REDACTED",
+    "public_token": "REDACTED",
+    "enctoken": "REDACTED",
+    "refresh_token": "",
+    "silo": "",
+    "login_time": "2021-01-01 16:15:14",
+    "meta": {
+     "demat_consent": "physical"
+    }
+   }
+  }
+ }
+}

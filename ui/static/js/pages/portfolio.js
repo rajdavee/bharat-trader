@@ -4,6 +4,7 @@ import { get, post } from '../api.js';
 import { h, clear, card, kv, note, table, loading } from '../dom.js';
 import { inr, num, int, signed, tone, when } from '../fmt.js';
 import { why } from '../why.js';
+import { accountCard, status } from '../broker.js';
 
 function output(res) {
   const text = [res.output, res.error].filter(Boolean).join('\n');
@@ -80,6 +81,12 @@ export async function render(root) {
   root.appendChild(h('h1', { class: 'page-title' }, 'Paper portfolio and orders'));
   const body = h('div');
   root.appendChild(body);
+  const live = h('div');
+  root.appendChild(live);
+  status().then((st) => {
+    const named = st.brokers.find((b) => b.configured);
+    live.appendChild(accountCard(named ? named.broker : 'upstox'));
+  }).catch((e) => live.appendChild(note(e.message, 'error')));
   const refresh = async () => {
     loading(body);
     const [a, o] = await Promise.all([get('/api/portfolio'), get('/api/orders')]);
