@@ -347,7 +347,9 @@ class Server(object):
             return tool_error("rate limit: too many tool calls; try again in %d seconds" % (int(wait) + 1))
         responses = p.get("inputResponses") if isinstance(p.get("inputResponses"), dict) else {}
         call = toolkit.Call(can_elicit=self.can_elicit(req), elicit_now=self.elicit_now(req),
-                            responses=responses, state=state, cancel=req.cancel, log=req.log)
+                            responses=responses, state=state, cancel=req.cancel, log=req.log,
+                            progress=lambda f, msg: req.progress_to(1 + round(min(max(float(f), 0.0), 0.99), 3), 2,
+                                                                    msg))
         req.progress_to(1, 2, "running %s" % name)
         req.log("info", "tool %s started" % name)
         started = time.time()

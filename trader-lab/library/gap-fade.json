@@ -1,0 +1,28 @@
+{
+ "schema": "bharat-trader/lab-spec/1",
+ "name": "gap-fade",
+ "title": "Gap-down fade back toward the previous close",
+ "description": "Long only. A stock that opens at least 0.75% under the previous close (but not more than 4%: big news gaps are left alone) and closes a 5-minute bar back above its opening price between 09:30 and 10:30 IST is bought for a move back toward the previous close. Stop a tick under the day's low, target the previous close, flat by the safe flat-by. trader-risk's 1.5 reward:risk minimum filters out the fades with too little room left.",
+ "kind": "equity",
+ "timeframe": "5m",
+ "product": "MIS",
+ "side": "long",
+ "universe": ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "SBIN", "BHARTIARTL", "ITC", "LT", "AXISBANK"],
+ "params": {"min_gap_pct": 0.75},
+ "entry": {"all": [
+  ["gap_pct", "<=", {"mul": [-1, "$min_gap_pct"]}],
+  ["gap_pct", ">=", -4],
+  ["close", "crosses_above", "day_open"],
+  {"time_between": ["09:30", "10:30"]}
+ ]},
+ "stop": {"price": "day_low", "buffer_ticks": 1},
+ "target": {"price": "prev_close"},
+ "exit": {"flat_by": "auto"},
+ "entries_per_symbol_per_day": 1,
+ "sizing": {"capital": 100000, "risk_per_trade_pct": 1, "max_trades_per_day": 3},
+ "grid": {"min_gap_pct": [0.5, 0.75, 1.0, 1.5]},
+ "walk_forward": {"in_sample": 20, "out_of_sample": 10},
+ "trials_tried": 1,
+ "notes": "trials_tried 1: an earlier draft (a break of the 15-minute range high) never cleared the 1.5 reward:risk minimum on the test data, so the entry was changed once. Every variant counts against the deflated Sharpe.",
+ "seed": 16
+}

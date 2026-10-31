@@ -31,7 +31,8 @@ Ctrl-C stops the server cleanly.
 | Portfolio | Paper cash, positions marked to a delayed price, P&L if closed now after charges, working stop/target legs, order tickets, fills and the decisions log; and, on a click, your real broker's holdings and positions (read only) | trader-broker `load_portfolio`, `apply_fill`, `side_charges`, `ticket_json`; the broker adapters' `holdings`, `positions` |
 | Risk | Your limits, the verdicts trader-risk recorded, and a fresh preview (not recorded) | trader-risk `check` |
 | Settings | The broker connection (which `BT_*` variables are set, never their values; token; `live_enabled`; the last preflight), then every `trader/config.json` key with its meaning from [configuration.md](configuration.md); validate and save | the skills' own parsers (see below); trader-broker's adapters |
-| Option chain, Strategy | What v0.2 will show (trader-options, trader-strategy) | — |
+| Option chain | The chain by expiry with ITM shading, OI bars, OI change, volume, our IV, a Greeks toggle; spot and forward, ATM IV, expected move, straddle, PCR, max pain, call and put walls; the IV smile and the max-pain curve; today's OI build-up | trader-options `fetch_*`, `analyse`, `smile`, `max_pain`, `oi_buildup`, `expiry_table` |
+| Strategy | Template picker or custom legs, a legs editor, the payoff chart (expiry and a chosen date, gross and after charges, spot, forward, breakevens, the 1-SD band), net Greeks, margin with its method and error, PoP textbook vs simulated with EV and 5% tail, IV-shift scenarios, charges, and Send to paper (a proposal) | trader-strategy `template_specs`, `parse_legs`, `resolve_legs`, `evaluate`, `write_orders` |
 
 Click any number with a dotted underline for its **why** panel: the formula,
 its inputs, the source and the time.
@@ -68,9 +69,10 @@ free endpoints again.
 | GET | `/api/chart?symbol=&interval=1m\|5m\|1d&ema=9,21` | bars, overlays, opening range, plan levels |
 | GET | `/api/scanner`, `/api/plan`, `/api/alerts` | the scanner, exit and alerts files |
 | GET | `/api/portfolio`, `/api/orders`, `/api/risk`, `/api/config` | account, tickets, verdicts, settings |
+| GET | `/api/options?symbol=&expiry=&strikes=` | trader-options' analysis of one expiry, the expiry list, why panels |
+| GET | `/api/strategy` | the templates, symbols and the saved `trader/strategy.json` |
 | GET | `/api/broker` | the live broker connection, no network: variables set (names only), capabilities, plans, last preflight |
 | GET | `/api/broker/holdings?broker=`, `/api/broker/positions?broker=` | read only, from the broker's API (cached 30 s; never called offline) |
-| GET | `/api/options`, `/api/strategy` | placeholders until v0.2 |
 | GET | `/api/stream` | Server-Sent Events: `status`, `prices`, `alerts` |
 | POST | `/api/risk/check` | `check.py`: record verdicts in `trader/state/risk.json` |
 | POST | `/api/prices/refresh` | `alerts.py quote --holdings --write` |
@@ -79,6 +81,14 @@ free endpoints again.
 | POST | `/api/orders/fill` | `ticket.py fill` (paper) |
 | POST | `/api/config/validate` | check a config without saving |
 | POST | `/api/config` | validate and save `trader/config.json` (the old one becomes `config.json.bak`) |
+| POST | `/api/strategy/price` | price a template or custom legs (nothing is written) |
+| POST | `/api/strategy/draft` | write the legs as a paper PROPOSAL to `trader/orders.json` and the strategy to `trader/strategy.json`; refuses other proposals unless `replace`, and a non-paper config |
+
+Send to paper never places anything: the proposal goes through Run risk check
+and a typed yes per leg on the Portfolio page, like any other order. Until
+trader-risk has F&O rules it blocks option legs unless `allow_fno` is on.
+Payoff, smile and max-pain charts are drawn by `ui/static/js/plot.js` on a
+canvas (no library, no inline styles).
 
 The stream polls once for every open tab, only while a tab is open: every 15 s
 while NSE is open, every 2 minutes when it is closed.

@@ -40,23 +40,53 @@ All notable changes are documented here. The format follows
   broker's holdings and positions on Portfolio
   (`/api/broker/holdings`, `/api/broker/positions`), read only. MCP: three
   read-only tools, `broker_status`, `broker_holdings`, `broker_positions`
-  (22 tools); still no order tool.
+  (28 tools); still no order tool.
 - `tests/test_broker_adapters.py`: one contract suite for all three adapters
   against a local stub HTTP server replaying doc-derived, secret-free
   fixtures and real instrument-master slices; every live-order gate tested
   on its own; login, preflight and scrubbing tests; opt-in Upstox and Dhan
   sandbox smoke tests (`BT_SANDBOX=1`). `docs/brokers.md`: setup per broker,
   static IP, daily login, sandboxes, plans and costs as of 1 Nov 2026.
+- `trader-strategy`: option strategy builder on the real NSE chain.
+  Templates for bull/bear call and put spreads, long/short straddles and
+  strangles, iron condor, iron fly, call/put butterflies (broken wing with
+  `--skip`), ratio spreads, covered call, protective put and calendars, plus
+  custom legs picked by strike, ATM offset, delta or premium. Payoff at expiry
+  and at any date (Black-76, IV per leg, IV shift), breakevens, max profit and
+  loss with unlimited sides detected, net premium and Greeks, the same curve
+  after the dated 2026 F&O charges (STT on exercise for in-the-money longs)
+  with the breakeven shift and an STT-on-exercise warning; margin required
+  (what a broker would block: a SPAN-style estimate, scan risk on the whole
+  position plus exposure on every short leg, +/-15% index, +/-35% stock,
+  checked against NSE's SPAN file; the premium for bought options only),
+  with the exact max loss and the return on margin shown apart from it; probability of profit textbook
+  (lognormal at IV) vs a seeded bootstrap of the underlying's own daily and
+  five-minute returns with IV-shift scenarios, expected value and 5% tail
+  after charges. `--write` saves `trader/strategy.json`
+  (`bharat-trader/strategy/1`); `--orders` writes broker-neutral NFO
+  proposals for trader-risk and the paper broker. Works copied alone from a
+  trader-options JSON file. See `docs/options.md`.
+- Local UI: the Option chain page (ITM shading, OI bars, OI change, IV, Greeks
+  toggle, PCR, max pain, walls, expected move, IV smile, expiry picker, why
+  panels) and the Strategy builder page (templates, legs editor, payoff gross
+  vs after charges with spot and breakevens, today vs expiry, Greeks, margin
+  required with method and error, max loss and return on margin, PoP textbook vs simulated, Send to paper as a
+  proposal through trader-risk and a typed yes). Routes `/api/options`,
+  `/api/strategy`, `/api/strategy/price`, `/api/strategy/draft`.
+- MCP tools `strategy_build` and `strategy_price` (read only).
 - `mcp/server.py`: an MCP server, standard library only, so any
   MCP-compatible AI assistant can use bharat-trader. JSON-RPC 2.0 over stdio
   (logs to stderr only) and optional streamable HTTP on 127.0.0.1 (Host and
   Origin checks). MCP revision 2026-07-28 (per-request `_meta`,
   `server/discover`, multi round-trip elicitation, `resultType`, cache hints)
-  plus the handshake-based 2025-11-25, 2025-06-18 and 2025-03-26. 19 tools
+  plus the handshake-based 2025-11-25, 2025-06-18 and 2025-03-26. 23 tools
   over the skills' own functions and commands (market status, daily and ORB
   scans, news, entry check, exit plan, time machine, sizing, risk check,
   paper tickets, draft and confirm, portfolio, option chain and summary,
-  results, bulk/block deals, PIT disclosures, config) with input and output
+  results, bulk/block deals, PIT disclosures, config, and the strategy lab:
+  `lab_list`, `lab_run` with progress and a time budget, `lab_report`,
+  `lab_forward`, which drafts paper tickets only through `paper_order_draft`)
+  with input and output
   schemas, structured results and annotations; `trader/*.json` as resources;
   5 prompts. No live-order tool: `paper_order_confirm` needs the exact
   risk-PASS fingerprint and the user's typed yes (elicitation when the client
@@ -88,6 +118,27 @@ All notable changes are documented here. The format follows
   with IPFT, SEBI fee, stamp duty, GST), overridable with `fno_charges`.
   Equity results are unchanged.
 
+- `trader-lab` (#16, phase 1): the Strategy Lab. Strategies are plain JSON
+  specs in a small safe rule vocabulary (SMA, EMA, RSI, ATR, VWAP, opening
+  range, previous-day high/low/close, gap %, comparisons, crosses, time
+  windows; nothing is eval'd). A bar-by-bar backtest with no look-ahead
+  (signal on the close, fill at the next open plus slippage), the shared
+  Indian charges on every trade, trader-budget's sizing, one position per
+  stock, MIS flat by the dated safe flat-by (closing auction, broker
+  square-off) and trader-risk's day limits. Robustness: rolling walk-forward,
+  parameter-grid neighbourhood, seeded Monte Carlo reshuffles and bootstrap
+  bands, the deflated Sharpe ratio, the probability of backtest overfitting
+  (CSCV), India VIX and NIFTY trend regimes, costs at 1.5x and 2x.
+  Pre-registered gates give REJECT, WATCH or PROMOTE, with an automatic
+  DEMOTE when the rolling paper forward record decays. `lab.py list | show |
+  validate | run | report | compare | forward`; `forward` drafts trader-exit
+  shaped plans for trader-budget and trader-risk and never places anything.
+  Six library specs (ORB 15m with VWAP, VWAP reclaim, gap fade,
+  previous-day-high breakout, RSI(2) on NIFTY 50 names, 20-day breakout
+  swing): all six are rejected on the fixture data. Writes
+  `trader/lab/<name>/{spec.json, results.json, scorecard.md, equity.csv}`.
+  An `OPTIONS_HOOK` for trader-strategy. Method and limits in `docs/lab.md`.
+
 ### Changed
 - A skill may keep helper modules in one subfolder (a package its entry
   script loads by path), still standard library and self-contained; the repo
@@ -100,7 +151,9 @@ All notable changes are documented here. The format follows
   with a note. trader-risk blocks entries during the closing auction.
 - Tests never go online: `tests/_load.py` swaps the F&O list fetch for a
   stub, and `tests/test_repo.py` keeps the rules and F&O charge blocks
-  identical in every copy and checks the charges by segment.
+  identical in every copy and checks the charges by segment. It now includes
+  trader-lab (order path, Safety block, charges, rules) and checks the lab's
+  sizing against trader-budget's.
 - `trader-options`: NSE option chain (v3 API) with expiries from the exchange's
   list and lot sizes per expiry month from `fo_mktlots.csv`. Forward from
   put-call parity, Black-76 implied volatility (bracketed Newton solver, `null`

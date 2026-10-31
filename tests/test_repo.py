@@ -24,10 +24,10 @@ STDLIB = set(getattr(sys, "stdlib_module_names", ())) | {
 
 SKILLS = ["trader-scanner", "trader-news", "trader-entry", "trader-exit", "trader-timemachine",
           "trader-risk", "trader-budget", "trader-broker", "trader-alerts", "trader-analyst",
-          "trader-insider", "trader-options"]
+          "trader-insider", "trader-options", "trader-lab", "trader-strategy"]
 # skills on the way to an order carry the safety block
 ORDER_PATH = ["trader-scanner", "trader-entry", "trader-exit", "trader-timemachine", "trader-budget",
-              "trader-insider", "trader-risk", "trader-broker", "trader-alerts"]
+              "trader-insider", "trader-risk", "trader-broker", "trader-alerts", "trader-lab", "trader-strategy"]
 ROOT_FILES = {".github", ".gitignore", "CHANGELOG.md", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md",
               "LICENSE", "NOTICE", "README.md", "SECURITY.md", "docs", "mcp", "tests", "ui"}
 
@@ -83,7 +83,7 @@ def scripts():
 
 
 class Layout(unittest.TestCase):
-    def test_eleven_skill_folders_at_the_root(self):
+    def test_skill_folders_at_the_root(self):
         found = sorted(d for d in os.listdir(ROOT)
                        if os.path.isfile(os.path.join(ROOT, d, "SKILL.md")))
         self.assertEqual(found, sorted(SKILLS))
@@ -236,12 +236,13 @@ class InSync(unittest.TestCase):
         # 1 April 2026 STT change, plus an exercised option
         fno = [("OPT", 120.50, 135.25, 65, False), ("OPT", 10.0, 50.0, 65, True), ("FUT", 1174.30, 1180.00, 500, False),
                ("FUT", 25210.0, 25100.0, 65, False)]
-        expected, found = None, 0
+        expected, found, who = None, 0, set()
         for s, name in scripts():
             fn = getattr(load(s, name), "round_trip_charges", None)
             if fn is None:
                 continue
             found += 1
+            who.add(s)
             got = []
             for product in ("MIS", "CNC"):
                 cfg = dict(base, product=product)
@@ -257,6 +258,23 @@ class InSync(unittest.TestCase):
                 expected = got
             self.assertEqual(got, expected, s)
         self.assertGreaterEqual(found, 5)
+        # the lab's backtests charge every trade with the same helper as trader-budget's sizing
+        self.assertTrue({"trader-budget", "trader-risk", "trader-broker", "trader-lab"} <= who, sorted(who))
+
+    def test_lab_sizes_like_trader_budget(self):
+        budget, lab = load("trader-budget", "size"), load("trader-lab", "lab")
+        cases = [(1174.30, 1163.30, {}), (692.70, 689.90, {}), (123.45, 120.10, {"capital": 25000}),
+                 (2440.50, 2428.00, {"risk_per_trade_pct": 0.5}), (3614.60, 3435.20, {"product": "CNC"}),
+                 (980.40, 944.90, {"capital": 500000, "max_position_pct": 20}), (25.05, 24.95, {})]
+        for entry, stop, over in cases:
+            cfg = lab.lab_config(dict(over))
+            plan = {"symbol": "RELIANCE", "side": "buy", "entry": entry, "stop": stop, "target": entry + 10 * (entry - stop)}
+            want = budget.size_trade(plan, cfg)
+            qty, loss, bound = lab.size_qty(entry, stop, cfg)
+            self.assertEqual(qty, 0 if want["refusal"] else want["qty"], (entry, stop, over))
+            if qty:
+                self.assertAlmostEqual(loss, want["max_loss_with_charges"], places=2)
+                self.assertEqual(bound, want["bound_by"])
 
     def shared_block(self, start, end, at_least):
         blocks = {}
@@ -276,7 +294,7 @@ class InSync(unittest.TestCase):
                                    "# ---------------------------------------------------------------- end of dated market rules",
                                    7)
         for s in ("trader-entry", "trader-exit", "trader-alerts", "trader-risk", "trader-timemachine",
-                  "trader-scanner", "trader-broker"):
+                  "trader-scanner", "trader-broker", "trader-lab"):
             self.assertIn(s, blocks)
         body = next(iter(blocks.values()))
         for date in ("2026-08-03", "2026-09-07", "2026-12-07"):
