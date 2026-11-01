@@ -482,8 +482,8 @@ MSG = {
         "ne_locks": "Nayi entries pe risk locks lage hain: {locks}.",
         "ne_ch_locks": "Kill switch aur circuit breakers agle session mein reset hote hain (ya kill switch khud "
                        "check.py unkill se hataiye).",
-        "ne_hidden": "{n} RESEARCH strategies chhupi hui hain: today --tier research unke ideas dikhata hai, label "
-                     "{label} ke saath.",
+        "ne_hidden": "{n} RESEARCH strategies chhupi hui hain: today --tier research unke ideas dikhata hai (label: "
+                     "{label}).",
         "ne_research": "RESEARCH ideas: inme se bhi koi ready nahi ({n} strategies: {mis} regime mismatch, {quiet} no "
                        "live trigger, {other} other).",
         "ne_nothing": "Aaj kuch bhi qualify nahi hua.",

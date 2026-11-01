@@ -313,6 +313,14 @@ class InSync(unittest.TestCase):
         self.assertEqual(sorted(blocks), sorted(s for s, name in scripts()
                                                  if getattr(load(s, name), "round_trip_charges", None)))
 
+    def test_message_catalogue_helper_is_identical_everywhere(self):
+        blocks = self.shared_block("# ---------------------------------------------------------------- message "
+                                   "catalogue helper",
+                                   "# ---------------------------------------------------------------- end of message "
+                                   "catalogue helper", 8)
+        # every script with a MSG catalogue carries the helper (t, pick_lang), and only those
+        self.assertEqual(sorted(blocks), sorted(s for s, name in scripts() if hasattr(load(s, name), "MSG")))
+
     def test_order_path_safety_blocks_are_identical(self):
         blocks = {}
         for s in ORDER_PATH:

@@ -1,0 +1,18 @@
+Co-trader, 2026-10-30 16:00 IST (PROMOTED + WATCH)
+Market: NIFTY: trending down (ADX 35), high vol (VIX 15.1, 70th pct)
+
+Aaj koi trade nahi: baith kar intezaar karna bhi ek faisla hai, galti nahi.
+
+Kyun:
+  - Koi validated strategy nahi: 1 lab runs mein se koi bhi lab ke gates pass nahi kar paaya (1 REJECT).
+Kya badle to yeh badlega:
+  - Jo strategy trader-lab ke gates pass kare (lab.py run NAME) ya trader-discover ka finalist ho, aur phir uska paper forward test bhi (lab.py forward NAME), woh yahan WATCH candidate banegi.
+  - 1 RESEARCH strategies chhupi hui hain: today --tier research unke ideas dikhata hai (label: unproven, for study/paper only).
+
+Strategies:
+  rsi2-nifty50           RESEARCH hidden: RESEARCH (unproven, for study/paper only); shown with --tier research
+Dhyan dein: no F&O list (trader/fno_stocks.json): treating every stock as an F&O stock (earlier close)
+Dhyan dein: no trader/config.json: sized with trader-budget's defaults; run size.py init for your own limits
+
+Har order ko ab bhi trader-risk PASS aur aapka typed yes chahiye; RESEARCH ideas kabhi bhi live order ke liye nahi hain.
+Yeh education aur tooling hai, financial advice nahi. Yahan se koi order place nahi hua.
