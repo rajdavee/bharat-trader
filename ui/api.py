@@ -47,6 +47,7 @@ SKILLS = {
     "doctor": ("trader-doctor", "doctor"),
     "regime": ("trader-regime", "regime"),
     "discover": ("trader-discover", "discover"),
+    "lab": ("trader-lab", "lab"),
     "cotrader": ("trader-cotrader", "cotrader"),
     "autopilot": ("trader-autopilot", "autopilot"),
     "copilot": ("trader-copilot", "copilot"),
@@ -2392,6 +2393,26 @@ def discovery_runs(ctx):
     return rows
 
 
+EDGE_HUNT_LIMITS = ("Each hypothesis was written down, with its data, grid, trial budget and gates, before any run. A run "
+                    "is exactly as registered: train and validation for every grid point, then the sealed holdout "
+                    "opened once for a finalist that passed every gate. Most are expected to fail; a WATCH is a "
+                    "candidate for the paper forward test, not a strategy to trade.")
+
+
+def edge_hunt(ctx):
+    """The pre-registered edge-hunt hypotheses with their status and outcome (trader-lab's executor), read only."""
+    try:
+        lab = skill("lab")
+        st = lab.engines_api().executor.status(lab.EDGE_HUNT_DIR, ctx.path("lab"))
+    except Exception:  # a broken hypothesis file must not take the Lab page down
+        return {"hypotheses": [], "note": "", "limits": EDGE_HUNT_LIMITS}
+    keep = ("id", "rank", "family", "title", "status", "verdict", "why", "trials_run", "trial_budget", "phase",
+            "holdout_opened", "p_value", "engine", "prior", "bh_kept", "registered_ok", "problem")
+    return {"hypotheses": [{k: h.get(k) for k in keep} for h in st["hypotheses"]], "note": st["bh_note"],
+            "limits": EDGE_HUNT_LIMITS,
+            "how": "Check one with: python3 trader-lab/lab.py hunt run eh-03-index-trend --dry-run"}
+
+
 def r_lab(ctx, q, body):
     base = ctx.path("lab")
     runs = []
@@ -2407,7 +2428,7 @@ def r_lab(ctx, q, body):
     order = {"PROMOTE": 0, "WATCH": 1, "REJECT": 2}
     runs.sort(key=lambda r: (order.get(str(r["verdict"]).upper(), 3), r["name"]))
     return {"runs": runs, "path": base, "limits": LAB_LIMITS,
-            "discovery": discovery_runs(ctx), "discovery_limits": DISCOVER_LIMITS,
+            "discovery": discovery_runs(ctx), "discovery_limits": DISCOVER_LIMITS, "edge_hunt": edge_hunt(ctx),
             "discovery_how": "Search with: python3 trader-discover/discover.py run --budget 200 --universe nifty50 "
                              "--timeframe 1d. Each run writes trader/discover/<run>/.",
             "how": "Run a backtest with: python3 trader-lab/lab.py run orb15-vwap (or any spec in "

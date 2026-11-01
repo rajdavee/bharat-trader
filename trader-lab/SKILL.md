@@ -23,8 +23,14 @@ description: >-
   "find me a profitable strategy", "test my strategy", "is this strategy
   overfitted", "VWAP strategy backtest", "RSI 2 on NIFTY 50 stocks", "walk
   forward", "paper test this strategy", "which intraday strategy works in
-  India", or "strategy lab". It never promises profit and never places an order.
-argument-hint: "[list | run NAME | report NAME | compare A B | forward NAME]"
+  India", "strategy lab", "edge hunt", "run EH-03", "momentum portfolio
+  backtest", "turn of the month NIFTY futures", "pairs trading backtest" or
+  "post results drift". Also runs the pre-registered edge-hunt hypotheses with
+  the v2 engines (index and stock futures with rolls and margin,
+  cross-sectional portfolios on point-in-time universes, calendar and
+  results-date events, cointegrated pairs) and opens each sealed holdout once.
+  It never promises profit and never places an order.
+argument-hint: "[list | run NAME | report NAME | compare A B | forward NAME | hunt list | hunt run EH-ID]"
 ---
 
 # trader-lab
@@ -241,6 +247,56 @@ From an AI assistant, the MCP server (`mcp/server.py`) offers the same as
 `lab_list`, `lab_run`, `lab_report` and `lab_forward`; `lab_forward` with
 `draft: SYMBOL` hands a plan to `paper_order_draft` and nothing else; for an
 options spec `draft: NIFTY` writes the basket and runs trader-risk on it.
+
+## The edge hunt (v2 engines)
+
+The files in `library/edge-hunt/` are pre-registered hypotheses
+(docs/research/edge-hunt.md): each fixes its data, parameter grid, trial
+budget, train, validation and sealed holdout dates and gates before any run.
+`lab.py hunt` runs them exactly as registered with the v2 engines in this
+skill's `engines/` helper folder.
+
+```bash
+python3 "<skill dir>/lab.py" hunt list                             # the 14 hypotheses, status and verdict
+python3 "<skill dir>/lab.py" hunt run EH-03 --dry-run              # file hash, data coverage, trial count; runs nothing
+python3 "<skill dir>/lab.py" hunt run eh-03-index-trend            # train + validation for the grid, then the holdout once
+python3 "<skill dir>/lab.py" hunt status                           # trials, holdout openings, the programme's BH cut
+python3 "<skill dir>/lab.py" hunt run EH-ID --data DIR             # a plain data folder instead of the archive
+```
+
+- The file must match its manifest hash; an edited file is refused (a change
+  is a new hypothesis with a new id). Only `status` and `outcome` are written
+  back.
+- Every grid point is run on train and on validation (each window closed at
+  its last session) and logged once in `trader/lab/edge-hunt/<id>/trials.jsonl`.
+  The deflated Sharpe is charged for the grid + the file's `prior_trials` +
+  the same family's other edge-hunt runs + `--extra-trials`.
+- The finalist is the best point on train; validation screens it with the
+  lab's gates (and the file's overrides): trades, expectancy after charges,
+  profit factor, drawdown on the registered basis, deflated Sharpe, PBO over
+  the grid, 1.5x costs, the neighbourhood, the primary metric. Walk-forward
+  by year, 2x costs and a regime split are reported.
+- Only a finalist that passes opens the holdout: `holdout.json` is written
+  before a single holdout number exists, and a second opening is refused.
+  The verdict is REJECT or WATCH (a candidate for the paper forward test).
+- Engines: **futures** (continuous near-month series rolled the session
+  before expiry, lots by date, SPAN-style margin, the dated 2026 futures
+  charges per order, roll costs, overnight or intraday holding, daily MTM),
+  **portfolio** (12-1 and 6-1 momentum, low volatility, short-term reversal on
+  a point-in-time universe; weekly to semi-annual rebalances; top-N or
+  quantile; equal or inverse-volatility weights; CNC charges with STT 0.1% on
+  both sides, stamp and a DP charge per sell; turnover; the equal-weighted
+  universe and a NIFTY total-return proxy as benchmarks; a capacity note),
+  **events** (turn of the month, pre-holiday, expiry week, overnight,
+  results-date drift), **pairs** (correlation and Engle-Granger on train
+  only, z-score bands, futures legs). Quality is not built (no dated
+  fundamentals); VRP, event straddles and option buying wait for #73.
+- Data: the archive's long-history read functions (`load_continuous`,
+  `members`, `results_dates`) when present. Without point-in-time membership
+  or results dates a run is blocked, not run on a biased universe.
+
+From an AI assistant: `edge_hunt_status` and `edge_hunt_run` (time budget,
+progress, resumable, `dry_run`).
 
 ## How to talk about results
 

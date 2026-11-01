@@ -25,7 +25,7 @@ FP = "9ba8b90f83f96546"        # tests/fixtures/ui/trader/orders.json ticket 1, 
 TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit_plan", "timemachine_run",
          "size_trade", "risk_check", "risk_scenarios", "paper_orders_show", "paper_order_draft", "paper_order_confirm",
          "portfolio_status", "paper_mtm", "options_chain", "options_summary", "results_analyse", "insider_deals",
-         "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "discover_strategies", "discover_report", "lab_forward",
+         "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "edge_hunt_status", "edge_hunt_run", "discover_strategies", "discover_report", "lab_forward",
          "strategy_build",
          "strategy_price", "broker_status", "broker_holdings", "broker_positions", "broker_margin_check", "doctor", "persona_scorecards", "regime_now",
          "cotrader_candidates", "cotrader_explain", "calibration_report",
@@ -74,6 +74,8 @@ CALLS = [
     ("trade_brief", {}),
     ("discover_strategies", {"universe": "lab10", "budget": 20}),
     ("discover_report", {}),
+    ("edge_hunt_status", {}),
+    ("edge_hunt_run", {"hypothesis": "eh-92-fixture-turn-of-month", "dry_run": True}),
     ("strategy_build", {"template": "iron-condor", "symbol": "NIFTY", "wings": 200, "width": 100, "paths": 1000}),
     ("strategy_price", {"symbol": "NIFTY", "legs": "-1 CE 23000, +1 CE 23000 @01-Dec-2026", "simulate": False}),
     ("broker_status", {}),
@@ -426,7 +428,7 @@ class Errors(ServerCase):
 # ---------------------------------------------------------------- tools
 
 class Tools(ServerCase):
-    ARGS = ("--rate-limit", "60")       # one call per tool and then some: above the default 30 a minute
+    ARGS = ("--rate-limit", "70")       # one call per tool and then some: above the default 30 a minute
 
     def test_tools_list_schema_validity(self):
         r = self.result(self.c.request("tools/list"))
