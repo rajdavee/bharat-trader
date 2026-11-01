@@ -60,6 +60,14 @@ def fixture_for(url):
         return "oc-contract-info-NIFTY.json"
     if "option-chain-v3" in url:
         return "oc-v3-NIFTY.trimmed.json"
+    if "indicesHistory" in url:
+        return "indexhist_NIFTY50_2010Q1.json" if "from=01-01-2010" in url and "NIFTY%2050" in url else "-"
+    if "corporate-board-meetings" in url:
+        return "board_meetings_201201.json" if "from_date=01-01-2012" in url else "-"
+    if "corporates-financial-results" in url:
+        return "financial_results_201201.json" if "from_date=01-01-2012" in url else "-"
+    if url.endswith("/press-release"):
+        return "press-release.trimmed.html"
     return url.rsplit("/", 1)[-1]
 
 
@@ -604,6 +612,337 @@ class Snapshots(Tmp):
             arc.main(["--root", self.root, "snapshot-chain", "--now", "2026-11-01 10:00"])
         self.assertIn("not in session", out.getvalue())
         self.assertFalse(os.path.isdir(os.path.join(self.root, "chain")))
+
+
+# ---------------------------------------------------------------- the long history (v0.4)
+
+hist = arc.history()
+
+
+class LegacySpan(Tmp):
+    def test_oldest_formats_parse(self):
+        rows, fmt = arc.parse_eq(zipped("cm02JAN1995bhav.csv.zip"), datetime.date(1995, 1, 2))
+        self.assertEqual(fmt, "legacy")
+        rec = dict(zip(arc.EQ_COLS, [r for r in rows if r[0] == "ABB"][0]))
+        self.assertEqual((rec["isin"], rec["trades"], rec["close"]), ("", "", "600"))    # no ISIN or trades then
+        rows, _ = arc.parse_fo(zipped("fo03JAN2005bhav.csv.zip"), datetime.date(2005, 1, 3))
+        opts = [dict(zip(arc.FO_COLS, r)) for r in rows if r[1] == "IDO"]
+        self.assertTrue(opts and {o["option_type"] for o in opts} <= {"CE", "PE"})       # the OPTIONTYPE header
+        self.assertEqual(arc.nse_date("06-June-2012"), "2012-06-06")
+        self.assertEqual(arc.parse_ban(text("fo_secban_06062012.csv"), datetime.date(2012, 6, 6))[0],
+                         [["ABGSHIP"], ["COREEDUTEC"]])
+
+    def test_days_before_nse_has_files_cost_no_call(self):
+        op = FakeNse()
+        s = arc.backfill(arc.Store(self.root), http(op), "2000-06-05", "2000-06-09", ["fo", "index"], NOW)
+        self.assertEqual(op.urls, [])                       # F&O starts 2000-06-12, index files 2012-02-21
+        self.assertEqual(s["files"], {})
+        self.assertEqual(arc.FIRST_DAY["eq"], datetime.date(1994, 11, 3))
+
+    def test_backfill_a_legacy_day_and_old_index_names(self):
+        s, _ = build(self.root, "2012-06-01", "2012-06-01", ["index"])
+        self.assertEqual(s["files"], {"index": 1})
+        nifty = arc.load_index("NIFTY", root=self.root)        # stored as "S&P CNX Nifty"
+        self.assertEqual((nifty[0]["date"], nifty[0]["c"]), ("2012-06-01", 4841.6))
+        self.assertTrue(arc.load_index("Nifty Bank", root=self.root))      # "CNX Bank" then
+        self.assertEqual(arc.index_canon("CNX Nifty Junior"), "nifty next 50")
+        self.assertEqual(arc.index_canon("S&P CNX 500"), "nifty 500")
+
+    def test_older_split_subjects(self):
+        self.assertEqual(arc.ca_factor("Fv Split Rs.10 To Re.1"), ("split", 0.1))     # 2010 wording
+        self.assertEqual(arc.ca_factor("Fv Split Rs.10/- To Rs.2/-"), ("split", 0.2))
+        self.assertIsNone(arc.ca_factor("Bonus 1 Dvr : 10 Eq Share"))                 # DVR shares: no factor
+        self.assertIsNone(arc.ca_factor("Sch Of Agmt- Bonus Deb1:1"))
+
+    def test_vix_history_starts_july_2010(self):
+        op = FakeNse()
+        arc.backfill(arc.Store(self.root), http(op), "2009-01-01", "2010-12-31", ["vix"], NOW)
+        self.assertTrue(op.urls[0].endswith("from=19-07-2010&to=30-09-2010"), op.urls[0])
+        self.assertEqual(len(op.urls), 2)
+
+    def test_index_history_before_the_daily_files(self):
+        op = FakeNse()
+        n = arc.fetch_indexhist(arc.Store(self.root), http(op), datetime.date(2010, 1, 1), datetime.date(2010, 3, 31),
+                                NOW, lambda m: None, "NIFTY 50")
+        self.assertEqual(n, 60)
+        self.assertIn("indexType=NIFTY%2050&from=01-01-2010&to=31-03-2010", op.urls[0])
+        bars = arc.load_index("^NSEI", "2010-01-01", "2010-03-31", root=self.root)
+        self.assertEqual(len(bars), 60)
+        self.assertEqual((bars[-1]["date"], bars[-1]["c"]), ("2010-03-31", 5249.1))
+        again = FakeNse()
+        arc.fetch_indexhist(arc.Store(self.root), http(again), datetime.date(2010, 1, 1), datetime.date(2010, 3, 31),
+                            NOW, lambda m: None, "NIFTY 50")
+        self.assertEqual(again.urls, [])                    # a complete quarter is not asked again
+
+
+class AdjustmentSpan(Tmp):
+    def test_split_checked_against_the_closes_either_side(self):
+        build(self.root)
+        rep = arc.adjustment_span(self.root)
+        self.assertEqual((rep["checked"], rep["ok"], rep["bad"]), (1, 1, []))   # JSW Dulux 10 -> 1, 22 Oct 2026
+
+
+ROLL_DAYS = ("2018-06-26", "2018-06-27", "2018-06-28", "2018-06-29", "2018-07-02")
+
+
+class Continuous(Tmp):
+    def setUp(self):
+        Tmp.setUp(self)
+        s, _ = build(self.root, "2018-06-26", "2018-07-02", ["fo"], now=datetime.datetime(2018, 7, 10, 20, 0))
+        self.assertEqual(s["files"], {"fo": 5})
+
+    def test_unadjusted_with_the_roll_log(self):
+        res = arc.load_continuous("NIFTY", "none", root=self.root)
+        self.assertEqual([b["date"] for b in res["bars"]], list(ROLL_DAYS))
+        self.assertEqual([b["expiry"] for b in res["bars"]], ["2018-06-28"] * 3 + ["2018-07-26"] * 2)
+        r = res["rolls"][0]
+        self.assertEqual((r["date"], r["from"], r["to"]), ("2018-06-29", "2018-06-28", "2018-07-26"))
+        jun = [x for x in arc.load_fo_chain_eod("NIFTY", "2018-06-28", self.root)["futures"]
+               if x["expiry"] == "2018-06-28"][0]
+        self.assertEqual(r["old"], jun["close"])
+        self.assertEqual(res["bars"][2]["c"], jun["close"])          # raw prices, untouched
+
+    def test_back_and_ratio_adjusted(self):
+        raw = arc.load_continuous("NIFTY", "none", root=self.root)
+        back = arc.load_continuous("NIFTY", "back", root=self.root)
+        ratio = arc.load_continuous("NIFTY", "ratio", root=self.root)
+        gap, k = raw["rolls"][0]["gap"], raw["rolls"][0]["ratio"]
+        for i in range(3):                                           # before the roll: shifted or scaled
+            self.assertAlmostEqual(back["bars"][i]["c"], round(raw["bars"][i]["c"] + gap, 2), places=2)
+            self.assertAlmostEqual(ratio["bars"][i]["c"], round(raw["bars"][i]["c"] * k, 2), places=2)
+        for i in (3, 4):                                             # the newest contract: real prices
+            self.assertEqual(back["bars"][i]["c"], raw["bars"][i]["c"])
+            self.assertEqual(ratio["bars"][i]["c"], raw["bars"][i]["c"])
+        # no jump left at the roll: the adjusted old contract closes where the new one stood that day
+        self.assertAlmostEqual(back["bars"][2]["c"], raw["rolls"][0]["new"], places=1)
+
+    def test_roll_rules(self):
+        one = arc.load_continuous("NIFTY", "none", roll="days:1", root=self.root)
+        self.assertEqual(one["rolls"][0]["date"], "2018-06-28")      # off the June contract on expiry day
+        oi = arc.load_continuous("NIFTY", "none", roll="oi", root=self.root)
+        self.assertTrue(oi["rolls"])
+        self.assertLessEqual(oi["rolls"][0]["date"], "2018-06-29")
+        stock = arc.load_continuous("RELIANCE", "back", root=self.root)
+        self.assertEqual(stock["rolls"][0]["date"], "2018-06-29")
+        with self.assertRaises(arc.ArchiveError):
+            arc.load_continuous("NIFTY", "none", roll="days:x", root=self.root)
+
+    def test_cli_and_quality_report(self):
+        out = io.StringIO()
+        dest = os.path.join(self.root, "nifty-cont.csv")
+        with contextlib.redirect_stdout(out):
+            arc.main(["--root", self.root, "continuous", "--underlying", "NIFTY", "--method", "ratio", "--out", dest])
+        self.assertIn("1 rolls", out.getvalue())
+        with open(dest) as fh:
+            self.assertEqual(len(fh.read().splitlines()), 6)
+        rep = arc.roll_report(self.root)
+        self.assertEqual((rep["NIFTY"]["rolls"], rep["BANKNIFTY"]["rolls"]), (1, 1))
+
+
+class Results(Tmp):
+    def test_results_dates_with_the_minute_they_came_out(self):
+        op = FakeNse()
+        n = arc.fetch_results(arc.Store(self.root), http(op), datetime.date(2012, 1, 1), datetime.date(2012, 1, 31),
+                              NOW, lambda m: None)
+        self.assertGreater(n, 0)
+        self.assertEqual(len(op.urls), 2)
+        evs = arc.results_dates("63MOONS", root=self.root)
+        q3 = [e for e in evs if e["period_end"] == "2011-12-31"][0]
+        self.assertEqual((q3["date"], q3["announced_at"], q3["after_close"], q3["meeting_date"]),
+                         ("2012-01-31", "2012-01-31 19:44:44", True, "2012-01-31"))
+        sessions = ["2012-01-30", "2012-01-31", "2012-02-01"]
+        ev = hist.events.results_events("63MOONS", [], [["63MOONS", "2012-01-31 19:44:44", "2011-10-01", "2011-12-31",
+                                                          "Third Quarter", "Un-Audited", "Consolidated", ""]], sessions)
+        self.assertEqual(ev[0]["event_session"], "2012-02-01")      # out after 15:30: the next session reacts
+        again = FakeNse()
+        arc.fetch_results(arc.Store(self.root), http(again), datetime.date(2012, 1, 1), datetime.date(2012, 1, 31),
+                          NOW, lambda m: None)
+        self.assertEqual(again.urls, [])
+        self.assertEqual(arc.results_report(self.root)["months"], 1)
+
+
+class Membership(Tmp):
+    def lines(self, name):
+        with open(os.path.join(DIR, name), encoding="utf-8") as fh:
+            return fh.read().splitlines()
+
+    def test_announcement_with_symbols(self):
+        with open(os.path.join(DIR, "ind_prs21022014.pdf"), "rb") as fh:
+            ch = hist.members.announcement_changes(fh.read())
+        got = sorted((c["index"], c["action"], c["symbol"], c["effective"]) for c in ch)
+        self.assertEqual(got, [("NIFTY 200", "exclude", "CASTROL", "2014-02-28"),
+                               ("NIFTY 200", "include", "SUPREMEIND", "2014-02-28"),
+                               ("NIFTY 500", "exclude", "CASTROL", "2014-02-28"),
+                               ("NIFTY 500", "include", "JYOTHYLAB", "2014-02-28")])   # CNX Midcap etc. ignored
+
+    def test_announcement_with_names_only_and_tables_drawn_apart(self):
+        with open(os.path.join(DIR, "ind_prs18082010.pdf"), "rb") as fh:
+            ch = hist.members.announcement_changes(fh.read(), "Index Changes w.e.f. October 01, 2010")
+        n50 = sorted((c["action"], c["name"]) for c in ch if c["index"] == "NIFTY 50")
+        self.assertEqual(n50, [("exclude", "ABB Ltd."), ("exclude", "Idea Cellular Ltd."), ("exclude", "Unitech Ltd."),
+                               ("include", "Bajaj Auto Ltd."), ("include", "Dr. Reddy's Laboratories Ltd."),
+                               ("include", "Sesa Goa Ltd.")])
+        self.assertEqual({c["effective"] for c in ch}, {"2010-10-01"})
+        self.assertEqual(len([c for c in ch if c["index"] == "NIFTY 100"]), 8)        # "C NX 100" heading
+        with open(os.path.join(DIR, "ind_prs20052010.pdf"), "rb") as fh:
+            single = hist.members.announcement_changes(fh.read())
+        self.assertEqual(sorted((c["index"], c["action"], c["symbol"]) for c in single),
+                         [("NIFTY 500", "exclude", "GRASIM"), ("NIFTY 500", "include", "JSWENERGY")])
+
+    def test_modern_announcement_lines(self):
+        ch = hist.members.parse_announcement(self.lines("ind_prs10082026.lines.txt"),
+                                             "Replacements in indices w.e.f. September 30, 2026")
+        n50 = [(c["action"], c["symbol"]) for c in ch if c["index"] == "NIFTY 50"]
+        self.assertEqual(n50, [("exclude", "WIPRO"), ("include", "BSE")])     # the Note's "1. BSE Ltd." is no row
+        n500 = [c for c in ch if c["index"] == "NIFTY 500"]
+        self.assertEqual((len([c for c in n500 if c["action"] == "exclude"]),
+                          len([c for c in n500 if c["action"] == "include"])), (27, 27))   # across a page break
+        self.assertEqual(len([c for c in ch if c["index"] == "NIFTY 100"]), 10)
+
+    def test_symbol_identity_over_renames(self):
+        sym = hist.members.Symbols(hist.members.parse_symbol_changes(text("symbolchange.csv")))
+        self.assertEqual(sym.canon("SESAGOA", "2010-10-01"), "VEDL")
+        self.assertEqual(sym.as_of("VEDL", "2012-01-02"), "SESAGOA")
+        self.assertEqual(sym.as_of("VEDL", "2014-06-02"), "SSLT")
+        self.assertEqual(sym.as_of("ETERNAL", "2024-01-01"), "ZOMATO")
+
+    def test_fetch_rebuild_and_point_in_time(self):
+        now = datetime.datetime(2026, 11, 1, 20, 0)
+        op = FakeNse()
+        n = arc.fetch_members(arc.Store(self.root), http(op), datetime.date(2010, 1, 1), now.date(), now, lambda m: None)
+        self.assertEqual(n, 3)                     # the three PDFs on file; SME/IPO/fixed-income items skipped
+        self.assertFalse([u for u in op.urls if "ind_prs29082025" in u or "ind_prs25082025" in u])
+        # the August 2026 replacement, as parsed text (the PDF itself is 1 MB)
+        man_path = os.path.join(self.root, "members", "manifest.json")
+        man = arc.read_json(man_path)
+        rel = os.path.join("members", "announcements", "2026", "ind_prs10082026.txt.gz")
+        arc.atomic_write(os.path.join(self.root, rel), arc.gz_bytes("\n".join(self.lines("ind_prs10082026.lines.txt"))))
+        man["announcements"]["ind_prs10082026.pdf"] = {"date": "2026-08-10", "text": rel,
+                                                       "title": "Replacements in indices w.e.f. September 30, 2026"}
+        arc.write_json(man_path, man)
+        arc._CACHE.clear()
+        before = arc.members("NIFTY", "2026-09-29", self.root)
+        after = arc.members("NIFTY 50", "2026-09-30", self.root)
+        self.assertEqual(len(after), 50)
+        self.assertIn("WIPRO", before)
+        self.assertNotIn("BSE", before)
+        self.assertIn("BSE", after)
+        self.assertEqual(len(before), 50)
+        # 2010: names only, resolved through NSE's list of companies, today's symbol mapped back to then
+        m2010 = arc.members("NIFTY 50", "2010-09-30", self.root)
+        self.assertIn("UNITECH", m2010)
+        self.assertNotIn("BAJAJ-AUTO", m2010)
+        self.assertIn("BAJAJ-AUTO", arc.members("NIFTY 50", "2010-10-01", self.root))
+        rep = arc.membership_report(self.root)["NIFTY 50"]
+        names = sorted(u["name"] for u in arc.membership("NIFTY 50", self.root)["unresolved"])
+        self.assertIn("Sesa Goa Ltd.", names)       # renamed company: an honest gap, not a guess
+        self.assertEqual(rep["unresolved"], len(names))
+        self.assertEqual(rep["wrong_size"], 0)
+
+    def test_cli_report(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = arc.main(["--root", self.root, "members", "--report"])
+        self.assertEqual(code, 0)
+        self.assertIn("No index membership data", out.getvalue())
+
+
+class ExpiredOptions(Tmp):
+    """Response shapes as documented by Upstox and Dhan (a paid-plan token was not available to record
+    real answers): the parsers, the paths and the storage."""
+
+    class Transport(object):
+        def __init__(self, answers):
+            self.answers, self.calls = answers, []
+
+        def request(self, method, url, **kw):
+            self.calls.append((method, url, kw.get("json_body")))
+            for key, doc in self.answers:
+                if key in url:
+                    return doc
+            return {"status": "success", "data": []}
+
+    def test_upstox_expired_contracts(self):
+        build(self.root, "2026-10-21", "2026-10-23", ["index"])
+        mod = arc.broker_adapters()
+        candles = {"status": "success", "data": {"candles": [
+            ["2026-10-23T09:15:00+05:30", 120.5, 125, 118, 121, 15000, 320000],
+            ["2026-10-23T09:16:00+05:30", 121, 122.4, 119.9, 120.1, 9100, 321500]]}}
+        contracts = {"status": "success", "data": [
+            {"instrument_key": "NSE_FO|1%d|23-10-2026" % k, "strike_price": s, "instrument_type": t,
+             "expiry": "2026-10-23", "trading_symbol": "NIFTY %d %s" % (s, t), "lot_size": 65}
+            for k, (s, t) in enumerate([(s, t) for s in range(22500, 24001, 100) for t in ("CE", "PE")])]}
+        tr = self.Transport([("historical-candle", candles), ("option/contract", contracts),
+                             ("expiries", {"status": "success", "data": ["2026-10-14", "2026-10-23"]})])
+        ad = mod.make("upstox", env={"BT_UPSTOX_ACCESS_TOKEN": "test-token"}, transport=tr)
+        res = arc.expired_options_ingest(self.root, "NIFTY", "2026-10-20", "2026-10-23", adapter=ad, strikes=1,
+                                         now=NOW.replace(day=30), sleep=lambda s: None)
+        self.assertEqual(res["files"], 6)                    # 3 strikes around the day's close, calls and puts
+        self.assertIn("/v2/expired-instruments/expiries?instrument_key=NSE_INDEX%7CNifty%2050", tr.calls[0][1])
+        spot = arc.load_index("NIFTY", "2026-10-23", "2026-10-23", self.root)[0]["c"]
+        atm = min(range(22500, 24001, 100), key=lambda k: abs(k - spot))
+        bars = arc.load_option_intraday("NIFTY", "2026-10-23", atm, "CE", root=self.root)
+        self.assertEqual([(b["time"], b["c"], b["oi"]) for b in bars], [("09:15", 121.0, 320000), ("09:16", 120.1, 321500)])
+
+    def test_dhan_rolling_payload_and_parse(self):
+        p = hist.expired.dhan_payload("NIFTY", "ATM+1", "CALL", "2026-09-01", "2026-09-30")
+        self.assertEqual((p["securityId"], p["instrument"], p["expiryFlag"], p["interval"]), (13, "OPTIDX", "WEEK", "1"))
+        self.assertEqual(hist.expired.dhan_windows("2026-08-01", "2026-09-15"),
+                         [("2026-08-01", "2026-08-30"), ("2026-08-31", "2026-09-15")])
+        doc = {"data": {"ce": {"timestamp": [1790480100, 1790480160], "open": [100, 101], "high": [102, 101.5],
+                               "low": [99, 100], "close": [101, 100.5], "volume": [500, 300], "oi": [1000, 1200],
+                               "iv": [14.2, 14.1], "spot": [25100, 25102], "strike": [25150, 25150]}, "pe": None}}
+        bars = hist.expired.dhan_bars(doc, "ce")
+        self.assertEqual((len(bars), bars[0]["iv"], bars[0]["strike"]), (2, 14.2, 25150))
+        self.assertEqual(hist.expired.dhan_bars(doc, "pe"), [])
+
+    def test_no_token_says_which_plan(self):
+        mod = arc.broker_adapters()
+        ad = mod.make("upstox", env={}, transport=self.Transport([]))
+        with self.assertRaises(arc.ArchiveError) as e:
+            arc.expired_options_ingest(self.root, "NIFTY", "2026-10-01", "2026-10-23", adapter=ad, now=NOW)
+        self.assertIn("Upstox Plus", str(e.exception))
+
+
+class CaptureChains(Tmp):
+    def test_one_session_then_stops_with_a_heartbeat(self):
+        clock = {"t": datetime.datetime(2026, 10, 30, 15, 18)}
+        sleeps = []
+
+        def sleep(s):
+            sleeps.append(s)
+            clock["t"] += datetime.timedelta(seconds=s)
+
+        beat = arc.capture_chains(self.root, http(FakeNse()), ["NIFTY"], every=5, expiries=1, sessions=1,
+                                  now_fn=lambda: clock["t"], sleep=sleep)
+        self.assertEqual((beat["state"], beat["rounds"], beat["files"], beat["sessions_done"]), ("done", 3, 3, 1))
+        self.assertEqual(sleeps[:2], [300.0, 300.0])
+        doc = arc.read_json(os.path.join(self.root, "chain", "capture.json"))
+        self.assertEqual(doc["state"], "done")
+        self.assertFalse(os.path.exists(os.path.join(self.root, "chain", ".capture.lock")))
+        rows = arc.chain_series("NIFTY", "2026-10-30", root=self.root)
+        self.assertEqual(len(set(r["time"] for r in rows)), 3)
+        self.assertTrue(all(r["type"] in ("CE", "PE") for r in rows))
+
+    def test_waits_for_the_next_session(self):
+        clock = {"t": datetime.datetime(2026, 10, 31, 11, 0)}       # a Saturday
+        sleeps = []
+
+        def sleep(s):
+            sleeps.append(s)
+            clock["t"] += datetime.timedelta(seconds=s)
+
+        beat = arc.capture_chains(self.root, http(FakeNse()), ["NIFTY"], every=10, expiries=1, sessions=1,
+                                  now_fn=lambda: clock["t"], sleep=sleep, until="09:40")
+        self.assertEqual(beat["state"], "done")
+        self.assertLessEqual(max(sleeps), 600.0)                     # wakes at least every 10 minutes
+        self.assertEqual(beat["rounds"], 3)                          # Monday 09:15, 09:25, 09:35
+
+    def test_refuses_a_second_copy(self):
+        os.makedirs(os.path.join(self.root, "chain"))
+        arc.write_json(os.path.join(self.root, "chain", ".capture.lock"), {"pid": os.getppid()})
+        with self.assertRaises(arc.ArchiveError):
+            arc.capture_chains(self.root, http(FakeNse()), ["NIFTY"], now_fn=lambda: NOW, sleep=lambda s: None)
 
 
 class Docs(unittest.TestCase):

@@ -6,6 +6,33 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Long-history archive** (#71) in `trader-archive`: legacy equity
+  bhavcopies back to 1994-11-03 and F&O back to 2000-06-12 (formats checked
+  year by year; the old `OPTIONTYPE` header, files without ISIN, ban titles
+  with full month names), index history before the daily index files start
+  (2012-02-21) through the `indexhist` dataset, old index names (S&P CNX
+  Nifty, CNX Bank ...) read as today's, India VIX from 2010-07-19 (NSE's
+  first day), and 2010-style split subjects.
+- **Continuous futures**: `load_continuous()` and `archive.py continuous` for
+  NIFTY, BANKNIFTY or any F&O stock; roll N sessions before expiry, or on the
+  OI or volume switch; unadjusted with a roll log, back-adjusted or
+  ratio-adjusted.
+- **Point-in-time index membership**: `members(index, date)` for NIFTY 50,
+  Next 50, 100, 200 and 500, rebuilt from NSE Indices' change announcements
+  (a standard-library PDF text reader in `trader-archive/history/`), today's
+  lists and NSE's symbol changes, with a report of every gap.
+- **Results dates**: `results_dates(symbol, ...)` from NSE's board meetings
+  and results filings since 2010, with the minute each result came out and
+  the first session that could react.
+- **Expired-option candles** from Upstox (Plus plan) or Dhan (Data API) with
+  your own token (`expired-options`), and `capture-chains`, a background
+  loop that snapshots option chains through every session with a heartbeat
+  file, for forward intraday option data.
+- `verify` checks splits and bonuses across the whole span against the
+  archive's own closes, and reports membership gaps, roll gaps and missing
+  results months.
+
 ## [0.3.0] - 2026-11-01
 
 The co-trader release: candidates only from validated rules, odds with their
