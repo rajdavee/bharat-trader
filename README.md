@@ -20,8 +20,8 @@ placed without your yes.
   after brokerage, STT, exchange fees, stamp duty and GST. Textbook odds sit
   next to simulated ones. The Strategy Lab rejects most strategies, and says why.
 - **Standard library only.** Python 3.8+, nothing to `pip install`, every tool runs by hand.
-- **Agent-native.** Twenty [Agent Skills](https://agentskills.io), six agent
-  personas, and an [MCP](https://modelcontextprotocol.io/) server with 42 tools
+- **Agent-native.** Twenty-one [Agent Skills](https://agentskills.io), six agent
+  personas, and an [MCP](https://modelcontextprotocol.io/) server with 45 tools
   for any MCP-compatible AI assistant.
 - **Zero-install UI.** `python3 ui/serve.py --open`: a web app on `127.0.0.1`
   that never loads anything from the internet.
@@ -103,7 +103,7 @@ first-run setup and a validated settings editor. Grouped navigation that works
 on a phone, a command palette (Ctrl/Cmd-K), guided or expert detail, and a
 "why" panel for every number. See [docs/ui.md](docs/ui.md).
 
-**Your AI assistant, via MCP.** 42 tools and 11 prompts for any
+**Your AI assistant, via MCP.** 45 tools and 11 prompts for any
 MCP-compatible assistant, over stdio or loopback HTTP. Paper only: there is
 no live-order tool at all. See [docs/mcp.md](docs/mcp.md).
 
@@ -171,6 +171,9 @@ python3 trader-archive/archive.py backfill --years 3    # years of NSE EOD histo
 python3 trader-archive/archive.py verify                # gaps, duplicates, checksums, survivorship
 python3 trader-regime/regime.py now                    # NIFTY, BANKNIFTY: trend, vol bucket, expiry, events
 python3 trader-regime/regime.py history NIFTY --from 2025-01-01   # every day's regime, stored
+python3 trader-journal/journal.py sync                 # the trade journal: stats, rule breaks, after charges
+python3 trader-journal/journal.py import tradebook.csv --broker zerodha   # your broker's trade book
+python3 trader-journal/journal.py review --week last   # the weekly review for the journal coach
 ```
 
 </details>
@@ -231,6 +234,7 @@ Copy one or all into your agent's skills folder; each works on its own:
 | `trader-discover` | Strategy discovery with strict overfitting controls: a fixed trial budget over the lab's rule vocabulary, train / validation / untouched holdout with purging and an embargo, every trial logged and counted; deflated Sharpe with the true trial count, overfitting odds over the trial matrix, a Reality Check / SPA bootstrap, a false-discovery cut, cost stress, neighbourhood and regime checks. Survivors go to the lab as specs that still need a paper forward test. |
 | `trader-cotrader` | Co-trader: today's candidates from strategies the lab validated (PROMOTED, WATCH; RESEARCH ideas only on request, never for live), each a full plan with size, charges and a trader-risk verdict; the share of past trades in today's regime that made money after charges with a Wilson / Beta 95% range and n, shrunk toward the rule's overall rate; expected R after charges; a time-machine second opinion; ranked per unit risk, penalised for uncertainty and correlation. No edge is a first-class answer. Every probability is logged and scored (Brier, log loss, reliability); overconfident rules are demoted. |
 | `trader-autopilot` | Auto-pilot on PAPER only: the co-trader loop on the NSE clock (pre-open brief, PROMOTED and WATCH candidates in per-strategy capital buckets, trader-risk and a machine yes labelled autopilot, stops, targets, trailing and time exits, flat-by, F&O baskets at the close and expiry), then the journal hook, calibration, the lab's forward record and promote or demote, and a daily report. Resumable, one loop per folder, kill switch aware; replays any past day on a simulated clock. Refuses a live config. |
+| `trader-journal` | The trade journal: one entry per closed trade (an F&O strategy as one entry) from paper fills, your live trade book and Zerodha, Upstox, Dhan, Angel One or Groww tradebook imports, with persona, strategy, regime, R multiple, MAE/MFE and your notes; expectancy and win rate with intervals by strategy, persona, regime and time of day; rule breaks, overtrading and cost drag; a counterfactual ledger of every skipped or blocked trade; the weekly review. |
 
 ## How it compares
 
@@ -239,7 +243,7 @@ all of these together, run on your own machine:
 
 | | after-charges payoff | honest-odds simulation | out-of-sample lab | multi-broker paper F&O | local-first | MCP | dated rules |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 42 tools | ✅ effective date and source per rule |
+| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 45 tools | ✅ effective date and source per rule |
 | Typical free option-analytics apps | ◐ often gross only | ◐ one model-based PoP | — | ◐ one broker, forward only | — hosted, broker login | — rarely | ◐ |
 | Typical paid backtesting platforms | ◐ often | ◐ | ◐ backtests, rarely overfitting statistics | ◐ their own simulator | — hosted, your strategies on their servers | — rarely | ◐ |
 | Typical open-source NSE toolkits | ◐ | — rarely | — rarely | ◐ a few, often needing a live broker session | ✅ | ◐ some | — rarely |

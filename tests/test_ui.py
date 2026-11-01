@@ -65,6 +65,7 @@ def workdir():
     tmp = tempfile.mkdtemp(prefix="bt-ui-test-")
     shutil.copytree(os.path.join(UIFIX, "trader"), os.path.join(tmp, "trader"))
     serve.copy_demo_lab(UIFIX, tmp)
+    serve.copy_demo_journal(UIFIX, tmp)
     return tmp
 
 
@@ -1217,6 +1218,47 @@ class AutopilotRoutes(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.dir, "trader", "portfolio.json")))
         _, view = api.dispatch(ctx, "GET", "/api/autopilot", {}, None)
         self.assertEqual(view["replays"], [{"name": "2026-09-21", "days": ["2026-09-21"]}])
+class Journal(unittest.TestCase):
+    """The Journal page's routes: trader-journal's own numbers, read only, plus your notes."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.s = Running()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.s.close()
+
+    def test_journal_is_trader_journals_summary(self):
+        status, d = self.s.get("/api/journal")
+        self.assertEqual(status, 200, d)
+        jr = api.skill("journal")
+        want = jr.summary(jr.Paths(self.s.dir), None, True, api.Context(self.s.dir, UIFIX).now_ist().replace(
+            tzinfo=None, microsecond=0), recent=0)
+        self.assertEqual(d["stats"]["trades"], want["stats"]["trades"])
+        self.assertEqual(d["stats"]["net"], want["stats"]["net"])
+        self.assertEqual(d["stats"]["trades"], 3)                 # the demo's imported Zerodha week
+        self.assertEqual(len(d["stats"]["win_rate_ci"]), 2)
+        self.assertIn("Wilson", d["why"]["win_rate"]["formula"])
+        self.assertEqual(set(d["by"]), set(jr.GROUPS))
+        self.assertEqual(d["behaviour"]["counts"]["off-ticket"], 3)          # traded at the broker, never checked
+        self.assertIn("caveats", d["counterfactual"])
+        status, lite = self.s.get("/api/journal?lite=1")
+        self.assertEqual(status, 200)
+        self.assertIn("this_week", lite)
+        self.assertNotIn("counterfactual", lite)
+
+    def test_note_round_trip(self):
+        _, d = self.s.get("/api/journal")
+        eid = d["entries"][0]["id"]
+        status, res = self.s.post("/api/journal/note", {"id": eid, "text": "skipped my own rule", "tags": "tilt, revenge"})
+        self.assertEqual(status, 200, res)
+        self.assertEqual(res["tags"], ["tilt", "revenge"])
+        _, d = self.s.get("/api/journal")
+        e = [x for x in d["entries"] if x["id"] == eid][0]
+        self.assertEqual(e["notes"][-1]["text"], "skipped my own rule")
+        self.assertEqual(self.s.post("/api/journal/note", {"id": "../x", "text": "x"})[0], 400)
+        self.assertEqual(self.s.post("/api/journal/note", {"id": eid, "text": "x"}, token=False)[0], 403)
 
 
 class Frontend(unittest.TestCase):
@@ -1244,15 +1286,14 @@ class Frontend(unittest.TestCase):
         groups = re.findall(r"name: '(\w+)'", nav)
         self.assertEqual(groups, ["Discover", "Plan", "Trade", "Review", "Setup"])
 
-    def test_placeholders_say_coming_in_v03(self):
-        soon = self.js("pages", "soon.js")
-        for issue in ("49",):
-            self.assertIn("issue: %s" % issue, soon)
-        self.assertNotIn("issue: 44", soon)             # the Co-trader page is real now
-        self.assertNotIn("issue: 45", soon)             # and the Auto-pilot page
-        self.assertIn("cotrader,", self.js("app.js"))
-        self.assertIn("autopilot, journal: soon", self.js("app.js"))
-        self.assertIn("Coming in v0.3", self.js("ui.js"))
+    def test_no_page_is_a_placeholder_any_more(self):
+        # the Co-trader (#44), Journal (#49) and Auto-pilot (#45) pages are real: no "coming in v0.3" page is left
+        self.assertFalse(os.path.exists(os.path.join(STATIC, "js", "pages", "soon.js")))
+        self.assertNotIn("soon: true", self.js("nav.js"))
+        modules = re.search(r"const MODULES = \{(.*?)\};", self.js("app.js"), re.S).group(1)
+        self.assertNotIn("soon", modules)
+        for page in ("cotrader", "journal", "autopilot"):
+            self.assertIn("import * as %s from './pages/%s.js';" % (page, page), self.js("app.js"))
 
     def test_every_module_import_resolves(self):
         for base, _, names in os.walk(os.path.join(STATIC, "js")):

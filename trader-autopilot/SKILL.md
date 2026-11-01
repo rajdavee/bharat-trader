@@ -126,7 +126,7 @@ apply to every order through trader-risk):
    forward record holds up, PROMOTE becomes DEMOTE when it decays); the
    co-trader's calibration scored (overconfident strategies demoted); the
    trade journal synced when trader-journal is installed
-   (`journal.autopilot_sync(workdir, day)`); the report
+   (its own `sync`: `trader/journal.json`, the auto-pilot's trades included); the report
    `trader/autopilot/days/<date>/report.md` and `report.json`.
 
 **Kill switch** (`check.py kill`): no new entries, working entries

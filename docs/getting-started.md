@@ -192,7 +192,7 @@ desktop, IDE or chat assistant):
 }
 ```
 
-Restart it; it should list 42 tools and 11 prompts. Then ask: *"Morning
+Restart it; it should list 45 tools and 11 prompts. Then ask: *"Morning
 briefing please, focus on banks"*, *"Show me NIFTY's PCR, max pain and
 expected move"*, *"Does the 15-minute opening-range breakout survive charges
 out of sample?"*. There is no live-order tool; a paper order still needs

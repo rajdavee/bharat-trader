@@ -189,6 +189,7 @@ class Demo(object):
         if not fresh:
             shutil.copytree(os.path.join(FIXTURES, "trader"), os.path.join(self.dir, "trader"))
             serve.copy_demo_lab(FIXTURES, self.dir)
+            serve.copy_demo_journal(FIXTURES, self.dir)
         self.srv = serve.make_server("127.0.0.1", 0, self.dir, FIXTURES)
         self.thread = threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.1}, daemon=True)
         self.thread.start()

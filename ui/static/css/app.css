@@ -520,6 +520,8 @@ pre.snippet { white-space: pre; overflow: auto; background: var(--panel-2); bord
 .modal { position: fixed; inset: 0; z-index: 90; background: rgba(10, 12, 28, 0.45); display: grid; place-items: center; padding: 16px; }
 .modal-box { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--sp-5); max-width: 460px; width: 100%; box-shadow: var(--e-3); max-height: 90vh; overflow: auto; }
 .modal-box h2 { font-size: var(--fs-lg); margin-bottom: 12px; }
+.modal-box.journal-drawer { max-width: 760px; }
+.journal-breaks li { margin-bottom: 8px; }
 .keys { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0 0 12px; }
 .keys dd { margin: 0; }
 

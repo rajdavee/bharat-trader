@@ -55,7 +55,7 @@ Pages are grouped by the trader's day, so each step's next step is close by
 | Discover | Chart, Scanner, Option chain |
 | Plan | Strategy builder, Co-trader |
 | Trade | Portfolio and orders, Risk, Auto-pilot |
-| Review | Strategy Lab, Journal (coming in v0.3), Agents |
+| Review | Strategy Lab, Journal, Agents |
 | Setup | Settings, Setup guide, About |
 
 - 1100 px and wider: the groups are a sidebar. Narrower: the menu button opens
@@ -68,14 +68,13 @@ Pages are grouped by the trader's day, so each step's next step is close by
   to a term explains it in plain words.
 - Gains and losses carry a sign and a ▲ or ▼, not only a colour; pass and block
   carry ✓ and ✕.
-- The Journal page is a placeholder, labelled
-  "Coming in v0.3", that says what it will show.
 
 ## Pages
 
 | page | shows | from |
 | --- | --- | --- |
-| Today | The session rail (pre-open to 15:30 IST with your entry window, exits-only time and flat-by, and a now needle), day P&L after charges (realised, open, charges), the daily loss budget used, trades used, risk state (kill switch, circuit-breakers), open positions, the plan and its last risk check, alerts, NSE status, indices, the data self-test, the market regime, and the co-trader's top ready candidates (tier, odds with range and n, expected R after charges) or its no-edge decision | `/api/dashboard`, `/api/portfolio`, `/api/risk`, `/api/regime`, `/api/cotrader` |
+| Today | The session rail (pre-open to 15:30 IST with your entry window, exits-only time and flat-by, and a now needle), day P&L after charges (realised, open, charges), the daily loss budget used, trades used, risk state (kill switch, circuit-breakers), open positions, the plan and its last risk check, alerts, NSE status, indices, the data self-test, the market regime, and the co-trader's top ready candidates (tier, odds with range and n, expected R after charges) or its no-edge decision; this week from the journal (closed trades, net after charges, win rate with its range, rule breaks) | `/api/dashboard`, `/api/portfolio`, `/api/risk`, `/api/regime`, `/api/cotrader`, `/api/journal?lite=1` |
+| Journal | trader-journal's record: tiles for closed trades (with the sample-size warning), win rate with its Wilson 95% range, expectancy after charges with its range and the average R, net P&L with the cost drag, profit factor, max drawdown and streaks; the equity curve after charges; a breakdown by strategy, persona, regime, time of day, weekday or instrument; the rule-break log with the overtrading index; the counterfactual ledger (saved / cost per group, with the caveats); every closed trade, whose details (fills, R, MAE/MFE, rule notes) open in a dialog where you add notes and tags. See [journal.md](journal.md) | `trader-journal/journal.py` `summary`, `add_note` |
 | Strategy Lab | Each trader-lab run: the verdict and why, out-of-sample trades (the sample size), expectancy after charges, the Monte Carlo range of the final P&L, max drawdown, the equity curve after charges with the out-of-sample windows shaded, the gates, results by regime, the deflated Sharpe ratio, the probability of overfitting, the paper forward test, and what a backtest does not show | `trader/lab/<name>/results.json`, `status.json`, `equity.csv` from `trader-lab/lab.py run` |
 | Co-trader | Candidate cards from trader-cotrader: the evidence tier badge (PROMOTED, WATCH; RESEARCH only with "Show RESEARCH ideas"), the probability that a similar past trade made money after charges with its 95% range and n, the expected R after charges, the time-machine replay and any disagreement, the plan and size, trader-risk's verdict, why and why not, what would invalidate it, what the evidence does not show, similar past trades and Draft to paper (sized and risk-checked, nothing placed); the no-edge card when nothing qualifies; each strategy's status today; the calibration chart (predicted vs observed) with Brier scores by strategy. See [cotrader.md](cotrader.md) | trader-cotrader `run_today`, `calibration_report`; trader-budget and trader-risk for the draft |
 | Auto-pilot | Whether the paper loop runs (pid, last step), start and stop with the typed words `start paper` / `stop paper` (a live config is refused), today's timeline (pre-open brief, orders placed with trader-risk PASS and the machine yes, fills, exits, blocks with reasons, the kill switch, end of day), the open paper positions by strategy, each strategy's capital bucket and its paper forward record after charges next to the lab's verdict, today's report, and a replay of a past day in a sandbox. See [autopilot.md](autopilot.md) | trader-autopilot `status`, `replay`; `autopilot.py start` / `stop` |
@@ -157,6 +156,8 @@ free endpoints again.
 | POST | `/api/autopilot/start` | `{"typed": "start paper"}`: starts the loop on PAPER in the background (the offline demo runs one step); a live config is refused |
 | POST | `/api/autopilot/stop` | `{"typed": "stop paper"}`: the loop finishes its step and stops |
 | POST | `/api/autopilot/replay` | `{"date", "to"?}`: replays past sessions in a sandbox (`trader/autopilot/replays/`); your own account is not touched |
+| GET | `/api/journal` | trader-journal's summary, read only: stats with intervals, equity curve, breakdowns, rule breaks, the counterfactual ledger, every closed trade (`?lite=1`: this week only, no bars) |
+| POST | `/api/journal/note` | `{"id", "text", "tags"}`: your note and tags on one journal entry (`trader/journal/notes.json`); touches no order or trade record |
 | POST | `/api/doctor/run` | `doctor.py --json`: probe every data source now (about 30 s) and update `trader/doctor.json`; offline it replays `<offline>/doctor/` |
 
 Send to paper never places anything: the proposal goes through Run risk check

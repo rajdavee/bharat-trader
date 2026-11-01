@@ -1559,18 +1559,21 @@ class Pilot(object):
         write_json(path, doc)
 
     def journal_hook(self, day, now):
+        """trader-journal's own sync (journal.sync(Paths(workdir), bars, offline, now)): it rebuilds
+        trader/journal.json from the paper fills, the yes records (the auto-pilot's included, labelled) and the
+        risk verdicts. Skipped, and said so, when trader-journal is not installed next to this folder."""
         j = journal_api()
-        if j is None:
-            return {"status": "skipped", "why": "trader-journal is not installed (the journal hook: "
-                                                "journal.autopilot_sync(workdir, day))"}
-        fn = getattr(j, "autopilot_sync", None) or getattr(j, "sync", None)
-        if fn is None:
-            return {"status": "skipped", "why": "trader-journal has no autopilot_sync() or sync()"}
+        if j is None or not hasattr(j, "sync") or not hasattr(j, "Paths"):
+            return {"status": "skipped", "why": "trader-journal is not installed next to trader-autopilot"}
         try:
-            got = fn(self.paths.workdir, day)
-            return {"status": "synced", "result": got if isinstance(got, (dict, list, str, int, float)) else None}
+            doc = j.sync(j.Paths(self.paths.workdir), self.market.data, not self.fetch, now)
         except Exception as e:  # the journal must not stop the end of day
             return {"status": "failed", "why": str(e)[:300]}
+        s = doc.get("stats") or {}
+        today = [e for e in doc.get("entries") or [] if str(e.get("closed_at") or "")[:10] == day]
+        return {"status": "synced", "file": "trader/journal.json", "entries": len(doc.get("entries") or []),
+                "closed_today": len(today), "trades": s.get("trades"), "expectancy": s.get("expectancy"),
+                "words": "journal synced: %d closed trade(s), %d today" % (len(doc.get("entries") or []), len(today))}
 
     def calibration(self, now):
         ct = cotrader_api()

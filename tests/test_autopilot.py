@@ -229,7 +229,11 @@ class ReplayedDay(unittest.TestCase):
         self.assertEqual(self.rep["forward"]["t-sma20-watch"]["after"], "WATCH")
         cal = self.rep["calibration"]
         self.assertEqual((cal["resolved"], cal["demoted"]), (2, []))     # resolved from the paper fills
-        self.assertEqual(self.rep["journal"]["status"], "skipped")
+        # trader-journal's own sync ran at the end of the day: both paper round trips are journal entries
+        j = self.rep["journal"]
+        self.assertEqual((j["status"], j["entries"], j["closed_today"], j["trades"]), ("synced", 2, 2, 2), j)
+        doc = read(os.path.join(self.p.trader, "journal.json"))
+        self.assertEqual(sorted(e["net"] for e in doc["entries"]), [-206.53, -49.37])
 
     def test_the_users_own_account_is_untouched(self):
         t = os.path.join(self.wd, "trader")

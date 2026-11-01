@@ -27,6 +27,8 @@ PAPER_NOTE = "Paper trading only: this server has no way to place a live order."
 URI_PREFIX = "bharat-trader://trader/"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}\.json$")
 REGIME_NAME_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}\.json$")     # trader/regime/NIFTY.json
+JOURNAL_NAME_RE = re.compile(r"^(notes\.json|weekly-\d{4}-W\d{2}\.md)$")  # trader/journal/weekly-2026-W44.md
+SUB_RES = {"state": NAME_RE, "regime": REGIME_NAME_RE, "journal": JOURNAL_NAME_RE}
 SYMBOL_RE = re.compile(r"^[A-Za-z0-9&\-^.]{1,24}$")
 FP_RE = re.compile(r"^[0-9a-f]{16}$")
 
@@ -48,6 +50,7 @@ def _load_api():
         "discover": ("trader-discover", "discover"),
         "cotrader": ("trader-cotrader", "cotrader"),
         "autopilot": ("trader-autopilot", "autopilot"),
+        "journal": ("trader-journal", "journal"),
     })
     return mod
 
@@ -326,20 +329,22 @@ class Kit(object):
     def resources(self):
         base = os.path.join(self.workdir, "trader")
         out = []
-        for sub in ("", "state", "regime"):
+        for sub in ("", "state", "regime", "journal"):
             folder = os.path.join(base, sub) if sub else base
             if not os.path.isdir(folder):
                 continue
             for f in sorted(os.listdir(folder)):
                 p = os.path.join(folder, f)
-                if not ((REGIME_NAME_RE if sub == "regime" else NAME_RE).match(f) and os.path.isfile(p)):
+                if not (SUB_RES.get(sub, NAME_RE).match(f) and os.path.isfile(p)):
                     continue
                 rel = (sub + "/" + f) if sub else f
                 about = RESOURCE_ABOUT.get(rel) or (("the daily market regime of %s, one record a day "
                                                      "(trader-regime history)" % f[:-5]) if sub == "regime"
+                                                    else ("the weekly trade review %s (trader-journal review), the "
+                                                          "journal coach's input" % f[7:-3]) if sub == "journal"
                                                     else "trader/%s" % rel)
                 out.append({"uri": URI_PREFIX + rel, "name": rel, "title": "trader/" + rel,
-                            "description": about, "mimeType": "application/json",
+                            "description": about, "mimeType": mime_of(f),
                             "size": os.path.getsize(p)})
         return out
 
@@ -349,13 +354,13 @@ class Kit(object):
             return None
         rel = uri[len(URI_PREFIX):]
         parts = rel.split("/")
-        if len(parts) == 2 and parts[0] in ("state", "regime"):
+        if len(parts) == 2 and parts[0] in SUB_RES:
             name = parts[1]
         elif len(parts) == 1:
             name = parts[0]
         else:
             return None
-        pattern = REGIME_NAME_RE if len(parts) == 2 and parts[0] == "regime" else NAME_RE
+        pattern = SUB_RES[parts[0]] if len(parts) == 2 else NAME_RE
         if not pattern.match(name) or ".." in name:
             return None
         base = os.path.realpath(os.path.join(self.workdir, "trader"))
@@ -363,6 +368,10 @@ class Kit(object):
         if not p.startswith(base + os.sep) or not os.path.isfile(p):
             return None
         return p
+
+
+def mime_of(name):
+    return "text/markdown" if name.endswith(".md") else "application/json"
 
 
 def _clean(msg):
@@ -382,7 +391,9 @@ RESOURCE_ABOUT = {
     "portfolio.json": "the paper account: cash and positions (trader-broker)",
     "options.json": "the last option chain analysis (trader-options --write)",
     "strategy.json": "the strategy being built (trader-strategy)",
-    "journal.json": "your trade journal",
+    "journal.json": "your trade journal: every closed trade after charges, the stats and the rule breaks "
+                    "(trader-journal sync)",
+    "journal/notes.json": "your own notes and tags on journal entries (trader-journal note)",
     "timemachine.json": "the last time-machine replay (trader-timemachine --write)",
     "alerts.json": "alert rules (trader-alerts)",
     "state/risk.json": "trader-risk's recorded verdicts, with each order's fingerprint",
@@ -400,6 +411,9 @@ RESOURCE_TEMPLATES = [
     {"uriTemplate": URI_PREFIX + "regime/{file}", "name": "trader-regime-file", "title": "A trader/regime/ file",
      "description": "The daily market regime of one symbol from trader-regime history, e.g. NIFTY.json: trend, "
                     "volatility bucket, gap, expiry and event flags per day", "mimeType": "application/json"},
+    {"uriTemplate": URI_PREFIX + "journal/{file}", "name": "trader-journal-file", "title": "A trader/journal/ file",
+     "description": "trader-journal's weekly reviews (weekly-2026-W44.md, markdown) and your notes (notes.json)",
+     "mimeType": "text/markdown"},
 ]
 
 
@@ -563,6 +577,7 @@ def _risk_record(kit):
             "--out", kit.p("state", "risk.json"), "--json"] + (["--offline"] if kit.ctx.offline else []) + \
         kit.ctx.now_args()
     data, err = kit.run_json("risk", argv)
+    api.capture_risk(kit.ctx)
     return data, err
 
 
@@ -1418,6 +1433,81 @@ def t_autopilot_stop(kit, a, call):
     except api.ApiError as e:
         raise ToolError(e.message)
     return {"stopped": view["stopped"], "running": view["running"], "via": via}, [AUTOPILOT_LIMITS]
+# ---------------------------------------------------------------- tools: the trade journal
+
+JOURNAL_NOTE = ("A journal describes the user's own past trades: quote each rate with its range and the number of trades, "
+                "after charges, and say plainly when there are under 20. Patterns in a few trades can be chance. Read "
+                "only.")
+
+
+def _journal(kit):
+    jr = api.skill("journal")
+    return jr, jr.Paths(kit.workdir), kit.ctx.now_ist().replace(tzinfo=None, microsecond=0)
+
+
+def _journal_bars(kit):
+    """Offline: the bundle's saved lab bars. Otherwise the archive and the lab cache only (never fetched)."""
+    if kit.offline:
+        p = kit.offline.path("journal_summary", "trader-lab")
+        return p if p and os.path.isdir(p) else None
+    return None
+
+
+def t_journal_summary(kit, a, call):
+    """trader-journal's overview, read only: stats with intervals, this week, rule breaks, the ledger totals."""
+    jr, paths, now = _journal(kit)
+    n = int(a.get("recent") or 10)
+    try:
+        d = jr.summary(paths, _journal_bars(kit), True, now, recent=n)
+    except jr.JournalError as e:
+        raise ToolError(str(e))
+    d["stats"].pop("equity", None)
+    d.pop("by", None)
+    d["counterfactual"].pop("rows", None)
+    d.pop("disclaimer", None)
+    for e in d["entries"]:
+        e.pop("fills", None)
+    return d, [JOURNAL_NOTE]
+
+
+def t_journal_stats(kit, a, call):
+    jr, paths, now = _journal(kit)
+    by, week = a.get("by"), a.get("week")
+    try:
+        doc = jr.gather(paths, _journal_bars(kit), True, False, now)
+        entries = doc["entries"]
+        label = None
+        if week:
+            label, mon, sun = jr.week_bounds(week, now)
+            entries = [e for e in entries if mon.isoformat() <= e["closed_at"][:10] <= sun.isoformat()]
+        cfg = jr.config_of(paths)
+        s = jr.stats(entries, cfg.get("capital"))
+        s.pop("equity", None)
+        beh = jr.behaviour(entries, cfg, jr.verdicts_by_fp(jr.risk_records(paths))) if week else doc["behaviour"]
+        out = {"week": label, "stats": s, "behaviour": beh}
+        if by:
+            out["by"] = by
+            out["groups"] = jr.breakdown(entries, by)
+    except jr.JournalError as e:
+        raise ToolError(str(e))
+    return out, [JOURNAL_NOTE]
+
+
+def t_counterfactual_report(kit, a, call):
+    jr, paths, now = _journal(kit)
+    try:
+        doc = jr.gather(paths, _journal_bars(kit), True, False, now, with_bars=False)
+        cf = jr.counterfactual(paths, doc["entries"], jr.config_of(paths), _journal_bars(kit), True,
+                               a.get("since"), a.get("until"))
+    except jr.JournalError as e:
+        raise ToolError(str(e))
+    rows = cf["rows"]
+    if a.get("group"):
+        rows = [r for r in rows if r["group"] == a["group"]]
+    cf["rows"] = rows[-int(a.get("limit") or 50):]
+    return cf, ["Hypothetical fills on bars with trader-lab's rules, not an order book. Give the counts and the "
+                "caveats with any rupee total; a skipped trade that would have won is not a mistake by itself. "
+                "Read only."]
 
 
 # ---------------------------------------------------------------- the tool table
@@ -1862,6 +1952,42 @@ def build_tools():
                   data=obj({"stopped": S("string"), "via": S("string")}, ["stopped"], extra=True),
                   annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
                   network=False))
+    date = S("string", "a date, YYYY-MM-DD", pattern=r"^\d{4}-\d{2}-\d{2}$")
+    T.append(tool("journal_summary", "Trade journal summary",
+                  "The user's trade journal (trader-journal), rebuilt from paper fills (trader/state/trades.json) and "
+                  "imported broker trade books: closed trades after charges, expectancy with its 95% range, win rate "
+                  "with its Wilson interval, profit factor, drawdown, streaks, this week's numbers, the rule-break log "
+                  "(risk overrides, trades after a circuit-breaker lock, revenge trades, oversizing, entries outside "
+                  "the window, late exits, fills with no ticket), the overtrading index, the cost drag, the "
+                  "counterfactual ledger's totals and the latest trades. Read only.", t_journal_summary,
+                  {"recent": S("integer", "how many recent trades to list (default 10)", minimum=0, maximum=200)},
+                  data=obj({"stats": ANY_OBJ, "this_week": ANY_OBJ, "behaviour": ANY_OBJ, "counterfactual": ANY_OBJ,
+                            "entries": ANY_LIST}, ["stats", "behaviour"], extra=True), network=False))
+    T.append(tool("journal_stats", "Trade journal statistics",
+                  "Statistics of the user's closed trades after charges (trader-journal): expectancy with its range, "
+                  "win rate with its Wilson 95% interval, profit factor, average win and loss, max drawdown and "
+                  "streaks, optionally broken down by strategy, persona, regime (NIFTY's trend and volatility the "
+                  "close before), time of day, weekday or instrument, for all trades or one ISO week; with the "
+                  "behaviour flags. Read only.", t_journal_stats,
+                  {"by": S("string", "break down by", enum=["strategy", "persona", "regime", "tod", "weekday",
+                                                            "instrument"]),
+                   "week": S("string", "an ISO week like 2026-W44, or this / last",
+                             pattern=r"^(\d{4}-?W\d{1,2}|this|last)$")},
+                  data=obj({"stats": ANY_OBJ, "behaviour": ANY_OBJ}, ["stats"], extra=True), network=False))
+    T.append(tool("counterfactual_report", "Counterfactual ledger",
+                  "What the trades the user did not take would have done (trader-journal): every co-trader candidate "
+                  "skipped or blocked by risk (trader/cotrader/log.jsonl) and every trader-risk BLOCK of the user's "
+                  "own order, replayed on the bars after it with trader-lab's no-look-ahead fill rules (next bar's "
+                  "open plus slippage, stop first, flat-by or maximum holding, net of charges): per group the plans, "
+                  "how many were replayed, taken anyway or unresolved, what the losers would have lost (saved) and "
+                  "the winners made (cost), with the caveats. Read only; bars from the local archive or the lab "
+                  "cache, never fetched.", t_counterfactual_report,
+                  {"group": S("string", "one group only", enum=["co-trader skipped", "co-trader blocked by risk",
+                                                                "your orders blocked by risk"]),
+                   "since": date, "until": date,
+                   "limit": S("integer", "how many replay rows to return (default 50)", minimum=1, maximum=500)},
+                  data=obj({"groups": ANY_OBJ, "rows": ANY_LIST, "caveats": ANY_LIST}, ["groups", "caveats"],
+                           extra=True), network=False))
     return T
 
 
@@ -1903,10 +2029,13 @@ def build_prompts():
         {"name": "weekly_review", "title": "Weekly review",
          "description": "Look back at the week's paper trades, decisions and the rules that blocked orders.",
          "arguments": [],
-         "text": ("Review my trading week. Call portfolio_status, paper_orders_show, risk_check and config_get, "
-                  "and read the resources trader/state/trades.json and trader/state/broker.json if they exist. "
-                  "Summarise realised P&L after charges, what risk blocked and why, any yes that was refused, and "
-                  "which rule I came closest to breaking. Suggest one process change, not a stock. " + RULES)},
+         "text": ("Review my trading week. Call journal_stats (week: this) and journal_summary for the closed "
+                  "trades after charges, the win rate with its interval, the rule breaks and the cost drag; "
+                  "counterfactual_report for what the skipped and blocked trades would have done; then "
+                  "portfolio_status, paper_orders_show, risk_check and config_get. Read "
+                  "trader/journal/weekly-*.md if there is one. Summarise realised P&L after charges, what risk "
+                  "blocked and why, every rule break with its time, and which rule I came closest to breaking. "
+                  "Under 20 trades, review process only. Suggest one process change, not a stock. " + RULES)},
         {"name": "research_strategy", "title": "Research a strategy",
          "description": "Test an idea honestly: evidence for and against, after charges, out of sample.",
          "arguments": [{"name": "idea", "description": "the strategy idea in plain words", "required": True},

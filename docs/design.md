@@ -191,7 +191,7 @@ turns transitions off.
 | Discover | Chart, Scanner, Option chain |
 | Plan | Strategy builder, Co-trader |
 | Trade | Portfolio and orders, Risk, Auto-pilot |
-| Review | Strategy Lab, Journal (coming in v0.3), Agents |
+| Review | Strategy Lab, Journal, Agents |
 | Setup | Settings, Setup guide, About |
 
 ### Writing

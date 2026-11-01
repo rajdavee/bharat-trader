@@ -49,6 +49,7 @@ SKILLS = {
     "discover": ("trader-discover", "discover"),
     "cotrader": ("trader-cotrader", "cotrader"),
     "autopilot": ("trader-autopilot", "autopilot"),
+    "journal": ("trader-journal", "journal"),
 }
 # how long a live answer is reused, in seconds (free endpoints: be polite)
 TTL = {"quotes": 15, "nse": 120, "chart-1m": 30, "chart-5m": 60, "chart-1d": 900, "history": 900}
@@ -837,7 +838,17 @@ def r_risk_check(ctx, q, body):
         res["ok"], res["result"] = False, None
     if res["result"]:
         res["output"] = ""
+        capture_risk(ctx)
     return res
+
+
+def capture_risk(ctx):
+    """Keep the verdicts just recorded in trader-journal's risk log (risk.json holds only the last check)."""
+    try:
+        jr = skill("journal")
+        jr.capture_risk(jr.Paths(ctx.workdir), ctx.now_ist().replace(tzinfo=None, microsecond=0))
+    except Exception:          # the journal is a record keeper: never let it fail a risk check
+        pass
 
 
 def r_risk_kill(ctx, q, body):
@@ -1698,6 +1709,71 @@ def r_regime(ctx, q, body):
     return ctx.cached(("regime", ",".join(syms), now.strftime("%Y-%m-%d %H:%M")[:15]), TTL["history"], read)
 
 
+# ---------------------------------------------------------------- routes: the trade journal
+
+JOURNAL_ID = re.compile(r"^J\d{8}-[0-9a-f]{6}$")
+
+
+def _journal_args(ctx):
+    jr = skill("journal")
+    bars = os.path.join(ctx.offline, "bars") if ctx.offline and os.path.isdir(os.path.join(ctx.offline, "bars")) \
+        else None
+    return jr, jr.Paths(ctx.workdir), bars, ctx.now_ist().replace(tzinfo=None, microsecond=0)
+
+
+def journal_view(ctx, lite=False):
+    """trader-journal's summary, read only: bars from the archive or the lab cache (never fetched here)."""
+    jr, paths, bars, now = _journal_args(ctx)
+    try:
+        doc = jr.summary(paths, bars, True, now, recent=0, lite=lite)
+    except jr.JournalError as e:
+        raise ApiError(422, str(e))
+    doc["why"] = {
+        "win_rate": why("Wilson 95% interval: (p + z²/2n ± z·√(p(1-p)/n + z²/4n²)) / (1 + z²/n), z = 1.96",
+                        {"wins": (doc.get("stats") or doc["this_week"]).get("wins"),
+                         "trades": (doc.get("stats") or doc["this_week"]).get("trades")},
+                        "trader-journal stats", doc["as_of"], "A range, not a promise: with few trades it is wide."),
+        "expectancy": why("net P&L after charges / closed trades; the range is mean ± 1.96 · sd / √n",
+                          {}, "trader-journal stats", doc["as_of"]),
+        "regime": why("NIFTY's trend class and volatility bucket as of the close BEFORE the entry (trader-regime)",
+                      {}, "trader/regime/NIFTY.json or trader-regime on NIFTY daily bars", doc["as_of"]),
+        "counterfactual": why("each plan replayed with trader-lab's fill rules: next bar's open plus slippage, stop "
+                              "first inside a bar, out at the flat-by or after the maximum holding, net of charges",
+                              {}, "trader-journal counterfactual", doc["as_of"],
+                              "Hypothetical fills on bars, not an order book."),
+    }
+    return doc
+
+
+def r_journal(ctx, q, body):
+    lite = str(q.get("lite") or "") in ("1", "true", "yes")
+    key = ("journal", lite, ctx.now_ist().strftime("%Y-%m-%d %H:%M"))
+    return ctx.cached(key, 20, lambda: journal_view(ctx, lite))
+
+
+def r_journal_note(ctx, q, body):
+    """Your note and tags on one journal entry (trader/journal/notes.json). Touches no order or trade record."""
+    b = body or {}
+    eid, text, tags = b.get("id"), b.get("text") or "", b.get("tags") or []
+    if not isinstance(eid, str) or not JOURNAL_ID.match(eid):
+        raise ApiError(400, "id: a journal entry ID like J20261026-b1b26f")
+    if not isinstance(text, str) or len(text) > 2000:
+        raise ApiError(400, "text: at most 2,000 characters")
+    if isinstance(tags, str):
+        tags = [t for t in re.split(r"[,\s]+", tags) if t]
+    if not isinstance(tags, list) or len(tags) > 12 or not all(isinstance(t, str) for t in tags):
+        raise ApiError(400, "tags: up to 12 short words")
+    jr, paths, _, now = _journal_args(ctx)
+    try:
+        cur = jr.add_note(paths, eid, text, tags, now)
+    except jr.JournalError as e:
+        raise ApiError(400, str(e))
+    with ctx._cache_lock:
+        for k in [k for k in ctx._cache if isinstance(k, tuple) and k and k[0] == "journal"]:
+            ctx._cache.pop(k, None)
+    return {"ok": True, "id": eid, "notes": cur["notes"], "tags": cur["tags"]}
+
+
 # ---------------------------------------------------------------- routes: agent personas and their scorecards
 
 AGENTS = os.path.join(ROOT, "agents")
@@ -2472,6 +2548,8 @@ ROUTES = [
      False),
     ("GET", "/api/onboarding", r_onboarding, "first-run steps; ?capital=&risk_pct=&max_trades=&product=&broker_profile= "
      "previews the config size.py init would write (save it with POST /api/config)", False),
+    ("GET", "/api/journal", r_journal, "trade journal: stats with intervals, equity curve, breakdowns, rule breaks, "
+                                        "counterfactual ledger, every closed trade (?lite=1: this week only)", False),
     ("GET", "/api/regime", r_regime, "market regime now: trend, vol bucket, gap, expiry and events: ?symbols=", False),
     ("GET", "/api/cotrader", r_cotrader, "the last co-trader run (trader/cotrader.json): tiered candidates, odds with "
      "ranges and n, risk verdicts, no-edge reasons; the calibration of logged probabilities", False),
@@ -2496,6 +2574,7 @@ ROUTES = [
     ("POST", "/api/strategy/price", r_strategy_price, "price a template or custom legs (trader-strategy evaluate)",
      True),
     ("POST", "/api/strategy/draft", r_strategy_draft, "write the legs as a paper PROPOSAL to trader/orders.json", True),
+    ("POST", "/api/journal/note", r_journal_note, "add your note and tags to one journal entry", True),
     ("POST", "/api/doctor/run", r_doctor_run, "run the data self-test now and update trader/doctor.json", True),
     ("POST", "/api/cotrader/run", r_cotrader_run, "run the co-trader now (tier validated or research); writes "
      "trader/cotrader.json and its log, places nothing", True),

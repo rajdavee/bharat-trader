@@ -108,6 +108,12 @@ At the end of each day:
    paper fills first and demotes a strategy whose predictions were
    overconfident (Brier score, reliability; at least 20 outcomes).
 
+The end of day also runs trader-journal's own sync (`journal.sync`), so
+the auto-pilot's paper trades are journal entries like any other (their setup
+is `cotrader-watch:<strategy>` or `cotrader-promoted:<strategy>`, and each
+yes is labelled with its actor), with the journal's statistics, rule-break log
+and counterfactual ledger.
+
 The day's report shows every verdict before and after, and the co-trader only
 offers PROMOTED and WATCH strategies, so a demoted strategy stops trading the
 next session by itself.
