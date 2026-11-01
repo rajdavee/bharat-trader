@@ -1,0 +1,110 @@
+PRESS RELEASE
+Mumbai, August 10, 2026
+Replacements in indices
+The Index Maintenance Sub-Committee (Equity) of NSE Indices Limited has decided to make
+replacement of stocks in various indices as part of its periodic review as listed hereunder. These changes
+shall become effective from September 30, 2026 (close of September 29, 2026).
+A. Replacements on account of semi-annual review of broad market indices:
+1) Nifty 50
+The following company is being excluded:
+Sr. No.	Company Name	Symbol
+1 Wipro Ltd.	WIPRO
+The following company is being included:
+Sr. No.	Company Name	Symbol
+1 BSE Ltd.	BSE
+Note:
+1. BSE Ltd. (average free-float market capitalization Rs. 1,40,879 crores) has been included in Nifty 50 index
+as the 6-month average free-float market capitalization of the company within eligible universe is at least
+1.5 times the 6-month average free-float market capitalization of the smallest constituents i.e. Wipro Ltd.
+(average free-float market capitalization Rs. 55,930 crores).
+2. Next two eligible companies namely TVS Motor Company Ltd. (Rs. 84,566 crores) and Divi’s Laboratories
+Ltd. (Rs. 82,930 crores) were not considered for inclusion in Nifty 50 index as the average free-float market
+capitalization of two Nifty 50 constituents with lowest average free-float market capitalization (after
+exclusion of the company in Nifty 50 listed above) namely HDFC Life Insurance Company Ltd. (Rs. 65,666
+crores) and Tata Consumer Products Ltd. (Rs. 73,054 crores) was less than 1.5 times the 6-month average
+free-float market capitalization.
+3. Stocks that are available for trading in NSE’s Futures & Options segment are only eligible for inclusion in
+the index.
+The above replacement will also be applicable to Nifty50 Equal Weight index.
+
+2) Nifty 500
+The following companies are being excluded:
+Sr. No.	Company Name	Symbol
+1 3M India Ltd.	3MINDIA
+2 Aditya Birla Fashion and Retail Ltd.	ABFRL
+3 Aditya Birla Lifestyle Brands Ltd.	ABLBL
+4 Bayer Cropscience Ltd.	BAYERCROP
+5 Bikaji Foods International Ltd.	BIKAJI
+6 Blue Dart Express Ltd.	BLUEDART
+7 Blue Jet Healthcare Ltd.	BLUEJET
+8 Bombay Burmah Trading Corporation Ltd.	BBTC
+9 C.E. Info Systems Ltd.	MAPMYINDIA
+10 Chalet Hotels Ltd.	CHALET
+11 DCM Shriram Ltd.	DCMSHRIRAM
+12 Eris Lifesciences Ltd.	ERIS
+13 Go Digit General Insurance Ltd.	GODIGIT
+14 Indegene Ltd.	INDGN
+15 JSW Dulux Ltd.	JSWDULUX
+16 Jubilant Pharmova Ltd.	JUBLPHARMA
+17 Latent View Analytics Ltd.	LATENTVIEW
+18 Leela Palaces Hotels & Resorts Ltd.	THELEELA
+19 Newgen Software Technologies Ltd.	NEWGEN
+20 Niva Bupa Health Insurance Company Ltd.	NIVABUPA
+21 Pfizer Ltd.	PFIZER
+22 Sapphire Foods India Ltd.	SAPPHIRE
+23 Saregama India Ltd	SAREGAMA
+24 SBFC Finance Ltd.	SBFC
+25 Sonata Software Ltd.	SONATSOFTW
+26 Supreme Petrochem Ltd.	SPLPETRO
+27 Travel Food Services Ltd.	TRAVELFOOD
+The following companies are being included:
+Sr. No.	Company Name	Symbol
+1 Aether Industries Ltd.	AETHER
+2 Avanti Feeds Ltd.	AVANTIFEED
+
+Sr. No.	Company Name	Symbol
+3 Azad Engineering Ltd.	AZAD
+4 Bagmane Prime Office REIT	BAGMANE
+5 Bharat Coking Coal Ltd.	BHARATCOAL
+6 Black Box Ltd.	BBOX
+7 Brookfield India Real Estate Trust	BIRET
+8 Central Mine Planning & Design Institute Ltd.	CMPDI
+9 Clean Max Enviro Energy Solutions Ltd.	CLEANMAX
+10 Cupid Ltd.	CUPID
+11 Embassy Office Parks REIT	EMBASSY
+12 Fractal Analytics Ltd.	FRACTAL
+13 INOX India Ltd.	INOXINDIA
+14 Kirloskar Brothers Ltd.	KIRLOSBROS
+15 KSB Ltd.	KSB
+16 MTAR Technologies Ltd.	MTARTECH
+17 Privi Speciality Chemicals Ltd.	PRIVISCL
+18 Rubicon Research Ltd.	RUBICON
+19 Sansera Engineering Ltd.	SANSERA
+20 SPR Auto Technologies Ltd.	SHRIPISTON
+21 Sterlite Technologies Ltd.	STLTECH
+22 TD Power Systems Ltd.	TDPOWERSYS
+23 Thangamayil Jewellery Ltd.	THANGAMAYL
+24 Vedanta Aluminium Metal Ltd.	VAML
+25 Vedanta Iron and Steel Ltd.	VISL
+26 Vedanta Oil and Gas Ltd.	VOGL
+27 Vedanta Power Ltd.	VEDPOWER
+The above replacements will also be applicable to Nifty500 Equal Weight, Nifty500 Multicap 50:25:25
+and Nifty500 LargeMidSmall Equal-Cap Weighted indices.
+3) Nifty 100
+The following companies are being excluded:
+Sr. No.	Company Name	Symbol
+1	Indian Hotels Co. Ltd.	INDHOTEL
+2	Lodha Developers Ltd.	LODHA
+3	REC Ltd.	RECLTD
+4	Shree Cement Ltd.	SHREECEM
+
+Sr. No.	Company Name	Symbol
+5	United Spirits Ltd.	UNITDSPR
+The following companies are being included:
+Sr. No.	Company Name	Symbol
+1	BSE Ltd.	BSE
+2	Hitachi Energy India Ltd.	POWERINDIA
+3	Polycab India Ltd.	POLYCAB
+4	Vedanta Aluminium Metal Ltd.	VAML
+5	Vodafone Idea Ltd.	IDEA
+The above replacements will also be applicable to Nifty100 Equal Weight index.
