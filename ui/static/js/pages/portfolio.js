@@ -206,6 +206,7 @@ function strategyCard(s, refresh) {
 
 export async function render(root) {
   root.appendChild(h('h1', { class: 'page-title' }, 'Paper portfolio and orders'));
+  root.appendChild(h('p', { class: 'page-lede explain' }, 'Trade and manage: proposals become paper orders only after a risk check PASS and your typed yes. Positions are marked to delayed prices, after charges.'));
   const body = h('div');
   root.appendChild(body);
   const live = h('div');

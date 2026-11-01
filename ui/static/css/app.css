@@ -156,6 +156,7 @@ body {
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; text-underline-offset: 3px; }
 code, pre, kbd { font-family: var(--mono); font-size: 0.9em; }
+main code { overflow-wrap: anywhere; }
 kbd {
   border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px;
   background: var(--panel-2); color: var(--muted); font-size: 11px;
@@ -440,7 +441,8 @@ textarea { font-family: var(--mono); width: 100%; resize: vertical; }
 .rail-seg.closed { background: var(--grid); }
 .rail-seg + .rail-seg { border-left: 1px solid var(--panel); }
 .rail-tick { position: absolute; top: 36px; font-size: 11px; color: var(--muted); transform: translateX(-50%); white-space: nowrap; }
-.rail-tick:first-of-type { transform: none; }
+.rail-tick.start { transform: none; }
+.rail-span { color: var(--muted); }
 .rail-tick.end { transform: translateX(-100%); }
 .rail-needle { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--marigold); border-radius: 2px; box-shadow: 0 0 0 2px var(--panel); }
 .rail-needle::after { content: ""; position: absolute; top: -5px; left: -4px; border: 5.5px solid transparent; border-top-color: var(--marigold); }
@@ -688,6 +690,9 @@ canvas.plot:focus-visible { outline: 2px solid var(--focus); }
   .bottom-bar a:hover { text-decoration: none; }
   .toasts { bottom: 80px; }
   .stepper li { flex-basis: calc(50% - 6px); }
+  .rail-tick.mid { display: none; }
+  .rail-legend { display: grid; gap: 4px; }
+  .metric-value { overflow-wrap: anywhere; }
 }
 @media (max-width: 420px) {
   .metrics { grid-template-columns: minmax(0, 1fr); }

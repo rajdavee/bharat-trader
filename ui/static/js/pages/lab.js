@@ -9,6 +9,7 @@ import { plot } from '../plot.js';
 const STATE = { plots: [], off: [] };
 
 const r = (x) => (x === null || x === undefined ? '–' : (Number(x) > 0 ? '+' : '') + num(x, 3) + 'R');
+const rupees = (x) => (x === null || x === undefined ? '–' : (Number(x) > 0 ? '+' : '') + inr(Math.round(Number(x))).replace(/\.00$/, ''));
 const share = (x) => (x === null || x === undefined ? '–' : num(Number(x) * 100, 0) + '%');
 
 function verdictTag(v) {
@@ -75,7 +76,7 @@ function runCard(run) {
       sub: `Net ${signed(o.net)} out of sample; whole sample ${r(f.expectancy_r)}`,
       explain: 'Average result per trade in units of the amount risked.' }),
     metric({ label: 'Final P&L range (5th to 95th percentile)', term: 'monte_carlo',
-      value: why(`${signed(mc.final_p5)} to ${signed(mc.final_p95)}`, run.why.mc_range, 'this range'),
+      value: why(`${rupees(mc.final_p5)} to ${rupees(mc.final_p95)}`, run.why.mc_range, 'this range'),
       sub: `${share(mc.prob_loss)} of ${num(mc.runs, 0)} reshuffles ended in a loss`,
       explain: 'Where the same trades could have ended in another order: luck, not a forecast.' }),
     metric({ label: 'Max drawdown, whole sample', term: 'drawdown',

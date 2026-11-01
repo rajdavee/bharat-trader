@@ -46,6 +46,7 @@ function scorecard(c, whyInfo) {
 
 export async function render(root) {
   root.appendChild(h('h1', { class: 'page-title' }, 'Agent team'));
+  root.appendChild(h('p', { class: 'page-lede explain' }, 'Review: each agent persona\'s paper track record after charges, and the habits it shows (over-trading, revenge trades, late exits).'));
   const body = h('div');
   root.appendChild(body);
   loading(body);

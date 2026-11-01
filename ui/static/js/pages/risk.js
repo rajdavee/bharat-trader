@@ -149,7 +149,8 @@ function bookCard(d) {
 }
 
 export async function render(root) {
-  root.appendChild(h('h1', { class: 'page-title' }, 'Risk panel'));
+  root.appendChild(h('h1', { class: 'page-title' }, 'Risk'));
+  root.appendChild(h('p', { class: 'page-lede explain' }, 'Trade: every order is checked against your own limits before it can be confirmed. The kill switch stops new entries for the day; exits always pass.'));
   const body = h('div');
   root.appendChild(body);
   const refresh = async (flash) => {

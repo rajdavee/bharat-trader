@@ -100,7 +100,7 @@ export function sessionRail({ now, open, phase, noBefore, noAfter, flatBy, nextO
   }
   const rail = h('div', { class: 'rail', role: 'img', 'aria-label': railWords(t, open, nb, na, fb) }, track);
   for (const [m, cls] of [[START, ''], [nb, ''], [na, ''], [fb, ''], [END, 'end']]) {
-    const tick = h('span', { class: 'rail-tick ' + cls, 'aria-hidden': 'true' }, hhmm(m));
+    const tick = h('span', { class: 'rail-tick ' + (cls || (m === START ? 'start' : 'mid')), 'aria-hidden': 'true' }, hhmm(m));
     tick.style.left = pct(m) + '%';
     rail.appendChild(tick);
   }
@@ -135,7 +135,8 @@ export function sessionRail({ now, open, phase, noBefore, noAfter, flatBy, nextO
         h('span', null, headline)),
       next ? h('div', { class: 'rail-next' }, next) : null),
     rail,
-    h('ul', { class: 'rail-legend' }, segs.map(([cls, , , label]) => h('li', null, h('i', { class: cls }), label))));
+    h('ul', { class: 'rail-legend' }, segs.map(([cls, a, b, label]) => h('li', null, h('i', { class: cls }), label,
+      h('span', { class: 'rail-span' }, ` ${hhmm(a)} to ${hhmm(b)}`)))));
 }
 
 function railWords(t, open, nb, na, fb) {

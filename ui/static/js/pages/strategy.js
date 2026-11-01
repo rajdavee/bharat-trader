@@ -180,6 +180,7 @@ export async function render(root, ctx) {
   const p = ctx.params || {};
   root.appendChild(h('h1', { class: 'page-title' }, 'Strategy builder', h('span', { class: 'badge' }, 'trader-strategy'),
     h('span', { class: 'badge paper' }, 'paper')));
+  root.appendChild(h('p', { class: 'page-lede explain' }, 'Plan: price an options strategy before you trade it: payoff after charges, margin, the odds with their method, and what a volatility change does.'));
   const meta = await get('/api/strategy');
   const st = {
     symbol: (p.symbol || meta.default || 'NIFTY').toUpperCase(), expiry: p.expiry || '', far: '', mode: p.legs ? 'custom' : 'template',
