@@ -7,6 +7,7 @@ import { metric, empty, skeleton, failure, pageHead } from '../ui.js';
 import { plot } from '../plot.js';
 
 const STATE = { plots: [], off: [] };
+const redraw = () => STATE.plots.forEach((p) => p.redraw());
 
 const r = (x) => (x === null || x === undefined ? '–' : (Number(x) > 0 ? '+' : '') + num(x, 3) + 'R');
 const rupees = (x) => (x === null || x === undefined ? '–' : (Number(x) > 0 ? '+' : '') + inr(Math.round(Number(x))).replace(/\.00$/, ''));
@@ -103,8 +104,12 @@ function runCard(run) {
     h('p', { class: 'small muted' }, 'Full scorecard: ', h('code', null, `python3 trader-lab/lab.py report ${run.name}`)));
 }
 
-export async function render(root) {
+export async function render(root, ctx) {
   clear(root);
+  if (ctx && ctx.bus) {
+    ctx.bus.addEventListener('theme', redraw);
+    STATE.off.push(() => ctx.bus.removeEventListener('theme', redraw));
+  }
   root.append(...pageHead('Strategy Lab', 'Honest backtests: every number is after charges and slippage, scored out of ' +
     'sample, with the gates written down before the run.'));
   const body = h('div', null, skeleton(5));
@@ -113,7 +118,7 @@ export async function render(root) {
   try {
     d = await get('/api/lab');
   } catch (e) {
-    clear(body).appendChild(failure(e.message || String(e), () => render(root)));
+    clear(body).appendChild(failure(e.message || String(e), () => render(root, ctx)));
     return;
   }
   clear(body);
@@ -151,4 +156,6 @@ export async function render(root) {
 export function destroy() {
   STATE.plots.forEach((p) => p.destroy());
   STATE.plots = [];
+  STATE.off.forEach((f) => f());
+  STATE.off = [];
 }
