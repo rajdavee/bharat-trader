@@ -315,6 +315,32 @@ class Lab(unittest.TestCase):
         self.assertIn("%d trades" % want["trades"], g[0]["got"])
 
 
+class UiRoute(unittest.TestCase):
+    """GET /api/regime in ui/api.py: the same read, offline from the archive only."""
+
+    def test_route_reads_the_archive_offline(self):
+        api = load("ui", "api")
+        ta = load_test_archive()
+        work = tempfile.mkdtemp(prefix="bt-regime-ui-")
+        try:
+            ctx = api.Context(workdir=work, offline=os.path.join(FIX, "ui"), now="2026-10-23 16:00")
+            status, body = api.dispatch(ctx, "GET", "/api/regime", {}, None)
+            self.assertEqual(status, 200)
+            self.assertEqual(body["regimes"], [])
+            self.assertEqual(len(body["errors"]), 2)                     # no archive and no network offline
+            ta.build(os.path.join(work, "trader", "archive"))
+            ctx = api.Context(workdir=work, offline=os.path.join(FIX, "ui"), now="2026-10-23 16:00")
+            status, body = api.dispatch(ctx, "GET", "/api/regime", {"symbols": "NIFTY"}, None)
+            self.assertEqual(status, 200, body)
+            r = body["regimes"][0]
+            self.assertEqual(r["daily"]["calendar"]["expiry"]["source"], "archive F&O bhavcopy 2026-10-23")
+            self.assertEqual(body["source"], "archive")
+            status, _ = api.dispatch(ctx, "GET", "/api/regime", {"symbols": "../etc"}, None)
+            self.assertEqual(status, 400)
+        finally:
+            shutil.rmtree(work)
+
+
 class Cli(unittest.TestCase):
     def setUp(self):
         self.d = data_dir()

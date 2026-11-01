@@ -825,7 +825,9 @@ def archive_expiries(underlying, day, root, api=None):
     key = ("fo", p, os.path.getsize(p))
     if key not in _CACHE:
         rows = {}
-        for line in gzip.decompress(open(p, "rb").read()).decode("utf-8").splitlines()[1:]:
+        with open(p, "rb") as fh:
+            lines = gzip.decompress(fh.read()).decode("utf-8").splitlines()[1:]
+        for line in lines:
             parts = line.split(",", 3)
             if len(parts) >= 3:
                 rows.setdefault(parts[0], set()).add((parts[1], parts[2]))
@@ -1233,7 +1235,8 @@ def archive_api():
 
 def read_bars_file(path):
     """SYMBOL-1d.csv(.gz) (date,time,open,high,low,close,volume) -> bars."""
-    raw = open(path, "rb").read()
+    with open(path, "rb") as fh:
+        raw = fh.read()
     if path.endswith(".gz"):
         raw = gzip.decompress(raw)
     out = []
