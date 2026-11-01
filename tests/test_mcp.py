@@ -27,7 +27,8 @@ TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit
          "portfolio_status", "paper_mtm", "options_chain", "options_summary", "results_analyse", "insider_deals",
          "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "discover_strategies", "discover_report", "lab_forward",
          "strategy_build",
-         "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor", "persona_scorecards", "regime_now"]
+         "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor", "persona_scorecards", "regime_now",
+         "cotrader_candidates", "cotrader_explain", "calibration_report"]
 # one offline call per tool, on the real saved answers in tests/fixtures (see tests/fixtures/mcp/offline.json)
 CALLS = [
     ("market_status", {}),
@@ -64,6 +65,9 @@ CALLS = [
     ("doctor", {}),
     ("persona_scorecards", {}),
     ("regime_now", {}),
+    ("cotrader_candidates", {}),
+    ("cotrader_explain", {}),
+    ("calibration_report", {}),
     ("paper_order_draft", {}),
     ("paper_order_confirm", {"index": 1, "risk_fingerprint": FP, "yes_text": "yes 42 RELIANCE"}),
 ]
@@ -1016,6 +1020,50 @@ class Docs(unittest.TestCase):
             self.assertIn('"command": "python3"', text, f)
             self.assertIn('"/path/to/bharat-trader/mcp/server.py"', text, f)
             self.assertIn('"--workdir"', text, f)
+
+
+# ---------------------------------------------------------------- the co-trader
+
+class Cotrader(ServerCase):
+    def data(self, name, args):
+        r = self.result(self.c.call(name, args))
+        self.assertFalse(r["isError"], r["content"][0]["text"][:400])
+        return r["structuredContent"]["data"]
+
+    def test_no_edge_on_the_demo_then_candidates_and_explain(self):
+        d = self.data("cotrader_candidates", {})
+        self.assertEqual(d["candidates"], [])
+        self.assertEqual(d["no_edge"]["decision"], "sit out")              # no lab runs: nothing validated
+        self.assertIn("sitting out", d["next_step"])
+        import test_cotrader as tc
+        tc.run_lab(self.c.workdir, [tc.SMA20_WATCH, tc.SMA20_REJECT], tc.SIGNAL)
+        d = self.data("cotrader_candidates", {})
+        ids = sorted(c["id"] for c in d["candidates"])
+        self.assertEqual(ids, ["2026-09-21-t-sma20-watch-AXISBANK", "2026-09-21-t-sma20-watch-BHARTIARTL"])
+        self.assertTrue(all(c["tier"] == "WATCH" and "order" not in c for c in d["candidates"]))
+        self.assertIn("paper_order_draft with candidate", d["next_step"])
+        r = self.data("cotrader_candidates", {"include_research": True, "refresh": True})
+        self.assertIn("RESEARCH", [c["tier"] for c in r["candidates"]])
+        saved = self.data("cotrader_candidates", {"refresh": False})
+        self.assertEqual(saved["view"], "research")
+        ls = self.data("cotrader_explain", {})
+        self.assertEqual(len(ls["candidates"]), 4)
+        one = self.data("cotrader_explain", {"id": ids[0]})
+        self.assertIn("does NOT show", one["text"])
+        self.assertTrue(one["explain"]["invalidation"])
+        bad = self.result(self.c.call("cotrader_explain", {"id": "2026-01-01-nothing-SBIN"}))
+        self.assertTrue(bad["isError"])
+        cal = self.data("calibration_report", {})
+        self.assertEqual(cal["pending"] + cal["resolved"], 4)
+        # drafting goes through paper_order_draft: this daily plan is for 21 Sep, the server's clock says 29 Oct
+        r = self.result(self.c.call("paper_order_draft", {"candidate": ids[0]}))
+        self.assertTrue(r["isError"])
+        self.assertIn("2026-09-21", r["content"][0]["text"])
+        with open(os.path.join(self.c.workdir, "trader", "plan.json"), encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["cotrader"]["id"], ids[0])
+        self.assertTrue(os.path.exists(os.path.join(self.c.workdir, "trader", "plan.json.bak")))
+        r = self.result(self.c.call("paper_order_draft", {"candidate": "2026-01-01-nothing-SBIN"}))
+        self.assertTrue(r["isError"])
 
 
 # ---------------------------------------------------------------- streamable HTTP

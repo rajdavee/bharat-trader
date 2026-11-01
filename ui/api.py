@@ -45,6 +45,7 @@ SKILLS = {
     "doctor": ("trader-doctor", "doctor"),
     "regime": ("trader-regime", "regime"),
     "discover": ("trader-discover", "discover"),
+    "cotrader": ("trader-cotrader", "cotrader"),
 }
 # how long a live answer is reused, in seconds (free endpoints: be polite)
 TTL = {"quotes": 15, "nse": 120, "chart-1m": 30, "chart-5m": 60, "chart-1d": 900, "history": 900}
@@ -75,7 +76,7 @@ def skill_errors():
     out = []
     for name, cls in (("alerts", "AlertError"), ("entry", "EntryError"), ("risk", "RiskError"),
                       ("broker", "TicketError"), ("budget", "SizeError"), ("scanner", "ScanError"),
-                      ("options", "OptionsError"), ("strategy", "StrategyError")):
+                      ("options", "OptionsError"), ("strategy", "StrategyError"), ("cotrader", "CotraderError")):
         out.append(getattr(skill(name), cls))
     return tuple(out)
 
@@ -2168,6 +2169,119 @@ def r_lab(ctx, q, body):
             "disclaimer": DISCLAIMER}
 
 
+# ---------------------------------------------------------------- routes: co-trader
+
+COTRADER_LIMITS = ("A candidate's probability is the share of similar past trades that made money after charges, with "
+                   "its sample size and a 95% range; it is not a forecast of this trade. Backtests are the past, fills "
+                   "and charges are models, and RESEARCH ideas have not passed the lab's gates.")
+COTRADER_ID = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]{1,47}-[A-Z0-9][A-Z0-9&-]{0,19}$")
+
+
+def _calibration(ctx):
+    ct = skill("cotrader")
+    try:
+        rep = ct.calibration_report(ctx.workdir, now=_naive_now(ctx), fetch=False, demote=False)
+    except Exception as e:  # a broken log line must not take the page down
+        return {"error": str(e)}
+    rep["records"] = rep.get("records", [])[-50:]
+    return rep
+
+
+def cotrader_view(ctx):
+    doc = ctx.read("cotrader.json")
+    return {"run": doc, "calibration": _calibration(ctx), "limits": COTRADER_LIMITS,
+            "how": "Refresh here, or in a terminal: python3 trader-cotrader/cotrader.py today (add --tier research "
+                   "for the unproven ideas). It reads trader/lab/ and writes trader/cotrader.json.",
+            "stale": bool(doc) and str(doc.get("as_of", ""))[:10] != ctx.today(),
+            "disclaimer": DISCLAIMER}
+
+
+def r_cotrader(ctx, q, body):
+    """The last co-trader run (trader/cotrader.json) and the calibration of its logged probabilities."""
+    return cotrader_view(ctx)
+
+
+def r_cotrader_run(ctx, q, body):
+    """Run the co-trader now: writes trader/cotrader.json, the candidates' plans and new log lines. No orders."""
+    tier = str((body or {}).get("tier") or "validated")
+    if tier not in ("validated", "research"):
+        raise ApiError(400, "tier is validated or research")
+    ct = skill("cotrader")
+    with ctx.cmd_lock:
+        try:
+            ct.run_today(ctx.workdir, tier, None, _naive_now(ctx), None, None, not ctx.offline, True)
+        except ct.errors() as e:
+            raise ApiError(422, str(e))
+    return cotrader_view(ctx)
+
+
+def _cotrader_draft_basket(ctx, cid, plan):
+    """An options candidate: its trader-strategy basket becomes trader/strategy.json and trader/orders.json (the
+    old ones kept as .bak), and trader-risk records its verdict on the basket as one position."""
+    for name in ("orders.json", "strategy.json"):
+        if os.path.exists(ctx.path(name)):
+            with open(ctx.path(name), encoding="utf-8") as src, open(ctx.path(name + ".bak"), "w",
+                                                                      encoding="utf-8") as dst:
+                dst.write(src.read())
+    for name, doc in (("strategy.json", plan.get("strategy")), ("orders.json", plan.get("orders"))):
+        with open(ctx.path(name), "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+    risk = r_risk_check(ctx, {}, {})
+    view = tickets(ctx)
+    return {"ok": True, "paper": True, "id": cid, "tickets": view["tickets"], "basket": view.get("basket"),
+            "risk": risk.get("result"),
+            "next": "Drafted as one basket, nothing placed. Open Portfolio and orders: a basket trader-risk passed "
+                    "waits for one typed yes for every leg; F&O stays blocked unless your config allows it."}
+
+
+def r_cotrader_draft(ctx, q, body):
+    """One candidate's plan becomes trader/plan.json, trader-budget sizes it into trader/orders.json and
+    trader-risk records its verdict. Nothing is placed: the paper broker still needs your typed yes."""
+    c = skill("broker").merged_config(ctx.config())
+    if not c.get("paper", True) or str(c.get("broker", "paper")).lower() != "paper":
+        raise ApiError(409, "the UI drafts orders for the paper account only (\"paper\": true, broker paper)")
+    cid = str((body or {}).get("id") or "")
+    if not COTRADER_ID.match(cid):
+        raise ApiError(400, "id is a co-trader candidate ID, e.g. 2026-11-02-rsi2-nifty50-SBIN")
+    plan = ctx.read("cotrader", "plans", cid + ".json")
+    if not isinstance(plan, dict):
+        raise ApiError(404, "no plan for %s: refresh the co-trader first" % cid)
+    if plan.get("date") != ctx.today():
+        raise ApiError(409, "this plan is for %s and today is %s: draft it on its own day (a daily signal fills at "
+                            "the next session's open)" % (plan.get("date"), ctx.today()))
+    if plan.get("kind") == "options":
+        return _cotrader_draft_basket(ctx, cid, plan)
+    if os.path.exists(ctx.path("plan.json")):
+        with open(ctx.path("plan.json"), encoding="utf-8") as src, open(ctx.path("plan.json.bak"), "w",
+                                                                         encoding="utf-8") as dst:
+            dst.write(src.read())
+    if os.path.exists(ctx.path("orders.json")):
+        with open(ctx.path("orders.json"), encoding="utf-8") as src, open(ctx.path("orders.json.bak"), "w",
+                                                                           encoding="utf-8") as dst:
+            dst.write(src.read())
+    with open(ctx.path("plan.json"), "w", encoding="utf-8") as fh:
+        json.dump(plan, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    argv = ["--plan", ctx.path("plan.json"), "--portfolio", ctx.path("portfolio.json"), "--config",
+            ctx.path("config.json"), "--write", ctx.path("orders.json"), "--json"]
+    if os.path.exists(ctx.path("prices.json")):
+        argv += ["--prices", ctx.path("prices.json")]
+    rc, out, err = run_skill(ctx, "budget", argv + ctx.now_args())
+    if rc != 0:
+        why_not = None
+        try:
+            why_not = (json.loads(out).get("sizing") or {}).get("refusal")
+        except ValueError:
+            pass
+        lines = (err or "").strip().splitlines()
+        raise ApiError(409, why_not or (lines[-1] if lines else "trader-budget refused the plan"))
+    risk = r_risk_check(ctx, {}, {})
+    return {"ok": True, "paper": True, "id": cid, "tickets": tickets(ctx)["tickets"], "risk": risk.get("result"),
+            "next": "Drafted, nothing placed. Open Portfolio and orders: a ticket trader-risk passed waits for your "
+                    "typed yes; a blocked one cannot be placed."}
+
+
 # ---------------------------------------------------------------- routes: first-run setup
 
 def _mcp_snippet(ctx):
@@ -2241,6 +2355,8 @@ ROUTES = [
     ("GET", "/api/onboarding", r_onboarding, "first-run steps; ?capital=&risk_pct=&max_trades=&product=&broker_profile= "
      "previews the config size.py init would write (save it with POST /api/config)", False),
     ("GET", "/api/regime", r_regime, "market regime now: trend, vol bucket, gap, expiry and events: ?symbols=", False),
+    ("GET", "/api/cotrader", r_cotrader, "the last co-trader run (trader/cotrader.json): tiered candidates, odds with "
+     "ranges and n, risk verdicts, no-edge reasons; the calibration of logged probabilities", False),
     ("POST", "/api/risk/check", r_risk_check, "run trader-risk on trader/orders.json and record the verdicts", True),
     ("POST", "/api/risk/kill", r_risk_kill, "kill switch on: no new entries today (exits still pass)", True),
     ("POST", "/api/risk/unkill", r_risk_unkill, "lift the kill switch: the typed word unkill", True),
@@ -2256,6 +2372,10 @@ ROUTES = [
      True),
     ("POST", "/api/strategy/draft", r_strategy_draft, "write the legs as a paper PROPOSAL to trader/orders.json", True),
     ("POST", "/api/doctor/run", r_doctor_run, "run the data self-test now and update trader/doctor.json", True),
+    ("POST", "/api/cotrader/run", r_cotrader_run, "run the co-trader now (tier validated or research); writes "
+     "trader/cotrader.json and its log, places nothing", True),
+    ("POST", "/api/cotrader/draft", r_cotrader_draft, "one candidate's plan -> trader/plan.json, sized into "
+     "trader/orders.json and risk-checked (a PROPOSAL: your typed yes still decides)", True),
 ]
 _TABLE = {(m, p): (fn, w) for m, p, fn, _, w in ROUTES}
 STREAM_PATH = "/api/stream"

@@ -1065,6 +1065,95 @@ class LabAndSetup(unittest.TestCase):
             fresh.close()
 
 
+class CotraderRoutes(unittest.TestCase):
+    """The Co-trader page and the Today card: trader-cotrader's own run, the calibration, and the draft that goes
+    through trader-budget and trader-risk like any plan (tests/test_cotrader.py has the method)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import test_cotrader as tc
+        cls.tc = tc
+        cls.dir = workdir()
+        shutil.rmtree(os.path.join(cls.dir, "trader", "lab"), ignore_errors=True)
+        tc.run_lab(cls.dir, [tc.SMA20_WATCH, tc.SMA20_REJECT], tc.SIGNAL)
+        ct = api.skill("cotrader")
+        ct.run_today(cls.dir, "validated", None, ct.ist_now(tc.SIGNAL), tc.LABFIX, None, False, True)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.dir, ignore_errors=True)
+
+    def ctx(self, now):
+        return api.Context(self.dir, now=now)
+
+    def test_get_shows_the_run_and_its_calibration(self):
+        status, d = api.dispatch(self.ctx("2026-09-18 16:30"), "GET", "/api/cotrader", {}, None)
+        self.assertEqual(status, 200, d)
+        ids = [c["id"] for c in d["run"]["candidates"]]
+        self.assertEqual(sorted(ids), ["2026-09-21-t-sma20-watch-AXISBANK", "2026-09-21-t-sma20-watch-BHARTIARTL"])
+        c = d["run"]["candidates"][0]
+        for k in ("tier", "evidence", "risk", "sizing", "explain", "second_opinion", "similar", "why_not"):
+            self.assertIn(k, c)
+        self.assertFalse(d["stale"])
+        self.assertEqual(d["calibration"]["pending"], 2)            # logged, not resolved yet
+        self.assertIn("not a forecast", d["limits"])
+        _, later = api.dispatch(self.ctx("2026-09-21 10:00"), "GET", "/api/cotrader", {}, None)
+        self.assertTrue(later["stale"])
+
+    def test_draft_goes_through_budget_and_risk(self):
+        ctx = self.ctx("2026-09-21 10:00")
+        cid = "2026-09-21-t-sma20-watch-BHARTIARTL"
+        for bad in ("../x", "BHARTIARTL", ""):
+            self.assertEqual(api.dispatch(ctx, "POST", "/api/cotrader/draft", {}, {"id": bad})[0], 400, bad)
+        self.assertEqual(api.dispatch(ctx, "POST", "/api/cotrader/draft", {}, {"id": "2026-09-21-nope-SBIN"})[0], 404)
+        early = api.dispatch(self.ctx("2026-09-18 16:30"), "POST", "/api/cotrader/draft", {}, {"id": cid})
+        self.assertEqual(early[0], 409)                              # a daily plan fills on its own day
+        self.assertIn("2026-09-21", early[1]["error"])
+        before = len((json.loads(read_text(os.path.join(self.dir, "trader", "state", "broker.json"))) or {})
+                     .get("orders", []))
+        status, d = api.dispatch(ctx, "POST", "/api/cotrader/draft", {}, {"id": cid})
+        self.assertEqual(status, 200, d)
+        self.assertTrue(d["paper"])
+        orders = json.loads(read_text(os.path.join(self.dir, "trader", "orders.json")))
+        self.assertEqual(orders["created_by"], "trader-budget")
+        self.assertEqual(orders["orders"][0]["symbol"], "BHARTIARTL")
+        self.assertEqual(orders["orders"][0]["plan"]["setup"], "cotrader-watch:t-sma20-watch")
+        self.assertTrue(os.path.exists(os.path.join(self.dir, "trader", "plan.json.bak")))
+        self.assertEqual(len(d["risk"]["results"]), 1)              # trader-risk recorded its verdict
+        after = json.loads(read_text(os.path.join(self.dir, "trader", "state", "broker.json"))).get("orders", [])
+        self.assertEqual(len(after), before)                        # nothing placed: the typed yes is still to come
+
+    def test_draft_refuses_a_live_config(self):
+        path = os.path.join(self.dir, "trader", "config.json")
+        old = read_text(path)
+        try:
+            cfg = json.loads(old)
+            cfg["paper"] = False
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(cfg, fh)
+            status, d = api.dispatch(self.ctx("2026-09-21 10:00"), "POST", "/api/cotrader/draft", {},
+                                     {"id": "2026-09-21-t-sma20-watch-AXISBANK"})
+        finally:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(old)
+        self.assertEqual(status, 409)
+        self.assertIn("paper account only", d["error"])
+
+    def test_run_on_the_offline_demo_is_a_plain_no_edge(self):
+        wd = workdir()
+        try:
+            ctx = api.Context(wd, offline=UIFIX)
+            self.assertIsNone(api.dispatch(ctx, "GET", "/api/cotrader", {}, None)[1]["run"])
+            self.assertEqual(api.dispatch(ctx, "POST", "/api/cotrader/run", {}, {"tier": "everything"})[0], 400)
+            status, d = api.dispatch(ctx, "POST", "/api/cotrader/run", {}, {"tier": "validated"})
+        finally:
+            shutil.rmtree(wd, ignore_errors=True)
+        self.assertEqual(status, 200, d)
+        self.assertEqual(d["run"]["candidates"], [])
+        self.assertEqual(d["run"]["no_edge"]["decision"], "sit out")
+        self.assertIn("No validated strategy", d["run"]["no_edge"]["reasons"][0])
+
+
 class Frontend(unittest.TestCase):
     """The v2 shell: one nav list, every page module present, the CSP unchanged, no inline code."""
 
@@ -1092,8 +1181,10 @@ class Frontend(unittest.TestCase):
 
     def test_placeholders_say_coming_in_v03(self):
         soon = self.js("pages", "soon.js")
-        for issue in ("44", "45", "49"):
+        for issue in ("45", "49"):
             self.assertIn("issue: %s" % issue, soon)
+        self.assertNotIn("issue: 44", soon)             # the Co-trader page is real now
+        self.assertIn("cotrader,", self.js("app.js"))
         self.assertIn("Coming in v0.3", self.js("ui.js"))
 
     def test_every_module_import_resolves(self):

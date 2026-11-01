@@ -4,6 +4,7 @@ import { h, clear, card, kv, note, table } from '../dom.js';
 import { inr, num, pct, money, signed, tone, when, whenUtc } from '../fmt.js';
 import { why, help } from '../why.js';
 import { metric, meter, empty, skeleton, failure, sessionRail, pageHead } from '../ui.js';
+import { tierBadge, oddsText, rmult } from './cotrader.js';
 
 let off = [];
 
@@ -188,12 +189,34 @@ function planCard(p, risk) {
       h('a', { class: 'btn', href: '#/chart?symbol=' + encodeURIComponent(p.symbol) }, 'Open the chart')));
 }
 
-function candidatesCard() {
+// The co-trader's last run (GET /api/cotrader): the top ready candidates, or the decision to sit out.
+function candidatesCard(res) {
+  const more = h('a', { href: '#/cotrader', class: 'more' }, 'Open the co-trader');
+  if (!res || !res.ok) {
+    return card('Co-trader candidates', failure('Could not read the co-trader: ' + ((res && res.e && res.e.message) || 'unknown error')), more);
+  }
+  const run = res.v.run;
+  if (!run) {
+    return card('Co-trader candidates', empty('No co-trader run yet', 'Candidates come from strategies that passed the ' +
+      'Strategy Lab, each with its odds, range, sample size and result after charges. Most days the answer is to sit out.',
+    h('a', { class: 'btn', href: '#/cotrader' }, 'Look for candidates')));
+  }
+  const shown = (run.candidates || []).filter((c) => c.tier !== 'RESEARCH' && c.status === 'ready').slice(0, 3);
+  const stale = res.v.stale ? h('span', { class: 'badge warn' }, 'not today') : null;
+  if (!shown.length) {
+    const ne = run.no_edge || { headline: 'No ready candidate.', reasons: [] };
+    return card('Co-trader candidates', h('p', null, h('b', null, ne.headline), ' ', stale),
+      (ne.reasons || []).length ? h('ul', { class: 'small' }, ne.reasons.slice(0, 3).map((x) => h('li', null, x))) : null,
+      h('p', { class: 'small muted' }, `As of ${run.as_of} IST.`), more);
+  }
   return card('Co-trader candidates',
-    empty('Coming in v0.3', 'Backtested trade candidates with their evidence: the probability with its range and sample ' +
-      'size, the result after charges, the market regime, and what the evidence does not show. Each one still goes ' +
-      'through your risk check and your typed yes.', h('a', { class: 'btn', href: '#/lab' }, 'See the Strategy Lab now')),
-    h('span', { class: 'badge soon' }, 'Issue #44'));
+    table(['Stock', 'Tier', { label: 'Odds (95% range), n', num: true }, { label: 'Expected', num: true }, 'Risk'],
+      shown.map((c) => h('tr', null, h('td', null, h('a', { href: '#/cotrader' }, c.symbol)), h('td', null, tierBadge(c.tier)),
+        h('td', { class: 'num' }, oddsText(c.evidence)), h('td', { class: 'num' }, rmult(c.evidence.ev_r)),
+        h('td', null, h('span', { class: 'badge pass' }, 'PASS')))), { caption: 'Co-trader candidates', dense: true }),
+    h('p', { class: 'small muted' }, `As of ${run.as_of} IST. Odds are the share of similar past trades that made money ` +
+      'after charges, not a promise. Each one still needs your typed yes. ', stale),
+    more);
 }
 
 export async function render(root, ctx) {
@@ -201,8 +224,8 @@ export async function render(root, ctx) {
   root.append(...pageHead('Today', null, h('span', { class: 'muted' }, '')));
   const body = h('div', null, skeleton(4));
   root.appendChild(body);
-  const [dr, pr, rr] = await Promise.all([settle(get('/api/dashboard?verify=1')), settle(get('/api/portfolio')),
-    settle(get('/api/risk'))]);
+  const [dr, pr, rr, cr] = await Promise.all([settle(get('/api/dashboard?verify=1')), settle(get('/api/portfolio')),
+    settle(get('/api/risk')), settle(get('/api/cotrader'))]);
   clear(body);
   if (!dr.ok) {
     body.appendChild(failure(dr.e.message || String(dr.e), () => render(root, ctx)));
@@ -217,7 +240,7 @@ export async function render(root, ctx) {
     pnlTile(d.account), budgetTile(d.account), tradesTile(d.account), riskTile(r)));
   const alertsCard = card('Alerts', alertsBody(d.alerts));
   body.appendChild(h('div', { class: 'cols' },
-    h('div', { class: 'stack' }, positionsCard(p), candidatesCard()),
+    h('div', { class: 'stack' }, positionsCard(p), candidatesCard(cr)),
     h('div', { class: 'stack' }, planCard(d.plan, r), alertsCard, marketCard(d, ctx.live.doctor))));
   for (const e of d.index_errors || []) body.appendChild(note(e, 'warn'));
   settle(get('/api/regime?symbols=NIFTY')).then((g) => {

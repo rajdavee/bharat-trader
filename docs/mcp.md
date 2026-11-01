@@ -34,7 +34,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 35 tools and 11 prompts from
+4. Restart the client. It should list 38 tools and 11 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -96,7 +96,7 @@ message.
 | `risk_check` | **Risk check.** trader-risk on trader/orders.json: every order against your limits (size, loss at stop + charges, reward:risk, daily loss, trades, entry window, duplicates), the kill switch, the circuit-breakers (losing streak, daily drawdown, cooling-off, revenge trades) and the order rate; F&O legs as one basket (lots, ban list, premium, margin, Greeks, scenarios). A preview by default; record: true records the verdicts the paper broker needs. | `record`? | writes trader/ |
 | `risk_scenarios` | **Risk scenarios.** The F&O book's net Greeks (delta lots, gamma, vega, theta) and its P&L after charges on a grid of spot +/-1/2/3 sigma x IV +/-5/10 vol, against your limits; open positions alone or with every F&O proposal in trader/orders.json. Also the kill switch and circuit-breaker state. Read only. | `book`? | read-only |
 | `paper_orders_show` | **Paper order tickets.** The order tickets in trader/orders.json, in plain words, each with its trader-risk status and fingerprint. | none | read-only |
-| `paper_order_draft` | **Draft paper orders.** Size trader/plan.json into order tickets (trader/orders.json, the old one kept as .bak) and record trader-risk's verdicts. Returns each ticket with its fingerprint. Places nothing. | `capital`?, `limit`?, `market`?, `persona`? | writes trader/ (replaces a file, keeps a .bak) |
+| `paper_order_draft` | **Draft paper orders.** Size trader/plan.json (or, with candidate: ID, that co-trader candidate's plan) into order tickets (trader/orders.json, the old one kept as .bak) and record trader-risk's verdicts. Returns each ticket with its fingerprint. Places nothing. | `capital`?, `limit`?, `market`?, `persona`?, `candidate`? | writes trader/ (replaces a file, keeps a .bak) |
 | `paper_order_confirm` | **Confirm one paper order.** Record the USER's yes for ONE ticket and place it on the PAPER account (no real money; no live broker exists in this server). Needs the ticket's index and its exact risk-PASS fingerprint. When the client supports elicitation the server asks the user directly and yes_text is ignored; otherwise yes_text must be the user's own reply, word for word, after you showed them the ticket. Never write a yes yourself. | `index`, `risk_fingerprint`, `yes_text`? | writes trader/ |
 | `portfolio_status` | **Paper portfolio.** The paper account: cash, positions marked to a delayed price, P&L if closed now after charges, working stop/target legs, today's fills and limits. | `live_quotes`? | read-only; network |
 | `paper_mtm` | **Paper F&O mark to market.** The paper F&O book marked to the latest chain (trader/options.json): positions grouped by strategy, P&L (open and realised), Black-76 Greeks per leg, per strategy and in all, margin blocked, and the payoff at expiry of each open structure. Read only. | `strategy`? | read-only |
@@ -120,6 +120,9 @@ message.
 | `doctor` | **Data sources self-test.** Probe every free data source the tools read (NSE equity list, market status, holidays, announcements, board meetings, results, bulk/block deals, PIT, option chain and contract info, lot sizes, F&O list, India VIX history; Yahoo chart, spark and headlines), one polite request each (about 30 s): ok, slow, changed, down or blocked, since when, the tools affected and the fallback in use. Freshness follows the NSE calendar in IST. Read only. | `only`? | read-only; network |
 | `persona_scorecards` | **Agent persona scorecards.** Each agent persona's paper track record (agents/), rebuilt from trader/state/trades.json: closed trades, wins and losses, net P&L after every charge, profit factor, expectancy, max drawdown, losing streaks, entries per day, yes and no counts, and behaviour flags (overtrading, revenge trades, exits after flat_by, fills with no ticket). Fills are credited through the persona tag on the drafted proposal. Read only. | `persona`? | read-only |
 | `regime_now` | **Market regime now.** The market regime in plain words for NIFTY, BANKNIFTY or NSE stocks (trader-regime): trending up or down, ranging or no clear trend (ADX 14, efficiency ratio, 20/50 EMA slope, 200-day average), the volatility bucket (India VIX percentile over a year, realised vol, IV rank), the gap, breadth, weekly or monthly expiry today or next session, results day, RBI policy and Budget days, holidays, the closing-auction window and the time-of-day bucket. Each day uses data up to its own close only. From the local archive when present, else Yahoo daily bars. A description of the market so far, not a forecast. Read only (board meetings are cached a day in trader/regime/board/). | `symbols`?, `iv`? | read-only; network |
+| `cotrader_candidates` | **Co-trader: today's candidates.** Today's trade candidates from strategies trader-lab validated (tier PROMOTED: gates plus a paper forward record; WATCH: gates passed, paper only), or the plain decision to sit out with the reasons and what would change them. Each candidate: the plan (entry, stop, target, size by trader-budget, charges), trader-risk's PASS or BLOCK with reasons, the share of past trades in today's market regime that made money after charges with its 95% range and n (shrunk toward the rule's overall rate), the expected R after charges, a time-machine replay as a second opinion and any disagreement, why, what would invalidate it, what the evidence does NOT show and similar past trades. include_research adds RESEARCH ideas (unproven, for study/paper only). Writes trader/cotrader.json and logs each prediction once for calibration; drafts and places nothing (paper_order_draft with candidate: ID drafts one). | `include_research`?, `strategy`?, `refresh`? | writes trader/; network |
+| `cotrader_explain` | **Co-trader: explain a candidate.** One candidate from the last co-trader run in full: why this trade, what would invalidate it, the evidence in numbers (sample sizes, Wilson and posterior 95% ranges, expected R after charges), the time-machine second opinion and disagreements, what the evidence does NOT show, the nearest similar past trades and the risk verdict, plus the plain-words text. Without an id: the last run's candidate IDs. Read only. | `id`? | read-only |
+| `calibration_report` | **Co-trader: calibration report.** How well the co-trader's past probabilities matched what happened: each logged prediction's outcome (paper fills, then the lab's forward record, then the bars after the signal), the Brier score with its base-rate reference, log loss and reliability bins with Wilson ranges, overall, per strategy and per tier, and which strategies are overconfident enough to demote. Read only: it never demotes. | none | read-only; network |
 <!-- tools:end -->
 
 `?` marks an optional argument. Every tool also carries MCP annotations:
@@ -174,6 +177,19 @@ normal `paper_order_draft` flow above, so sizing, the risk check and your
 typed yes are unchanged. Offline, `lab_run` sees the saved bars up to
 2026-10-23 16:00 and `lab_forward` up to 2026-10-29 09:50. See
 [lab.md](lab.md).
+
+`cotrader_candidates` asks the co-trader for today's candidates: tiered
+(PROMOTED, WATCH; RESEARCH only with `include_research`), each with its plan,
+size, charges, trader-risk verdict, the probability with its 95% range and
+sample size, the expected R after charges, a time-machine second opinion and
+what the evidence does NOT show, or the plain decision to sit out with the
+reasons. It writes `trader/cotrader.json` and logs each prediction once for
+calibration; it drafts nothing. `cotrader_explain` returns one candidate in
+full, and `calibration_report` scores the logged probabilities (Brier score,
+log loss, reliability), read only. To paper trade a candidate,
+`paper_order_draft` takes `candidate: ID`: its plan becomes
+`trader/plan.json` and the normal flow follows, ending in the user's own
+typed yes. See [cotrader.md](cotrader.md).
 
 ## Resources and prompts
 
