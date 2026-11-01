@@ -166,6 +166,8 @@ export async function render(root, ctx) {
       body.appendChild(calibrationCard(d.calibration));
       return;
     }
+    STATE.research = run.view === 'research';
+    toggle.checked = STATE.research;
     const all = run.candidates || [];
     const shown = all.filter((c) => STATE.research || c.tier !== 'RESEARCH');
     const ready = shown.filter((c) => c.status === 'ready');
