@@ -64,9 +64,10 @@ YES_TEXT = "yes (autopilot machine yes, paper account)"
 START_WORDS = "start paper"               # typed by the user to start the loop from the UI or an assistant
 STOP_WORDS = "stop paper"
 DISCLAIMER = "Paper trading only. Education and tooling, not financial advice. Nothing here can place a live order."
-# the only trader-broker commands this tool may run: paper confirm (with --actor autopilot), paper fills and
-# expiry settlement. Never place, cancel or any live-account command.
-BROKER_COMMANDS = ("confirm", "fill", "settle")
+# the only trader-broker commands this tool may run: paper confirm (with --actor autopilot), paper fills, expiry
+# settlement and the F&O close-all PROPOSAL (adjust writes a ticket, places nothing). Never place, cancel or any
+# live-account command.
+BROKER_COMMANDS = ("confirm", "fill", "settle", "adjust")
 DEFAULTS = {
     "strategies": {},          # {lab strategy name: {"capital", "max_positions", "max_daily_loss", ...}}
     "max_positions": 4,        # open + working auto-pilot positions, all strategies
@@ -880,8 +881,12 @@ class Pilot(object):
                       "%.2f" % pos["entry_limit"], "%.2f" % pos["stop"], "%.2f" % pos["target"], inr(pos["max_loss"])),
                    position=pos["id"], candidate=pos["candidate"], fingerprint=pos["fingerprint"])
 
-    def cancel_working(self, day, now, why):
+    def cancel_working(self, day, now, why, baskets=False):
+        """Cancel unfilled entries. An F&O basket waits for the close (it fills on the settle prices) unless
+        baskets is True (the kill switch)."""
         for p in self.positions("working"):
+            if p.get("kind") == "basket" and not baskets:
+                continue
             p["status"] = "cancelled"
             p["closed_why"] = why
             self.event(now, "cancelled", "%s %s: entry not filled, cancelled (%s)" % (p["id"], p["symbol"], why),
@@ -1167,37 +1172,53 @@ class Pilot(object):
         self.save()
         self.event(now, "kill", "KILL SWITCH: %s. No new entries today; every auto-pilot position is flattened on "
                                 "paper" % self.state["entries_stopped"])
-        self.cancel_working(day, now, "the kill switch")
+        self.cancel_working(day, now, "the kill switch", baskets=True)
         lab = lab_api()
         for pos in self.positions("open"):
             if pos.get("kind") == "basket":
-                self.close_basket(pos, day, now, "the kill switch")
+                pos["close_at_eod"] = "the kill switch"
+                self.save()
+                self.event(now, "note", "%s: the F&O basket closes at today's close (end-of-day prices)" % pos["id"],
+                           position=pos["id"])
                 continue
             p, _ = self.market.last_price(pos["symbol"], day, now)
             px = tick_price((p or pos["entry_price"]) - lab.slippage(p or pos["entry_price"], self.costs(pos)), "down")
             self.exit_order(pos, now, px, "the kill switch")
 
-    # ------------------------------------------------------------ F&O baskets (one position, managed at the close)
+    # ------------------------------------------------------------ F&O baskets (one position, run at the close)
+    #
+    # trader-lab tests option strategies on NSE's end-of-day F&O bhavcopy, so the auto-pilot runs them the same way:
+    # the decision (trader-risk on the basket as ONE position, the machine yes for every leg) is taken in the entry
+    # window; the basket fills at the close on that session's settle prices from trader-archive (the paper broker's
+    # own basket fill, hedge first, with its slippage), and from the next session it is marked at each close with
+    # the spec's profit target, stop and days-before-expiry exit, else cash-settled at expiry.
 
     def consider_basket(self, c, b, day, now):
         cid = c["id"]
         if len(self.strategy_positions(c["strategy"], "open", "working", "placing")) >= int(b["max_positions"]):
             return self.note_once(cid, "%s has its %d position(s) open: its max_positions" % (c["strategy"],
                                                                                             b["max_positions"]), now)
-        margin = (c.get("basket") or {}).get("margin_required") or 0
-        if margin and margin > float(b["capital"]):
+        margin = float((c.get("basket") or {}).get("margin_required") or 0)
+        if margin > float(b["capital"]):
             return self.note_once(cid, "the basket needs about %s of margin, more than %s's capital %s" % (
                 inr(margin), c["strategy"], inr(b["capital"])), now)
         plan = c["plan"]
+        und = plan["strategy"].get("underlying") or c["symbol"]
         pid = self.new_id(day)
         path = os.path.join(self.paths.orders, "%s-basket.json" % pid)
         orders = json.loads(json.dumps(plan["orders"]))
         orders["basket"] = True
+        orders["note"] = "AUTO-PILOT (paper) basket %s: %s" % (pid, cid)
+        ex = (self.compiled(c["strategy"]) or {}).get("exit") or {}
+        credit = float((((c.get("basket") or {}).get("net_premium")) or {}).get("received") or 0)
+        legs0 = orders.get("orders") or []
+        if ex.get("stop_mult") and credit > 0 and not any(o.get("risk_rule") for o in legs0):
+            # the spec's own stop (a loss of N x the credit, checked at the close) is the basket's risk rule
+            for o in legs0:
+                o["risk_rule"] = {"max_loss": rp(float(ex["stop_mult"]) * credit)}
         write_json(path, orders)
         write_json(self.paths.w("strategy.json"), plan["strategy"])
-        chain = self.basket_chain(plan["strategy"].get("underlying") or c["symbol"], day, now, before=True)
-        if chain is not None:
-            write_json(self.paths.w("options.json"), chain)
+        self.write_chain(und, self.clock.prev_session(day))
         res = self.run_risk(path, now)
         rows = res.get("results") or []
         reasons = []
@@ -1206,96 +1227,244 @@ class Pilot(object):
         if not rows or reasons:
             self.state["seq"] -= 1
             self.save()
-            return self.note_once(cid, "trader-risk BLOCK (basket): %s" % "; ".join(reasons or [res.get("error") or
-                                                                                               "no verdict"]),
-                                  now, kind="blocked", reasons=reasons)
+            return self.note_once(cid, "trader-risk BLOCK (basket): %s" % "; ".join(
+                reasons or [res.get("error") or "no verdict"]), now, kind="blocked", reasons=reasons)
         if self.dry_run:
             self.state["acted"][cid] = "dry-run"
             self.save()
-            return self.event(now, "dry-run", "would place the basket %s (trader-risk PASS); dry run" % cid)
+            return self.event(now, "dry-run", "would place the basket %s (trader-risk PASS); dry run, nothing placed"
+                              % cid, candidate=cid)
         legs = orders.get("orders") or []
         pos = {"id": pid, "kind": "basket", "strategy": c["strategy"], "candidate": cid, "tier": c["tier"],
-               "symbol": c["symbol"], "product": "NRML", "qty": len(legs), "entry_limit": float(margin or 0),
-               "order_file": path, "status": "placing", "placed_at": now.strftime("%Y-%m-%d %H:%M:%S"),
-               "expiry": plan.get("expiry"), "signal_date": c.get("signal_date"), "plan_date": day, "exits": [],
-               "spec_hash": c.get("spec_hash"), "p": (c.get("evidence") or {}).get("p")}
+               "symbol": und, "product": "NRML", "qty": len(legs), "entry_limit": margin, "order_file": path,
+               "status": "placing", "placed_at": now.strftime("%Y-%m-%d %H:%M:%S"), "expiry": plan.get("expiry"),
+               "signal_date": c.get("signal_date"), "plan_date": day, "exits": [], "timeframe": "1d",
+               "spec_hash": c.get("spec_hash"), "p": (c.get("evidence") or {}).get("p"), "max_loss": None,
+               "structure": (c.get("basket") or {}).get("structure")}
         self.state.setdefault("positions", []).append(pos)
         self.state["acted"][cid] = pid
         self.save()
-        rc, out, err = self.run_broker(["confirm", "--basket", "--orders", path, "--config", self.paths.w("config.json"),
-                                        "--risk", risk_file(path), "--state", self.paths.broker_state,
-                                        "--portfolio", self.paths.portfolio, "--strategy", self.paths.w("strategy.json"),
-                                        "--options", self.paths.w("options.json"), "--yes-text", YES_TEXT,
-                                        "--actor", "autopilot", "--now", now.strftime("%Y-%m-%d %H:%M:%S")])
-        if rc != 0:
-            pos.update({"status": "refused", "closed_why": (err or out).strip()[-300:]})
-            self.save()
-            return self.event(now, "refused", "%s: the paper broker refused the basket: %s" % (cid, pos["closed_why"]))
-        argv = ["fill", "--basket", "--orders", path, "--config", self.paths.w("config.json"), "--state",
-                self.paths.broker_state, "--portfolio", self.paths.portfolio, "--trades", self.paths.trades,
-                "--strategy", self.paths.w("strategy.json"), "--options", self.paths.w("options.json"),
-                "--bands", self.paths.w("bands.csv"), "--now", now.strftime("%Y-%m-%d %H:%M:%S")]
-        rc, out, err = self.run_broker(argv)
-        if rc != 0:
-            pos.update({"status": "refused", "closed_why": (err or out).strip()[-300:]})
-            self.save()
-            return self.event(now, "refused", "%s: the paper basket fill failed: %s" % (cid, pos["closed_why"]))
-        pf = read_json(self.paths.portfolio) or {}
-        sid = None
-        for k, v in sorted((pf.get("strategies") or {}).items()):
-            if v.get("status") != "closed":
-                sid = k
-        pos.update({"status": "open", "strategy_id": sid, "filled_at": now.strftime("%Y-%m-%d %H:%M:%S"),
-                    "entry_day": day})
-        self.save()
-        self.event(now, "fill", "%s: basket %s filled on paper (%d legs, hedge first), %s; %s" % (
-            pos["id"], cid, len(legs), sid, out.strip().splitlines()[-1] if out.strip() else ""), position=pos["id"])
+        self.confirm_basket(pos, path, now)
 
-    def basket_chain(self, underlying, day, now, before=False):
-        """The option chain the paper broker fills and marks at: the archive's end-of-day F&O bhavcopy of the
-        last session closed by `now` (no intraday chain is archived), in trader-options' JSON shape."""
-        arc = archive_api()
-        root = self.market.archive
-        if arc is None or not root:
-            return None
-        d = day if (not before and now.time() >= datetime.time(15, 30)) else self.clock.prev_session(day)
-        try:
-            ch = arc.load_fo_chain_eod(underlying, d, root=root)
-        except Exception:
-            return None
-        if not ch:
-            return None
-        return dict(ch, source="trader-archive EOD %s (settle prices)" % d)
+    def confirm_basket(self, pos, path, now):
+        broker = broker_api()
+        day = now.date().isoformat()
+        bid = broker.basket_id((read_json(path) or {}).get("orders") or [])
+        placed = [r for r in broker.records(broker.load_state(self.paths.broker_state), today=day, status="placed")
+                  if r.get("basket_id") == bid]
+        if not placed:
+            rc, out, err = self.run_broker(["confirm", "--basket", "--orders", path, "--config",
+                                            self.paths.w("config.json"), "--risk", risk_file(path), "--state",
+                                            self.paths.broker_state, "--portfolio", self.paths.portfolio,
+                                            "--strategy", self.paths.w("strategy.json"), "--options",
+                                            self.paths.w("options.json"), "--yes-text", YES_TEXT, "--actor",
+                                            "autopilot", "--now", now.strftime("%Y-%m-%d %H:%M:%S")])
+            if rc != 0:
+                pos.update({"status": "refused", "closed_why": (err or out).strip()[-300:]})
+                self.save()
+                return self.event(now, "refused", "%s: the paper broker refused the basket: %s" % (
+                    pos["candidate"], pos["closed_why"]), position=pos["id"])
+        pos.update({"status": "working", "basket_id": bid})
+        self.save()
+        return self.event(now, "placed", "placed %s on paper: the %s basket %s (%d legs, one position); trader-risk "
+                                         "PASS, machine yes recorded (actor autopilot); it fills at the close on the "
+                                         "session's settle prices" % (pos["id"], pos.get("structure") or "F&O",
+                                                                      pos["candidate"], pos["qty"]),
+                          position=pos["id"], candidate=pos["candidate"])
+
+    def write_chain(self, underlying, day):
+        """trader/autopilot/work/options.json: the archive's end-of-day chain of `day` in trader-options' shape
+        (one document per expiry; settle prices, no bid/ask), which the paper broker fills and marks at."""
+        docs = eod_chain(underlying, day, self.market.archive)
+        if docs:
+            write_json(self.paths.w("options.json"), docs)
+        return docs
+
+    def baskets_eod(self, day, now):
+        baskets = [p for p in self.positions("working", "open", "placing") if p.get("kind") == "basket"]
+        if not baskets:
+            return
+        lab = lab_api()
+        broker = broker_api()
+        for pos in baskets:
+            if pos["status"] == "placing":
+                self.confirm_basket(pos, pos["order_file"], datetime.datetime.strptime(pos["placed_at"],
+                                                                                        "%Y-%m-%d %H:%M:%S"))
+            docs = self.write_chain(pos["symbol"], day)
+            if not docs:
+                self.event(now, "note", "%s: no end-of-day %s chain for %s in the archive (archive.py update after the "
+                                        "close): not filled or marked today" % (pos["id"], pos["symbol"], day),
+                           position=pos["id"])
+                continue
+            if pos["status"] == "working":
+                if not self.fill_basket(pos, pos["order_file"], now, "entry"):
+                    pos.update({"status": "cancelled", "closed_why": "a DAY basket: not filled at the close"})
+                    self.save()
+                continue
+            if pos["status"] != "open" or pos.get("entry_day") == day:
+                continue
+            if day >= (pos.get("expiry") or "9999"):
+                self.settle_basket(pos, day, now, docs)
+                continue
+            if pos.get("close_at_eod"):
+                self.close_basket(pos, day, now, pos.pop("close_at_eod"))
+                continue
+            spec_doc = read_json(os.path.join(self.paths.lab, pos["strategy"], "spec.json")) or {}
+            try:
+                ex = lab.validate_spec(spec_doc)["exit"] if spec_doc else {}
+            except lab.LabError:
+                ex = {}
+            pf = read_json(self.paths.portfolio) or {}
+            legs = [p for p in broker.fno_positions(pf, pos.get("strategy_id"))]
+            marks = chain_marks(docs)
+            gross, base = 0.0, 0.0
+            for l in legs:
+                m = marks.get((float(l["strike"]), str(l["option_type"]).lower(), str(l["expiry"])))
+                if m is None:
+                    gross = None
+                    break
+                gross += (m - float(l["avg_price"])) * int(l["qty"])
+                base += float(l["avg_price"]) * abs(int(l["qty"]))
+            if gross is None:
+                self.event(now, "note", "%s: a leg has no settle price in the %s chain: not marked" % (pos["id"], day))
+                continue
+            pos["mtm"] = {"day": day, "gross": rp(gross)}
+            prem = abs(float(pos.get("premium") or base)) or 1.0
+            reason = None
+            if ex.get("target_pct") is not None and gross >= prem * float(ex["target_pct"]) / 100.0:
+                reason = "profit target %s%% of the premium" % ex["target_pct"]
+            elif ex.get("stop_mult") is not None and gross <= -prem * float(ex["stop_mult"]):
+                reason = "stop at %sx the premium" % ex["stop_mult"]
+            elif ex.get("exit_dte") and (datetime.date.fromisoformat(pos["expiry"]) -
+                                         datetime.date.fromisoformat(day)).days <= int(ex["exit_dte"]):
+                reason = "%d days before expiry" % int(ex["exit_dte"])
+            self.save()
+            self.event(now, "mtm", "%s %s basket marked at the %s settle prices: %s before exit charges%s" % (
+                pos["id"], pos["symbol"], day, inr(gross), ("; exit: " + reason) if reason else ""), position=pos["id"])
+            if reason:
+                self.close_basket(pos, day, now, reason)
+
+    def fill_basket(self, pos, path, now, what):
+        broker = broker_api()
+        day = now.date().isoformat()
+        rc, out, err = self.run_broker(["fill", "--basket", "--orders", path, "--config", self.paths.w("config.json"),
+                                        "--state", self.paths.broker_state, "--portfolio", self.paths.portfolio,
+                                        "--trades", self.paths.trades, "--strategy", self.paths.w("strategy.json"),
+                                        "--options", self.paths.w("options.json"), "--bands", self.paths.w("bands.csv"),
+                                        "--now", now.strftime("%Y-%m-%d %H:%M:%S")])
+        if rc != 0:
+            self.event(now, "note", "%s: the paper basket %s fill did not happen: %s" % (pos["id"], what,
+                                                                                         (err or out).strip()[-300:]),
+                       position=pos["id"])
+            return False
+        bid = broker.basket_id((read_json(path) or {}).get("orders") or [])
+        rows = [t for t in (read_json(self.paths.trades) or {}).get("trades") or [] if t.get("basket_id") == bid]
+        charges = rp(sum(float(t.get("charges") or 0) for t in rows))
+        realised = [float(t["realised_pnl"]) for t in rows if t.get("realised_pnl") is not None]
+        if what == "entry":
+            sid = rows[0].get("strategy_id") if rows else None
+            prem = rp(sum((1 if t["side"] == "SELL" else -1) * float(t["value"]) for t in rows))
+            pos.update({"status": "open", "strategy_id": sid, "filled_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+                        "entry_day": day, "entry_charges": charges, "premium": prem})
+            self.save()
+            self.event(now, "fill", "%s filled on paper: %s basket %s (%d legs, hedge first) at the %s settle prices, "
+                                    "net premium %s %s; charges %s" % (
+                                        pos["id"], pos["symbol"], sid, len(rows), day, inr(abs(prem)),
+                                        "received" if prem > 0 else "paid", inr(charges)),
+                       position=pos["id"], strategy=pos["strategy"], charges=charges, realised=None)
+            return True
+        net = rp(sum(realised))
+        self.book_basket_close(pos, now, what, charges, net)
+        return True
+
+    def book_basket_close(self, pos, now, why, charges, net):
+        stamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        pf = read_json(self.paths.portfolio) or {}
+        st = (pf.get("strategies") or {}).get(pos.get("strategy_id")) or {}
+        total = st.get("realised")
+        pos.setdefault("exits", []).append({"at": stamp, "leg": "basket", "price": None, "qty": pos["qty"],
+                                            "charges": charges, "realised": net, "why": why})
+        pos.update({"status": "closed", "closed_at": stamp, "closed_why": why,
+                    "result": {"net": total if total is not None else net, "r": None,
+                               "charges": rp((pos.get("entry_charges") or 0) + charges)}})
+        margin = float(pos.get("entry_limit") or 0)
+        if margin > 0 and pos["result"]["net"] is not None:
+            pos["result"]["r"] = round(float(pos["result"]["net"]) / margin, 5)
+        self.state.setdefault("closed_today", []).append(pos["id"])
+        self.save()
+        self.event(now, "exit", "%s closed on paper: the %s basket %s (%s); charges %s; realised %s after all its "
+                                "charges" % (pos["id"], pos["symbol"], pos.get("strategy_id"), why, inr(charges),
+                                             inr(pos["result"]["net"] or 0)),
+                   position=pos["id"], strategy=pos["strategy"], charges=charges, realised=net)
 
     def close_basket(self, pos, day, now, why):
-        self.event(now, "note", "%s: F&O basket %s needs closing (%s): ticket.py adjust --strategy %s --close-all, "
-                                "then the risk check and a yes" % (pos["id"], pos.get("strategy_id"), why,
-                                                                   pos.get("strategy_id")), position=pos["id"])
-
-    def settle_expiry(self, day, now):
-        """Cash-settle the expiring paper F&O positions with NSE's final settlement prices from the archive."""
-        due = [p for p in self.positions("open") if p.get("kind") == "basket" and p.get("expiry") == day]
-        if not due:
+        """Close every leg as ONE basket ticket (ticket.py adjust --close-all), trader-risk, the machine yes,
+        then the paper basket fill at the close's settle prices."""
+        if pos.get("kind") != "basket" or pos["status"] != "open":
             return
-        arc = archive_api()
-        path = None
-        if arc is not None and self.market.archive:
-            for cand in (os.path.join(self.market.archive, "settle", day[:4], "%s.csv.gz" % day),):
-                if os.path.exists(cand):
-                    path = cand
-        argv = ["settle", "--date", day, "--portfolio", self.paths.portfolio, "--trades", self.paths.trades,
-                "--config", self.paths.w("config.json"), "--now", now.strftime("%Y-%m-%d %H:%M:%S")]
-        if path:
-            argv += ["--settlement", path]
-        rc, out, err = self.run_broker(argv)
-        for p in due:
-            if rc == 0:
-                p.update({"status": "closed", "closed_at": now.strftime("%Y-%m-%d %H:%M:%S"),
-                          "closed_why": "expiry: cash settled at NSE's final settlement price"})
-                self.state.setdefault("closed_today", []).append(p["id"])
+        docs = self.write_chain(pos["symbol"], day if now.time() >= datetime.time(15, 30) else
+                                self.clock.prev_session(day))
+        if not docs:
+            return self.event(now, "note", "%s: no chain to close the basket at (%s); close it with ticket.py adjust "
+                                           "--strategy %s --close-all" % (pos["id"], why, pos.get("strategy_id")))
+        n = len(pos.get("exit_orders") or []) + 1
+        path = os.path.join(self.paths.orders, "%s-close-%d.json" % (pos["id"], n))
+        rc, out, err = self.run_broker(["adjust", "--strategy", str(pos.get("strategy_id")), "--close-all",
+                                        "--options", self.paths.w("options.json"), "--orders", path, "--portfolio",
+                                        self.paths.portfolio, "--config", self.paths.w("config.json"), "--now",
+                                        now.strftime("%Y-%m-%d %H:%M:%S")])
+        if rc != 0:
+            return self.event(now, "note", "%s: the close-all ticket failed: %s" % (pos["id"], (err or out).strip()[-300:]))
+        pos.setdefault("exit_orders", []).append({"file": path})
         self.save()
-        self.event(now, "settle", "expiry %s: %s" % (day, (out or err).strip().splitlines()[-1] if (out or err).strip()
-                                                     else "settled"))
+        res = self.run_risk(path, now)
+        bad = [x for r in res.get("results") or [] for x in r.get("reasons") or []]
+        if not res.get("results") or bad:
+            return self.event(now, "note", "%s: trader-risk did not pass the close-all ticket: %s" % (
+                pos["id"], "; ".join(bad or [res.get("error") or "no verdict"])))
+        rc, out, err = self.run_broker(["confirm", "--basket", "--orders", path, "--config", self.paths.w("config.json"),
+                                        "--risk", risk_file(path), "--state", self.paths.broker_state, "--portfolio",
+                                        self.paths.portfolio, "--options", self.paths.w("options.json"),
+                                        "--yes-text", YES_TEXT, "--actor", "autopilot", "--now",
+                                        now.strftime("%Y-%m-%d %H:%M:%S")])
+        if rc != 0:
+            return self.event(now, "note", "%s: the paper broker refused the close-all: %s" % (pos["id"],
+                                                                                              (err or out).strip()[-300:]))
+        self.fill_basket(pos, path, now, why)
+
+    def settle_basket(self, pos, day, now, docs):
+        """Cash settlement at expiry (ticket.py settle): NSE's final settlement price from the archive's settle
+        file when it has one, else the underlying's closing value in that day's F&O bhavcopy."""
+        price, src = None, None
+        arc = archive_api()
+        if arc is not None and self.market.archive:
+            try:
+                got = arc.load_settle(day, root=self.market.archive) or {}
+            except Exception:
+                got = {}
+            for k, v in (got.items() if isinstance(got, dict) else []):
+                if str(k).upper().startswith(pos["symbol"]):
+                    price, src = float(v), "NSE's final settlement price (archive)"
+                    break
+        if price is None:
+            price = next((d.get("spot") for d in docs if d.get("spot")), None)
+            src = "the underlying's close in the %s F&O bhavcopy" % day
+        if price is None:
+            return self.event(now, "note", "%s: no settlement price for %s: run ticket.py settle yourself" % (
+                pos["id"], day))
+        before = read_json(self.paths.trades) or {}
+        n0 = len(before.get("trades") or [])
+        rc, out, err = self.run_broker(["settle", "--date", day, "--price", "%s=%.2f" % (pos["symbol"], price),
+                                        "--portfolio", self.paths.portfolio, "--trades", self.paths.trades, "--config",
+                                        self.paths.w("config.json"), "--options", self.paths.w("options.json"),
+                                        "--now", now.strftime("%Y-%m-%d %H:%M:%S")])
+        if rc != 0:
+            return self.event(now, "note", "%s: settlement failed: %s" % (pos["id"], (err or out).strip()[-300:]))
+        rows = [t for t in ((read_json(self.paths.trades) or {}).get("trades") or [])[n0:]
+                if t.get("strategy_id") == pos.get("strategy_id")]
+        charges = rp(sum(float(t.get("charges") or 0) for t in rows))
+        net = rp(sum(float(t.get("realised_pnl") or 0) for t in rows))
+        self.book_basket_close(pos, now, "expiry: cash-settled at %.2f (%s)" % (price, src), charges, net)
 
     # ------------------------------------------------------------ end of day
 
@@ -1305,7 +1474,7 @@ class Pilot(object):
             if p["product"] == "MIS" and p.get("kind") != "basket":
                 self.event(now, "note", "%s %s is still open after the close (no bar at the flat-by)" % (p["id"],
                                                                                                        p["symbol"]))
-        self.settle_expiry(day, now)
+        self.baskets_eod(day, now)
         self.daily_exit_rules(day, now)
         recs = self.write_records(day)
         journal = self.journal_hook(day, now)
@@ -1443,6 +1612,54 @@ class Pilot(object):
         self.state["forward"] = out
         self.save()
         return out
+
+
+# ---------------------------------------------------------------- end-of-day option chains
+
+def eod_chain(underlying, day, root):
+    """The archive's F&O bhavcopy board of `day` as trader-options' chain documents, one per expiry:
+    {"underlying", "expiry", "asof", "spot", "forward", "rows": [{"strike", "ce": {...}, "pe": {...}}]}, priced at
+    NSE's settle prices (the close when there is no settle). [] when the archive does not have the day."""
+    arc = archive_api()
+    if arc is None or not root or not day:
+        return []
+    try:
+        ch = arc.load_fo_chain_eod(underlying, day, root=root)
+    except Exception:  # an unreadable archive day is "no chain"
+        return []
+    if not ch or not ch.get("options"):
+        return []
+    futs = {str(f.get("expiry")): f for f in ch.get("futures") or []}
+    by = {}
+    for o in ch["options"]:
+        px = o.get("settle") or o.get("close")
+        if not px or not o.get("expiry") or o.get("strike") is None:
+            continue
+        rows = by.setdefault(str(o["expiry"]), {})
+        row = rows.setdefault(float(o["strike"]), {"strike": float(o["strike"])})
+        row[str(o["option_type"]).lower()] = {"price": float(px), "ltp": float(o.get("close") or px),
+                                              "settle": float(px), "oi": o.get("oi"), "lot": o.get("lot")}
+    out = []
+    for e in sorted(by):
+        f = futs.get(e) or {}
+        out.append({"schema": "bharat-trader/options/1", "underlying": underlying.upper(), "expiry": e,
+                    "asof": "%sT15:30:00+05:30" % day, "spot": ch.get("spot"),
+                    "forward": f.get("settle") or f.get("close") or ch.get("spot"), "rate": 0.0,
+                    "kind": "index" if underlying.upper() in ("NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY") else "stock",
+                    "rows": [by[e][k] for k in sorted(by[e])],
+                    "source": "trader-archive F&O bhavcopy %s (settle prices, end of day)" % day})
+    return out
+
+
+def chain_marks(docs):
+    """{(strike, "ce"|"pe", expiry): settle price} from eod_chain()'s documents."""
+    out = {}
+    for d in docs or []:
+        for r in d.get("rows") or []:
+            for side in ("ce", "pe"):
+                if r.get(side):
+                    out[(float(r["strike"]), side, str(d["expiry"]))] = float(r[side]["price"])
+    return out
 
 
 # ---------------------------------------------------------------- records and reports
