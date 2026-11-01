@@ -284,6 +284,7 @@ python3 trader-broker/ticket.py confirm --basket --yes-text "yes"   # the strate
 python3 trader-broker/ticket.py mtm                    # paper F&O P&L, Greeks, margin
 python3 trader-lab/lab.py report orb15-vwap            # the scorecard, and what it does NOT prove
 python3 trader-lab/lab.py forward orb15-vwap           # the paper forward record: promote or demote
+python3 trader-lab/lab.py hunt list                     # the pre-registered edge-hunt hypotheses and their verdicts
 python3 trader-discover/discover.py run --budget 500 --universe nifty50 --timeframe 1d   # search, overfitting controls on
 python3 trader-cotrader/cotrader.py today --tier research   # also the unproven RESEARCH ideas, for study
 python3 trader-cotrader/cotrader.py calibration        # did past probabilities come true? (Brier, reliability)

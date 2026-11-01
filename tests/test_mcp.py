@@ -762,6 +762,49 @@ class DiscoveryCancel(unittest.TestCase):
             shutil.rmtree(wd, ignore_errors=True)
 
 
+class EdgeHunt(unittest.TestCase):
+    def test_run_pauses_on_cancel_and_carries_on(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("bt_mcp_toolkit_hunt", os.path.join(ROOT, "mcp", "toolkit.py"))
+        tk = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tk)
+        wd = workdir_copy()
+        lib = os.path.join(wd, "hunt-lib")
+        shutil.copytree(os.path.join(FIX, "trader-lab", "hunt", "edge-hunt"), lib)
+        old = os.environ.get("BT_EDGE_HUNT_DIR")
+        os.environ["BT_EDGE_HUNT_DIR"] = lib
+        try:
+            kit = tk.Kit(wd, offline=BUNDLE)
+            ev = threading.Event()
+            seen = []
+
+            def progress(f, msg):
+                seen.append(msg)
+                if any(m.startswith("trial") for m in seen):
+                    ev.set()                                   # the client cancels after the first trial
+            env = kit.call("edge_hunt_run", {"hypothesis": "eh-92-fixture-turn-of-month"},
+                           tk.Call(cancel=ev, progress=progress))
+            self.assertEqual(env["data"]["state"], "paused")
+            self.assertEqual(env["data"]["done"], 1)
+            env = kit.call("edge_hunt_run", {"hypothesis": "EH-92"}, tk.Call())
+            self.assertEqual(env["data"]["state"], "decided")
+            self.assertIn(env["data"]["outcome"]["verdict"], ("REJECT", "WATCH"))
+            self.assertIn("Validation gates", env["data"]["scorecard"])
+            st = kit.call("edge_hunt_status", {}, tk.Call())["data"]
+            row = [h for h in st["hypotheses"] if h["id"] == "eh-92-fixture-turn-of-month"][0]
+            self.assertEqual((row["trials_run"], row["phase"]), (4, "decided"))
+            with open(os.path.join(lib, "eh-92-fixture-turn-of-month.json"), encoding="utf-8") as fh:
+                self.assertNotEqual(json.load(fh)["status"], "registered")
+            with self.assertRaises(tk.ToolError):
+                kit.call("edge_hunt_run", {"hypothesis": "../../etc/passwd"}, tk.Call())
+        finally:
+            if old is None:
+                os.environ.pop("BT_EDGE_HUNT_DIR", None)
+            else:
+                os.environ["BT_EDGE_HUNT_DIR"] = old
+            shutil.rmtree(wd, ignore_errors=True)
+
+
 class LabBudget(unittest.TestCase):
     def test_lab_run_stops_at_its_time_budget(self):
         import importlib.util

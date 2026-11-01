@@ -14,6 +14,8 @@ python3 trader-lab/lab.py report orb15-vwap
 python3 trader-lab/lab.py compare orb15-vwap vwap-reclaim gap-fade pdh-breakout rsi2-nifty50 breakout20-swing
 python3 trader-lab/lab.py forward orb15-vwap      # the paper forward test
 python3 trader-lab/lab.py run nifty-weekly-condor-16d --archive tests/fixtures/trader-lab/archive   # options, offline
+python3 trader-lab/lab.py hunt list                # the pre-registered edge-hunt hypotheses
+python3 trader-lab/lab.py hunt run EH-03 --dry-run # one of them: hash, data coverage, trial count
 ```
 
 ## Why most backtests lie
@@ -307,6 +309,202 @@ walk-forward chose lower IV-rank thresholds in some windows.
 - Short premium has rare, large losses. Two or three years of history may
   not hold the day that matters.
 
+## The edge hunt: running pre-registered hypotheses
+
+[research/edge-hunt.md](research/edge-hunt.md) registers 14 hypotheses
+before any run; each file in `trader-lab/library/edge-hunt/` fixes the data,
+the parameter grid, the trial budget, the train, validation and holdout
+dates and the gates. `lab.py hunt` runs one exactly as written, with the v2
+engines in `trader-lab/engines/`.
+
+```bash
+python3 trader-lab/lab.py hunt list                       # rank, family, status, verdict
+python3 trader-lab/lab.py hunt run eh-03-index-trend --dry-run
+python3 trader-lab/lab.py hunt run eh-03-index-trend      # --archive DIR, or --data DIR (a plain folder)
+python3 trader-lab/lab.py hunt status                     # trials, holdout openings, the programme's BH cut
+```
+
+### The executor
+
+1. **The registration.** The file must match the SHA-256 in `manifest.json`
+   (its canonical JSON without `status` and `outcome`). An edited file is
+   refused: a change is a new hypothesis with a new id. A run writes back
+   only `status` (running, then rejected or watch) and `outcome`, and checks
+   that the hash still matches before it writes.
+2. **Train and validation, every grid point.** Each point runs on the train
+   window and on the validation window, each closed at its last session
+   (purged; the registered embargo sits between them). While the holdout is
+   sealed the data is read only up to the validation's last day, so no
+   number can depend on a holdout price. Each point is one trial, logged once
+   in `trader/lab/edge-hunt/<id>/trials.jsonl`; a paused run carries on
+   without re-running any.
+3. **The trial count.** The deflated Sharpe ratio is charged for the grid,
+   plus the file's `prior_trials`, plus the trials of the same family already
+   run by this executor for other ids, plus `--extra-trials`. The count is
+   fixed at the first run and can only grow.
+4. **The finalist and the validation gates.** The finalist is the point with
+   the best primary metric on train. Validation screens it with trader-lab's
+   gates and the file's overrides and extras: at least 30 validation trades,
+   expectancy after charges above zero (per trade, as % of the position),
+   profit factor 1.2, the drawdown on the registered basis (capital, active
+   against the benchmark, or vs buy and hold; train + validation), a
+   drawdown against the benchmark where registered, deflated Sharpe 0.95 on
+   the validation series, PBO below 0.5 over the whole grid's train +
+   validation series, still positive at 1.5x costs, half the grid
+   neighbourhood positive on validation, the primary metric above zero, the
+   minimum validation months and the span (a declared exception passes, the
+   verdict is WATCH at best anyway). Walk-forward by validation year
+   (expanding), 2x costs and a regime split (NIFTY trend and India VIX the
+   session before) are reported with it.
+5. **The holdout, once.** Only a finalist that passes every gate opens the
+   holdout. `holdout.json` is written first, with the time, the parameters
+   and the registration hash, and only then is the holdout run. The checks
+   are the registered `pass_if` as numbers (the count from "at least N", the
+   primary metric and the after-charges result above zero, the drawdown
+   rules, the in-window mean above the other sessions' for calendar ideas,
+   a positive predictive slope for intraday momentum), and a one-sided
+   stationary-bootstrap p-value of the primary series is recorded for the
+   programme's Benjamini-Hochberg cut (q = 0.10 across all 14; a sealed
+   holdout counts as p = 1). An opened holdout is never opened again: a
+   decided run is not re-run, and a holdout that was opened without a
+   recorded result (a crash) is a REJECT.
+6. **The verdict.** REJECT, or WATCH: a candidate for the paper forward test
+   with its own capital bucket. Nothing here trades; every paper or live
+   order still needs trader-risk PASS and the user's typed yes.
+
+Files: `trader/lab/edge-hunt/<id>/state.json`, `trials.jsonl`,
+`holdout.json`, `results.json` and `scorecard.md`.
+
+### The data adapter
+
+The engines read one adapter (`engines/market.py`). With the archive it
+calls the long-history read functions by name when they exist:
+`load_continuous(underlying, method, from, to)`, `members(index, date)`,
+`results_dates(symbol, from, to)`, plus the archive's adjusted daily bars and
+index closes. Without them: a continuous future is built from the archive's
+daily F&O boards; a point-in-time universe or a results-date idea is
+**blocked**, not run on today's index (that would be survivorship bias); a
+window the data does not cover is blocked until the history is there.
+`--data DIR` reads a plain folder instead: `SYMBOL-1d.csv(.gz)` bars,
+`^NSEI-1d.csv(.gz)`, `members.json` (`{"NIFTY 200": {"YYYY-MM-DD": [symbols]}}`,
+each list holding until the next), `results.json`, `sectors.json`,
+`continuous/UNDERLYING.csv(.gz)` (`date,expiry,lot,open,high,low,close,roll,next_close`).
+
+### Futures engine
+
+- **Continuous series.** The near-month contract, held until the close of
+  the session before its expiry, then the next month (the roll). Returns are
+  always within one contract: the day after a roll is marked from the next
+  contract's price at the roll close, so the basis jump is never a fake
+  gain. Indicators read an index compounded from those returns.
+- **Lots by date** from the series (the bhavcopy's lot per contract), whole
+  lots sized on the equity at entry, notional = equity (no leverage). An
+  entry below one lot is skipped and counted.
+- **Margin**: a SPAN-style estimate, the price scan plus exposure margin on
+  the notional (trader-strategy's figures: index 9.3% + 2%, stocks 20% +
+  3.5%), with the average and the largest, and return on average margin.
+- **Charges** per order on its own date with the lab's dated table: STT on
+  the futures sale 0.02% to 31 Mar 2026 and 0.05% from 1 Apr 2026, exchange,
+  SEBI, stamp on the buy, brokerage, GST. Slippage 1 bp a side on index
+  futures, 3 bp on stock futures.
+- **Rolls** close the old contract and open the new one at the roll close,
+  both orders charged and slipped: the roll cost is reported.
+- **Holding**: intents fill at the open or the close, so overnight (close
+  to the next open), intraday (open to close) and multi-week holds are the
+  same machinery; every open position is marked at each close (daily MTM).
+- **Strategies**: time-series momentum (12 months, a 3/6/12 blend) and the
+  200-day average, decided at each month's last close and filled at the next
+  open, long-flat or long-short; calendar windows and overnight holds from
+  the events engine; the last half-hour after a large first half-hour on
+  1-minute bars.
+
+### Cross-sectional portfolio engine
+
+- **Universe**: the index's members on each decision day (point in time), a
+  close in the last 5 sessions and enough history for the signal.
+- **Signals**: momentum over `lookback` sessions skipping the latest `skip`
+  (12-1 is 252 and 21, 6-1 is 126 and 21), optionally over its volatility;
+  low volatility (the lowest standard deviation of daily returns over the
+  window); short-term reversal (the biggest losers). Quality needs dated
+  fundamentals and is not built.
+- **Rebalance**: weekly, monthly, quarterly (Mar, Jun, Sep, Dec),
+  semi-annual (Jun, Dec) or every N sessions, decided at the close and
+  filled at the next open; a holding is resized only when it is more than
+  25% off its target.
+- **Portfolio**: top N or the top quantile; equal or inverse-volatility
+  weights; long only, or long-short (half the equity each side, the short
+  leg in stock futures).
+- **Charges**: delivery (CNC) through the lab's `round_trip_charges` per
+  order, so STT 0.1% on both sides and stamp 0.015% on the buy, plus a DP
+  charge per scrip per sell day (`dp_charge`, ₹15.93 by default: set your
+  broker's). Futures legs use the futures table.
+- **Turnover** (one way, a year), **exposure**, and the **benchmarks**: the
+  equal-weighted point-in-time universe (no charges) and NIFTY 50 plus its
+  dividend yield accrued daily (a total-return proxy; 1.3% a year when the
+  data has no yield).
+- **Capacity note**: each order as a share of its stock's median daily
+  traded value over the 20 sessions before, and the capital at which the
+  95th-percentile order would be 1% of a day's value.
+
+### Event engine
+
+- **Turn of the month**: in at the close of the month's session -1 or -2,
+  out at the close of the next month's session 2, 3 or 4.
+- **Pre-holiday**: out at the close of the last session before an exchange
+  holiday (a weekday with no session), in 1 or 2 sessions earlier.
+- **Expiry week**: out at the monthly expiry's close, in N sessions earlier.
+- **Overnight**: in at the close, out at the next open; every session, after
+  a down session, or before a weekend or holiday.
+- **Results-date drift**: the surprise is the 3-session abnormal return
+  around the results (the reaction session is the first one on or after
+  the date, after it when the results came out at or after 15:30), known at
+  the close after the reaction. An event in the top fraction of the previous
+  252 sessions' surprises (at least 20 of them) is bought `entry_lag`
+  sessions later, held N sessions, one of 20 equal slots, CNC charges; its
+  abnormal return is net of the equal-weighted universe.
+- For calendar ideas the scorecard compares the mean daily return inside the
+  windows with the other sessions' (Welch t).
+
+### Pairs engine
+
+- **Selection on train only**: same-sector pairs with closes on 90% of the
+  last `formation` train sessions; correlation of daily log returns at least
+  0.6; Engle-Granger: OLS of log y on log x, then an augmented Dickey-Fuller
+  regression on the residuals (one lag), cointegrated when the t-statistic is
+  below -3.34 (5%; MacKinnon 2010, two variables). The 5 most negative are
+  kept. Later data cannot change the choice.
+- **Trading**: each session the hedge ratio and the spread's mean and
+  standard deviation come from the previous `formation` sessions; z beyond
+  the entry band opens (short the rich leg, long the cheap one) at the next
+  open, back inside the exit band or past the stop or after the maximum hold
+  exits at the next open; dollar-neutral legs, futures charges per order.
+  The share of trades that hit the stop is reported (a kill criterion).
+- Until stock-futures continuous series are wired in, the legs are priced at
+  the stocks' own opens and closes (no basis, no lot rounding, margin not
+  modelled); the scorecard says so.
+
+### Portfolio metrics (every engine)
+
+CAGR after charges, volatility, Sharpe and Sortino (annualised, no
+risk-free rate), max drawdown, turnover, hit rate (trades and months),
+exposure, expectancy and profit factor of the trades, charges a year, and
+against the benchmark: its CAGR, Sharpe and drawdown, the active return,
+active Sharpe, the deepest active drawdown and the share of the active
+return from the best two months.
+
+### What the edge hunt does NOT show
+
+- The windows are all the same past; the holdout is honest only because it
+  is opened once, after the choice.
+- Charges are a typical discount broker's; tax is left out; slippage and
+  margin are models; fills at the open and close assume you trade there.
+- A long-short book's short leg and the pairs' legs are priced at the stock,
+  not its future, until the long-history archive gives stock-futures series.
+- Survivorship and look-ahead are only as good as the point-in-time
+  membership and the dated results the archive provides.
+- A WATCH is evidence, not a promise; the programme's BH cut and the paper
+  forward test come after it.
+
 ## Using it from code
 
 Everything is a pure function that the UI and an MCP server can call:
@@ -316,12 +514,17 @@ Everything is a pure function that the UI and an MCP server can call:
 `evaluate_gates(...)`, `decide(...)`, `run_lab(doc, data, context)`,
 `scorecard(results)`, `forward(doc, data, out)`, `compare_rows(out, names)`; for options specs
 `load_options_data(spec, archive)` and the `options/` package (`options_api()`: `validate`,
-`load_chains`, `backtest`, `run`, `options_metrics`).
+`load_chains`, `backtest`, `run`, `options_metrics`); for the edge hunt the `engines/` package
+(`engines_api()`: `executor.execute(path, market, out)`, `executor.status(folder, out)`, `market.ArchiveMarket`,
+`market.FolderMarket`, `futures.simulate`, `portfolio.run`, `events.results_drift`, `pairs.select`, `pairs.run`,
+`core.metrics`).
 Nothing writes a file except `save_run` and `forward(..., write=True)`.
 
 The MCP server (`mcp/server.py`, see [mcp.md](mcp.md)) exposes the lab as
 `lab_list`, `lab_run` (progress notifications, cancellation, a `max_seconds`
-budget), `lab_report` and `lab_forward`, all calling these functions. A
+budget), `lab_report` and `lab_forward`, all calling these functions, and the
+edge hunt as `edge_hunt_status` and `edge_hunt_run` (a time budget, progress,
+cancel, resumable, `dry_run`). A
 forward signal becomes a paper ticket only through `lab_forward` with
 `draft: SYMBOL`, which hands the plan to `paper_order_draft`: trader-budget
 sizes it, trader-risk checks it, and the user's own typed yes is still

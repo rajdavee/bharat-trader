@@ -97,8 +97,8 @@ class FuturesJob(Job):
         for u in self.underlyings():
             s = self.mkt.futures(u, self.start, until)
             if s is None or not s.n:
-                raise Blocked("no continuous %s futures series (the long-history archive's load_continuous, or "
-                              "the archive's F&O boards)" % u)
+                raise Blocked("no %s futures data from %s to %s: the run waits for the history (the long-history "
+                              "archive's load_continuous, or the archive's F&O boards)" % (u, self.start, until))
             self.series[u] = s
             self.notes.append("%s futures: %s" % (u, s.source))
 
