@@ -2215,6 +2215,26 @@ def r_cotrader_run(ctx, q, body):
     return cotrader_view(ctx)
 
 
+def _cotrader_draft_basket(ctx, cid, plan):
+    """An options candidate: its trader-strategy basket becomes trader/strategy.json and trader/orders.json (the
+    old ones kept as .bak), and trader-risk records its verdict on the basket as one position."""
+    for name in ("orders.json", "strategy.json"):
+        if os.path.exists(ctx.path(name)):
+            with open(ctx.path(name), encoding="utf-8") as src, open(ctx.path(name + ".bak"), "w",
+                                                                      encoding="utf-8") as dst:
+                dst.write(src.read())
+    for name, doc in (("strategy.json", plan.get("strategy")), ("orders.json", plan.get("orders"))):
+        with open(ctx.path(name), "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+    risk = r_risk_check(ctx, {}, {})
+    view = tickets(ctx)
+    return {"ok": True, "paper": True, "id": cid, "tickets": view["tickets"], "basket": view.get("basket"),
+            "risk": risk.get("result"),
+            "next": "Drafted as one basket, nothing placed. Open Portfolio and orders: a basket trader-risk passed "
+                    "waits for one typed yes for every leg; F&O stays blocked unless your config allows it."}
+
+
 def r_cotrader_draft(ctx, q, body):
     """One candidate's plan becomes trader/plan.json, trader-budget sizes it into trader/orders.json and
     trader-risk records its verdict. Nothing is placed: the paper broker still needs your typed yes."""
@@ -2230,6 +2250,8 @@ def r_cotrader_draft(ctx, q, body):
     if plan.get("date") != ctx.today():
         raise ApiError(409, "this plan is for %s and today is %s: draft it on its own day (a daily signal fills at "
                             "the next session's open)" % (plan.get("date"), ctx.today()))
+    if plan.get("kind") == "options":
+        return _cotrader_draft_basket(ctx, cid, plan)
     if os.path.exists(ctx.path("plan.json")):
         with open(ctx.path("plan.json"), encoding="utf-8") as src, open(ctx.path("plan.json.bak"), "w",
                                                                          encoding="utf-8") as dst:

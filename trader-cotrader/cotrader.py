@@ -360,14 +360,15 @@ def evidence(trades, regs, cell, settings=None, basis=""):
                     "prior_trades": 0, "why": "no past trades to learn from"})
         return out
     p_all = wins_all / float(n_all)
+    p_prior = (wins_all + 1) / float(n_all + 2)      # Laplace: a few all-win (or all-loss) trades never mean 100%
     m_all, sd_all = mean_sd(rs_all)
     k = min(int(st["prior_trades"]), n_all)
-    post = shrink(wins, n, p_all, k)
+    post = shrink(wins, n, p_prior, k)
     ev = shrink_mean(rs, m_all, sd_all, k)
     w_all, w_cell = wilson(wins_all, n_all), wilson(wins, n)
     m_cell, _ = mean_sd(rs)
     out.update({
-        "p_all": round(p_all, 4), "p_all_ci": [round(w_all[0], 4), round(w_all[1], 4)],
+        "p_all": round(p_all, 4), "p_all_ci": [round(w_all[0], 4), round(w_all[1], 4)], "p_prior": round(p_prior, 4),
         "ev_r_all": round(m_all, 4),
         "p_cell_raw": round(wins / float(n), 4) if n else None,
         "p_cell_ci": [round(w_cell[0], 4), round(w_cell[1], 4)] if w_cell else None,
@@ -415,7 +416,7 @@ def similar_trades(trades, regs, symbol, cell, entry, stop, k=5):
     risk0 = (entry - stop) / entry if entry else 0.0
     rows = []
     for t, c in label(trades, regs):
-        e, s = float(t["entry"]), float(t["stop"])
+        e, s = float(t.get("entry") or 0), float(t.get("stop") or 0)
         rp = (e - s) / e if e else 0.0
         d = (0.0 if t["symbol"] == symbol else 1.0) + (0.0 if c == cell else 1.0) + \
             (min(1.0, abs(rp - risk0) / risk0) if risk0 > 0 else 1.0)
@@ -423,7 +424,7 @@ def similar_trades(trades, regs, symbol, cell, entry, stop, k=5):
     rows.sort(key=lambda x: x[1], reverse=True)       # the most recent first among equals
     rows.sort(key=lambda x: x[0])
     return [{"symbol": t["symbol"], "signal_date": t["signal_date"], "exit_date": t["exit_date"], "regime": cell_words(c),
-             "entry": t["entry"], "stop": t["stop"], "exit": t["exit"], "r": t["r"], "net": t["net"],
+             "entry": t.get("entry"), "stop": t.get("stop"), "exit": t.get("exit"), "r": t["r"], "net": t["net"],
              "reason": t["reason"], "distance": d} for d, _, t, c in rows[:k]]
 
 
@@ -709,21 +710,25 @@ def history(row, data, fno, settings):
                     "lab, so no walk-forward, no gates, all in sample" % len(trades))
 
 
-def options_triggers(row, now):
-    """The options hook. An options spec ("kind": "options") is scored from its lab history like any other;
-    its live triggers need trader-lab's options forward test (issue #35). Until lab.forward accepts an
-    options spec, this returns no plans and says why."""
-    return [], ["%s: an options strategy; live option-structure triggers come from trader-lab's options forward "
-                "test, which this lab does not have yet" % row["name"]]
+def options_triggers(row, chains, now, lab_out, tier):
+    """(baskets, notes, live verdict, signal day) for an options spec ("kind": "options") through trader-lab's
+    options forward test, which drafts a trader-strategy basket for a WATCH or PROMOTE spec whose entry fires on
+    the latest session. A RESEARCH options spec shows its history only: the lab drafts no basket for it."""
+    lab = lab_api()
+    if tier not in ("PROMOTED", "WATCH"):
+        return [], ["%s: RESEARCH options strategy: stats only (trader-lab drafts baskets for WATCH and PROMOTE "
+                    "only)" % row["name"]], row.get("verdict"), None
+    try:
+        r = lab.forward(row["doc"], chains, lab_out, None, None, now, write=False)
+    except lab.LabError as e:
+        return [], ["%s: %s" % (row["name"], e)], row.get("verdict"), None
+    return r.get("baskets") or [], r.get("notes") or [], r["verdict"], r["today"]
 
 
 def triggers(row, data, fno, now, lab_out, tier):
     """(plans, notes, live verdict, compiled spec, signal day) for one strategy on the latest bars."""
     lab = lab_api()
     doc = row["doc"]
-    if doc.get("kind") == "options":
-        plans, notes = options_triggers(row, now)
-        return plans, notes, row.get("verdict"), None, None
     if not data:
         return [], ["%s: no bars for any symbol" % row["name"]], row.get("verdict"), None, None
     days = lab.session_days(data)
@@ -792,6 +797,28 @@ def size_and_check(plan, cfg, ti, when):
         except (risk.RiskError, ValueError, KeyError) as e:
             out["risk"] = {"verdict": "BLOCK", "reasons": ["the risk check could not run: %s" % e], "warnings": []}
     return out
+
+
+def check_basket(orders_doc, cfg, ti, when):
+    """trader-risk's verdict on an F&O basket (every leg one position): PASS only when every leg passes."""
+    risk = risk_api()
+    if risk is None:
+        return None
+    orders = orders_doc.get("orders") or []
+    try:
+        today = when.date().isoformat()
+        portfolio, extra = risk.gather_inputs(ti["dir"], orders, orders_doc, cfg, today, fetch=False)
+        prices, times = risk.load_prices(ti["prices"])
+        res = risk.check(orders, cfg, portfolio, prices, ti["state"], today, when.replace(tzinfo=IST), times, extra)
+    except (risk.RiskError, ValueError, KeyError) as e:
+        return {"verdict": "BLOCK", "reasons": ["the risk check could not run: %s" % e], "warnings": []}
+    reasons, warns = [], []
+    for r in res["results"]:
+        reasons += [x for x in r["reasons"] if x not in reasons]
+        warns += [x for x in r["warnings"] if x not in warns]
+    return {"verdict": "PASS" if res["results"] and not reasons else "BLOCK", "reasons": reasons, "warnings": warns,
+            "fingerprint": None, "as_of": when.strftime("%Y-%m-%d %H:%M"), "kill": res.get("kill"),
+            "locks": (res.get("breakers") or {}).get("locks") or [], "legs": len(orders)}
 
 
 def risk_state(cfg, ti, when):
@@ -882,6 +909,67 @@ def candidate_id(day, name, sym):
     return "%s-%s-%s" % (day, name, sym)
 
 
+def options_candidate(row, b, tier, tier_why, ev, trades, regs, cell, sig_day, cfg, ti, now, st):
+    """A candidate from a trader-lab options forward basket (a trader-strategy body plus a paper orders.json
+    proposal), or None when its history shows no edge after charges. R here is the result per rupee of margin."""
+    lab = lab_api()
+    if ev.get("ev_r") is None or ev["ev_r"] <= 0:
+        return None
+    body, orders = b["strategy"], json.loads(json.dumps(b["orders"]))
+    und = body.get("underlying") or row["doc"].get("underlying")
+    cid = candidate_id(b["date"], row["name"], und)
+    setup = "cotrader-%s:%s" % (tier.lower(), row["name"])
+    for o in orders.get("orders") or []:
+        pl = o.get("plan") if isinstance(o.get("plan"), dict) else {}
+        pl["setup"] = setup
+        o["plan"] = pl
+    plan = {"kind": "options", "symbol": und, "date": b["date"], "decided_on": b["decided_on"], "expiry": b["expiry"],
+            "setup": setup, "strategy": body, "orders": orders,
+            "cotrader": {"id": cid, "tier": tier, "strategy": row["name"], "live_eligible": tier == "PROMOTED",
+                         "note": ("RESEARCH: %s" % RESEARCH_LABEL) if tier == "RESEARCH" else
+                         "a co-trader candidate: evidence, not a recommendation"}}
+    risk = check_basket(orders, cfg, ti, check_time(plan, now, cfg))
+    exp = body.get("expiry") or {}
+    margin = (body.get("margin") or {}).get("required")
+    c = {"id": cid, "strategy": row["name"], "title": row["doc"].get("title"), "symbol": und, "tier": tier,
+         "tier_why": tier_why, "kind": "options",
+         "label": RESEARCH_LABEL if tier == "RESEARCH" else
+         ("paper only while the forward test runs" if tier == "WATCH" else "lab gates and paper forward record"),
+         "live_eligible": tier == "PROMOTED", "timeframe": "1d", "product": "NRML", "signal_date": sig_day,
+         "date": b["date"], "plan": plan, "spec_hash": lab.spec_hash(row["doc"]), "max_bars": None, "evidence": ev,
+         "second_opinion": {"available": False, "why": "the time machine replays stock plans; an option basket "
+                                                     "has no replay here"},
+         "disagreements": [], "sizing": None, "order": None, "refusal": None, "risk": risk,
+         "charges_at_target": (body.get("charges") or {}).get("at_forward_expiry"), "liquidity": None,
+         "basket": {"structure": body.get("name"), "expiry": b["expiry"], "legs": len(orders.get("orders") or []),
+                    "net_premium": body.get("net_premium"), "margin_required": margin,
+                    "max_profit": exp.get("max_profit_after_charges"), "max_loss": exp.get("max_loss_after_charges"),
+                    "unlimited_loss": exp.get("unlimited_loss")},
+         "similar": similar_trades(trades, regs, und, cell, 0.0, 0.0, int(st["similar"]))}
+    c["ev_rupees"] = round(ev["ev_r"] * margin, 2) if margin else None
+    c["status"] = "ready" if risk and risk["verdict"] == "PASS" else "blocked"
+    c["why_not"] = (risk["reasons"] if risk and risk["verdict"] != "PASS" else []) or \
+        ([] if risk else ["trader-risk is not installed: not checked"])
+    title = row["doc"].get("title") or row["name"]
+    x = {"why": "%s: the entry rule fired on the %s close for the %s expiry; a %s basket priced at that close's "
+                "settle prices (the next session's prices will differ)." % (title, b["decided_on"], b["expiry"],
+                                                                              body.get("name")),
+         "invalidation": ["The spec's own exits: its profit target, its stop as a multiple of the premium, or the "
+                          "days-before-expiry exit; else cash settlement at expiry.",
+                          "Max loss at expiry after charges: %s." % ("unlimited (a naked short leg)" if
+                                                                    exp.get("unlimited_loss") else
+                                                                    inr(exp.get("max_loss_after_charges") or 0)),
+                          "A change of market regime away from %s before the entry removes the regime evidence."
+                          % ev["cell_words"]],
+         "evidence": ev["why"] + " Here R is the result per rupee of margin (the lab's options R)."}
+    dns = does_not_show(dict(c, timeframe="options"), row, ev, c["second_opinion"])
+    dns.append("Option prices are end-of-day settle prices; a gap or an IV jump can move a short option far "
+               "past its stop before you can act.")
+    x["does_not_show"] = dns
+    c["explain"] = x
+    return c
+
+
 def run_today(workdir=".", view="validated", only=None, now=None, data=None, archive=None, fetch=True,
               write=True, lab_out=None, settings=None):
     """Today's candidates, ranked, or the no-edge decision. Returns the cotrader.json document."""
@@ -926,10 +1014,29 @@ def run_today(workdir=".", view="validated", only=None, now=None, data=None, arc
         if tier not in allowed:
             srow["status"] = "hidden: RESEARCH (%s); shown with --tier research" % RESEARCH_LABEL
             continue
-        spec0 = lab.validate_spec(row["doc"]) if row["doc"].get("kind") != "options" else None
-        data_s = src.market(spec0, now) if spec0 else {}
-        trades, basis = history(row, data_s, fno, st) if spec0 or row.get("res") else ([], "")
-        plans, tnotes, live_v, spec, sig_day = triggers(row, data_s, fno, now, lab_out, tier)
+        is_opt = row["doc"].get("kind") == "options"
+        try:
+            spec0 = lab.validate_spec(row["doc"])
+        except lab.LabError as e:
+            srow["status"] = "the spec does not validate: %s" % e
+            continue
+        if is_opt and not src.archive:
+            srow["status"] = "options: no local trader-archive with the EOD F&O chains (archive.py backfill)"
+            continue
+        if is_opt:
+            try:
+                chains, _, onotes = lab.load_data(spec0, None, None, False, now, archive=src.archive)
+            except lab.LabError as e:
+                srow["status"] = "options: %s" % e
+                continue
+            data_s = {}
+            trades, basis = history(row, {}, fno, st) if row.get("res") else ([], "never run in the lab")
+            plans, tnotes, live_v, sig_day = options_triggers(row, chains, now, lab_out, tier)
+            spec = spec0
+        else:
+            data_s = src.market(spec0, now)
+            trades, basis = history(row, data_s, fno, st)
+            plans, tnotes, live_v, spec, sig_day = triggers(row, data_s, fno, now, lab_out, tier)
         notes.extend(tnotes)
         if tier in ("PROMOTED", "WATCH") and live_v != row.get("verdict"):
             # the lab's forward test re-checked the verdict on today's bars: that one counts
@@ -964,6 +1071,18 @@ def run_today(workdir=".", view="validated", only=None, now=None, data=None, arc
                               "no live trigger on the latest bars (%s)" % (sig_day or "no bars"))
             continue
         for p in fresh:
+            if is_opt:
+                c = options_candidate(row, p, tier, tier_why, ev_s, trades, regs, cell, sig_day, cfg, ti, now, st)
+                if c is None:
+                    und = row["doc"].get("underlying")
+                    passed.append({"id": candidate_id(p["date"], row["name"], und), "strategy": row["name"],
+                                   "symbol": und, "tier": tier,
+                                   "why": "expected return on margin after charges is %s in %s: no edge to offer" % (
+                                       rr(ev_s.get("ev_r")), ev_s["cell_words"])})
+                    continue
+                cands.append(c)
+                srow["candidates"] += 1
+                continue
             sym = p["symbol"]
             ev = ev_s
             cid = candidate_id(p["date"], row["name"], sym)
@@ -1138,7 +1257,7 @@ def log_line(c, at):
             "strategy": c["strategy"], "spec_hash": c["spec_hash"], "tier": c["tier"], "symbol": c["symbol"],
             "timeframe": c["timeframe"], "p": ev["p"], "p_lo": ev["p_lo"], "p_hi": ev["p_hi"], "ev_r": ev["ev_r"],
             "trades_cell": ev["trades_cell"], "trades_all": ev["trades_all"], "regime": ev["cell"],
-            "entry": c["plan"]["entry"], "stop": c["plan"]["stop"], "target": c["plan"]["target"],
+            "entry": c["plan"].get("entry"), "stop": c["plan"].get("stop"), "target": c["plan"].get("target"),
             "entry_time": c["plan"].get("entry_time"), "flat_by": c["plan"].get("flat_by"),
             "qty": (c["sizing"] or {}).get("qty") or 0, "max_bars": c.get("max_bars"), "status": c["status"],
             "second_p": so.get("p_green") if so.get("available") else None}
@@ -1205,7 +1324,7 @@ def replay_outcome(rec, series, cfg):
     """From the bars after the signal: entry at the first bar's open at or after the entry (skipped if it opens
     through the stop or the target), then stop first, target, and out at the flat-by (5m) or after the
     maximum holding (1d, at that bar's close). Net of trader-lab's charges on the logged quantity."""
-    if series is None or not series.n:
+    if series is None or not series.n or rec.get("stop") is None:
         return None
     lab = lab_api()
     if rec["timeframe"] == "5m":
@@ -1255,7 +1374,7 @@ def resolve(records, workdir, src=None, now=None, lab_out=None):
     out = []
     for rec in records:
         o = paper_outcome(rec, trades_doc) or forward_outcome(rec, lab_out)
-        if o is None and src is not None:
+        if o is None and src is not None and rec.get("stop") is not None:
             o = replay_outcome(rec, src.series(rec["symbol"], rec["timeframe"], now or ist_now()), cfg)
         out.append(dict(rec, outcome=o))
     return out
@@ -1345,9 +1464,15 @@ def render_today(doc):
                                             c["strategy"], c["status"].upper()))
         L.append("  id %s" % c["id"])
         p = c["plan"]
-        L.append("  buy %s on %s%s: entry %s, stop %s, target %s" % (
-            c["product"], c["date"], (" after %s IST" % p["entry_time"]) if c["timeframe"] == "5m" else " at the open",
-            inr(p["entry"]), inr(p["stop"]), inr(p["target"])))
+        if c.get("kind") == "options":
+            bk = c["basket"]
+            L.append("  %s on %s, expiry %s: %d legs, margin about %s, max loss after charges %s" % (
+                bk["structure"], c["date"], bk["expiry"], bk["legs"], inr(bk["margin_required"] or 0),
+                "unlimited" if bk["unlimited_loss"] else inr(bk["max_loss"] or 0)))
+        else:
+            L.append("  buy %s on %s%s: entry %s, stop %s, target %s" % (
+                c["product"], c["date"], (" after %s IST" % p["entry_time"]) if c["timeframe"] == "5m" else
+                " at the open", inr(p["entry"]), inr(p["stop"]), inr(p["target"])))
         s = c["sizing"]
         if s and s["qty"]:
             L.append("  size %d shares (%s), loss at the stop %s with charges; charges about %s at the target" % (
@@ -1420,8 +1545,13 @@ def render_explain(c):
     for w in c["why_not"]:
         L.append("  - %s" % w)
     L.append("")
-    L.append("To paper trade it: copy trader/cotrader/plans/%s.json to trader/plan.json, then size.py --write, "
-             "check.py, and ticket.py show for your typed yes (or the UI's Draft to paper)." % c["id"])
+    if c.get("kind") == "options":
+        L.append("To paper trade it: the basket in trader/cotrader/plans/%s.json (\"orders\") becomes "
+                 "trader/orders.json through the UI's Draft to paper or paper_order_draft, then check.py and one "
+                 "typed yes for the whole basket." % c["id"])
+    else:
+        L.append("To paper trade it: copy trader/cotrader/plans/%s.json to trader/plan.json, then size.py --write, "
+                 "check.py, and ticket.py show for your typed yes (or the UI's Draft to paper)." % c["id"])
     L.append(DISCLAIMER)
     return "\n".join(L) + "\n"
 

@@ -32,8 +32,10 @@ All notable changes are documented here. The format follows
   prediction logged once, resolved from paper fills, the lab's forward record
   or the next bars; Brier score with its base-rate reference, log loss and
   reliability bins per strategy and tier; an overconfident PROMOTED or WATCH
-  strategy is demoted through trader-lab's status (DEMOTE). Method in
-  `docs/cotrader.md`.
+  strategy is demoted through trader-lab's status (DEMOTE). Options specs
+  (#57) join through the lab's options forward test: the drafted
+  trader-strategy basket is a candidate (structure, legs, margin, max loss
+  after charges) risk-checked as one position. Method in `docs/cotrader.md`.
 - UI: the **Co-trader** page (candidate cards with the tier badge, odds with
   range and n, expected R after charges, the replay, the risk verdict, why /
   why not, Draft to paper through trader-budget and trader-risk, the no-edge

@@ -46,11 +46,18 @@ is a DEMOTE here too. A RESEARCH idea is never eligible for a live order:
 its plan is tagged `cotrader-research:<strategy>` and trader-risk blocks such
 an entry whenever the config is live (`"paper": false`).
 
-Option strategies: a lab spec with `"kind": "options"` is scored from its lab
-history like any other, but its live triggers need trader-lab's options
-forward test. Until the lab has one, the co-trader lists the strategy with
-"no live trigger: options triggers wait for trader-lab's options forward
-test" (`options_triggers()` in `cotrader.py` is the hook).
+Option strategies (`"kind": "options"`, backtested by trader-lab on the
+archive's end-of-day F&O chains) are scored from their lab history like any
+other; there R is the result per rupee of margin, as the lab reports it. A
+WATCH or PROMOTE options spec's live trigger is the basket trader-lab's
+options forward test drafts through trader-strategy when its entry fires on
+the latest session: the candidate shows the structure, expiry, legs, margin
+and max loss after charges, and trader-risk checks the basket as one
+position (blocked unless your config allows F&O). Draft to paper writes it
+to `trader/strategy.json` and `trader/orders.json`; one typed yes covers the
+whole basket. A RESEARCH options spec shows its stats only (the lab drafts no
+basket for it), and the time machine has no replay for a basket. Options
+need the local trader-archive.
 
 ## Does the strategy fit today's market?
 
@@ -82,8 +89,10 @@ charges them).
 
    7 hits of 10 gives 39.7% to 89.2%: ten trades say very little.
 2. **Shrinkage (empirical Bayes).** A thin cell is pulled toward the
-   strategy's overall rate P (all regimes) with a Beta prior worth m
-   pseudo-trades, m = min(20, all trades): Beta(m·P, m·(1-P)). After the
+   strategy's overall rate with a Beta prior worth m pseudo-trades,
+   m = min(20, all trades): Beta(m·P, m·(1-P)), where P is the overall rate
+   Laplace-smoothed, (all wins + 1) / (all trades + 2), so four winners out of
+   four never read as a certainty. After the
    cell's k of n the posterior is Beta(k + m·P, n - k + m·(1-P)); the
    probability shown is its mean, (k + m·P) / (n + m), and the 95% range is
    its 2.5% and 97.5% quantiles (the regularised incomplete beta function,

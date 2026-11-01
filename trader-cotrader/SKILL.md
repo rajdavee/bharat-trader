@@ -78,7 +78,9 @@ The tier follows the lab's own verdict, re-checked on today's bars by
    on average after charges, the strategy does not fit today.
 2. **Live triggers.** The lab's signal engine on the latest bars (the lab's
    forward test for WATCH and PROMOTE). A signal on bars older than today is
-   skipped.
+   skipped. An options spec's trigger is the basket the lab's options forward
+   test drafts through trader-strategy (WATCH and PROMOTE only), checked by
+   trader-risk as one position; its R is per rupee of margin.
 3. **The plan.** Entry, stop and target from the lab's plan, sized by
    trader-budget with your `trader/config.json` (the loss at the stop with
    charges inside your max loss), the charges at the target, and a
@@ -87,8 +89,9 @@ The tier follows the lab's own verdict, re-checked on today's bars by
    `orders.json`.
 4. **Probability.** hit = a past trade that made money after charges. The
    cell's hit rate with its Wilson 95% interval, then shrunk toward the
-   strategy's overall rate with a Beta prior worth 20 trades (fewer if the
-   strategy has fewer): p = (wins + 20 x overall rate) / (n + 20), with the
+   strategy's overall rate (Laplace-smoothed) with a Beta prior worth 20
+   trades (fewer if the strategy has fewer): p = (wins + 20 x overall rate) /
+   (n + 20), with the
    Beta posterior's 95% interval. The expected R after charges is shrunk the
    same way. A thin cell leans on the overall rate, and says how much.
 5. **Second opinion.** trader-timemachine's Monte Carlo on the stock's own

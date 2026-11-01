@@ -2,6 +2,8 @@
 
 tests/fixtures/trader-lab/   REAL daily bars of ten NIFTY 50 stocks, NIFTY 50 and India VIX (30 Oct 2024 to 30 Oct
                              2026) and 60 days of 5-minute bars, shared with the trader-lab tests.
+tests/fixtures/trader-lab/archive/
+                             the options lab's REAL trimmed trader-archive (NIFTY F&O bhavcopies, October 2026).
 tests/fixtures/trader-cotrader/log.jsonl
                              a REAL prediction log: the co-trader run after every close from 18 Dec 2025 to
                              8 Oct 2026 on those bars (`cotrader.py today --tier research`), with trader-lab re-run
@@ -229,7 +231,9 @@ class EndToEnd(unittest.TestCase):
             # the shrinkage, recomputed by hand from the counts it reports
             k = ev["prior_trades"]
             self.assertEqual(k, min(20, ev["trades_all"]))
-            want = (ev["wins_cell"] + k * ev["wins_all"] / float(ev["trades_all"])) / (ev["trades_cell"] + k)
+            prior = (ev["wins_all"] + 1) / float(ev["trades_all"] + 2)       # Laplace-smoothed overall rate
+            self.assertEqual(ev["p_prior"], round(prior, 4))
+            want = (ev["wins_cell"] + k * prior) / (ev["trades_cell"] + k)
             self.assertAlmostEqual(ev["p"], want, places=4)
             self.assertLess(ev["to"], "2026-09-18")                # only trades before the signal day
             so = c["second_opinion"]
@@ -366,11 +370,60 @@ class NoEdge(unittest.TestCase):
                   for m in (3, 4) for d in range(1, 7)]
         ev = ct.evidence(trades, {}, "unknown|unknown", {}, "test")
         self.assertEqual((ev["trades_cell"], ev["fits"]), (12, False))      # 10+ losing trades in the cell
-        self.assertEqual(ev["p"], round(0 / 32.0, 4))
+        self.assertEqual(ev["p"], round((0 + 12 * (1 / 14.0)) / 24.0, 4))  # 0 of 12, never a flat 0%
+        self.assertGreater(ev["p_hi"], 0)
+        allwin = [dict(t, r=1.0, net=50.0) for t in trades[:4]]
+        ev = ct.evidence(allwin, {}, "unknown|unknown")
+        self.assertAlmostEqual(ev["p"], (4 + 4 * 5 / 6.0) / 8.0, places=4)     # 4 of 4 is not 100%
+        self.assertLess(ev["p_lo"], 0.8)
         ev = ct.evidence(trades[:5], {}, "unknown|unknown")
         self.assertIsNone(ev["fits"])                                       # too few to rule it out
         ev = ct.evidence([], {}, "trend|low")
         self.assertIsNone(ev["p"])
+
+
+class Options(unittest.TestCase):
+    """An options spec through trader-lab's options forward test: the basket becomes a candidate, risk-checked as
+    one position (lenient gates so the lab says WATCH; the built-in option specs are REJECT on these bars)."""
+
+    def test_option_basket_candidate(self):
+        import copy
+        arc = os.path.join(LABFIX, "archive")
+        doc = copy.deepcopy(lab.library()["nifty-weekly-strangle-16d"])
+        doc.update({"name": "t-strangle-4d", "walk_forward": {"in_sample": 8, "out_of_sample": 4},
+                    "gates": dict(LENIENT, survive_cost_multiplier=1.5)})
+        doc["params"]["dte"] = 4
+        doc["entry"]["days_to_expiry"] = "$dte"
+        wd = tempfile.mkdtemp(prefix="bt-cotrader-opt-")
+        try:
+            now = lab.ist_now("2026-11-01 12:00")
+            spec = lab.validate_spec(doc)
+            chains, cx, _ = lab.load_data(spec, None, None, False, now, archive=arc)
+            out = os.path.join(wd, "trader", "lab")
+            lab.save_run(out, doc, lab.run_and_decide(doc, chains, cx, out, None, now), now)
+            d = ct.run_today(wd, "validated", None, now, None, arc, False, True)
+            none = ct.run_today(wd, "validated", None, now, None, os.path.join(wd, "no-archive"), False, False)
+        finally:
+            shutil.rmtree(wd, ignore_errors=True)
+        self.assertEqual(len(d["candidates"]), 1)
+        c = d["candidates"][0]
+        self.assertEqual((c["id"], c["kind"], c["tier"]), ("2026-11-02-t-strangle-4d-NIFTY", "options", "WATCH"))
+        b = c["basket"]
+        self.assertEqual((b["structure"], b["expiry"], b["legs"]), ("short-strangle", "2026-11-03", 2))
+        self.assertTrue(b["unlimited_loss"])
+        self.assertGreater(b["margin_required"], 0)
+        self.assertTrue(all(o["exchange"] == "NFO" and o["plan"]["setup"] == "cotrader-watch:t-strangle-4d"
+                            for o in c["plan"]["orders"]["orders"]))
+        # the default config has F&O off: trader-risk blocks the basket, and the output says so
+        self.assertEqual((c["status"], c["risk"]["verdict"]), ("blocked", "BLOCK"))
+        self.assertTrue(any(r.startswith("fno:") for r in c["why_not"]))
+        self.assertTrue(d["no_edge"])
+        ev = c["evidence"]
+        self.assertLess(ev["p"], 1.0)                 # every past trade won, yet the odds are not 100%
+        self.assertIn("margin", c["explain"]["evidence"])
+        self.assertIn("unlimited", " ".join(c["explain"]["invalidation"]))
+        self.assertFalse(c["second_opinion"]["available"])
+        self.assertIn("no local trader-archive", none["strategies"][0]["status"])
 
 
 class Calibration(unittest.TestCase):

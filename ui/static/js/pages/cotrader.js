@@ -54,7 +54,14 @@ function candidateCard(c, onDraft, draftable) {
       sub: so.available ? `${rmult(so.avg_r_net)} after charges` : (so.why || ''),
       tone: (c.disagreements || []).length ? 'warn' : null,
       explain: (c.disagreements || []).length ? 'Disagrees with the history: see below.' : 'A second opinion from the stock\'s own bars.' }));
-  const plan = kv([
+  const bk = c.basket;
+  const plan = bk ? kv([
+    ['Basket', `${bk.structure} on ${c.date}, expiry ${bk.expiry}, ${bk.legs} legs (NRML, one position)`],
+    ['Margin, about', inr(bk.margin_required)],
+    ['Max loss at expiry, after charges', bk.unlimited_loss ? 'unlimited (a naked short leg)' : inr(bk.max_loss)],
+    ['Regime', ev.cell_words],
+    ['Rank', `#${c.rank} (score ${num(c.score, 3)}); R here is per rupee of margin`],
+  ]) : kv([
     ['Plan', `Buy ${c.product} on ${c.date}` + (c.timeframe === '5m' ? ` after ${p.entry_time} IST` : ' at the open')],
     ['Entry, stop, target', `${inr(p.entry)}, ${inr(p.stop)}, ${inr(p.target)}`],
     ['Size', s.qty ? `${num(s.qty, 0)} shares (${inr(s.value)}); loss at the stop ${inr(s.max_loss_with_charges)} with charges`

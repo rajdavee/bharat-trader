@@ -605,9 +605,24 @@ def t_paper_order_draft(kit, a, call):
             raise ToolError(str(e))
         if not os.path.exists(path):
             raise ToolError("no co-trader plan %s: call cotrader_candidates first" % cid)
-        kit.backup("plan.json")
         with open(path, encoding="utf-8") as fh:
             plan = json.load(fh)
+        if plan.get("kind") == "options":
+            if plan.get("date") != kit.today("paper_order_draft"):
+                raise ToolError("this basket is for %s and today is %s: draft it on its own day"
+                                % (plan.get("date"), kit.today("paper_order_draft")))
+            kit.backup("orders.json")
+            kit.backup("strategy.json")
+            ct.write_json(kit.p("strategy.json"), plan["strategy"])
+            ct.write_json(kit.p("orders.json"), plan["orders"])
+            risk, rerr = _risk_record(kit)
+            view = api.tickets(kit.ctx)
+            return {"sizing": None, "risk": risk, "tickets": view["tickets"], "basket": view.get("basket"),
+                    "next_step": "Show the user the basket (every leg, the margin, the max loss after charges). "
+                                 "Only a basket trader-risk passed can be confirmed, with one typed yes for every leg."}, \
+                [rerr or None, "Wrote trader/strategy.json and trader/orders.json (old ones kept as .bak) and recorded "
+                               "the risk verdicts."]
+        kit.backup("plan.json")
         ct.write_json(kit.p("plan.json"), plan)
     if not os.path.exists(kit.p("plan.json")):
         raise ToolError("no trader/plan.json yet: make one with exit_plan (save: true)")
