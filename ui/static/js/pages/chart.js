@@ -205,6 +205,7 @@ export async function render(root, ctx) {
         h('label', { class: 'chk' }, h('input', { type: 'checkbox', name: k, checked: show[k] ? true : null }), label))),
     h('button', { type: 'submit', class: 'btn' }, 'Show'));
   root.appendChild(h('h1', { class: 'page-title' }, sym ? `${sym} · ${interval}` : 'Chart'));
+  root.appendChild(h('p', { class: 'page-lede explain' }, 'Discover: price, volume and your plan\'s levels on one chart. Click a dotted number for how it was worked out.'));
   root.appendChild(form);
   form.addEventListener('submit', (e) => {
     e.preventDefault();

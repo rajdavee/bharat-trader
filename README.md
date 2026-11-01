@@ -75,10 +75,14 @@ holdings, positions, orders, instruments) with a one-shot local login and
 a static-IP preflight. A live order is possible only after six gates and you
 running the command yourself. See [docs/brokers.md](docs/brokers.md).
 
-**Local web UI.** Dashboard, candlestick charts with your plan's levels,
-scanner, option chain, strategy builder, paper portfolio with F&O by
-strategy, the risk panel and kill switch, the agent team and a validated
-settings editor. A "why" panel explains every number. See [docs/ui.md](docs/ui.md).
+**Local web UI.** A "Today" cockpit (the session clock with your entry
+window, day P&L after charges, loss budget, risk state, positions, alerts),
+candlestick charts with your plan's levels, scanner, option chain, strategy
+builder, paper portfolio with F&O by strategy, the risk panel and kill
+switch, Strategy Lab scorecards and equity curves, the agent team, a guided
+first-run setup and a validated settings editor. Grouped navigation that works
+on a phone, a command palette (Ctrl/Cmd-K), guided or expert detail, and a
+"why" panel for every number. See [docs/ui.md](docs/ui.md).
 
 **Your AI assistant, via MCP.** 33 tools and 11 prompts for any
 MCP-compatible assistant, over stdio or loopback HTTP. Paper only: there is
@@ -229,8 +233,10 @@ Yahoo data of 29 and 30 October 2026.
 
 | | |
 | --- | --- |
-| ![Dashboard: NSE status, indices, today's paper P&L, the trade plan, alerts and the last risk check](docs/images/dashboard.webp) | ![Chart: RELIANCE 5-minute candles with EMA, VWAP, the opening range and the plan's entry, stop and target](docs/images/chart.webp) |
-| **Dashboard** | **Chart** with the plan's levels |
+| ![Today: the session rail with the entry window and flat-by time, day P&L after charges, daily loss budget, trades used, risk state, open positions and the plan](docs/images/today.webp) | ![Chart: RELIANCE 5-minute candles with EMA, VWAP, the opening range and the plan's entry, stop and target](docs/images/chart.webp) |
+| **Today**, the cockpit | **Chart** with the plan's levels |
+| ![Strategy Lab: two backtests rejected by their gates, with out-of-sample trades, expectancy after charges and the Monte Carlo range](docs/images/lab.webp) | ![Setup guide: capital, risk per trade, trades per day, product and broker, with what the limits mean in rupees](docs/images/setup.webp) |
+| **Strategy Lab** scorecards | **Setup guide** on a fresh folder |
 | ![Option chain: NIFTY with ITM shading, OI bars, our IV, PCR, max pain, walls and expected move](docs/images/options.webp) | ![Risk panel: kill switch, circuit-breakers, recorded verdicts and your limits](docs/images/risk.webp) |
 | **Option chain** | **Risk panel** with the kill switch |
 

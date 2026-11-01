@@ -1,0 +1,88 @@
+{
+ "schema": "bharat-trader/lab-spec/1",
+ "name": "orb15-vwap",
+ "title": "15-minute opening-range breakout, above VWAP",
+ "description": "Buy the first 5-minute close above the opening range's high while price is above the session VWAP, between 09:30 and 11:30 IST. Stop at the range's midpoint, target 2R, flat by the safe flat-by. The setup trader-entry watches for, as a testable spec.",
+ "kind": "equity",
+ "timeframe": "5m",
+ "product": "MIS",
+ "side": "long",
+ "universe": [
+  "RELIANCE",
+  "HDFCBANK",
+  "ICICIBANK",
+  "INFY",
+  "TCS",
+  "SBIN",
+  "BHARTIARTL",
+  "ITC",
+  "LT",
+  "AXISBANK"
+ ],
+ "params": {
+  "or_minutes": 15,
+  "target_r": 2
+ },
+ "entry": {
+  "all": [
+   [
+    "close",
+    "crosses_above",
+    {
+     "or_high": "$or_minutes"
+    }
+   ],
+   [
+    "close",
+    ">",
+    "vwap"
+   ],
+   {
+    "time_between": [
+     "09:30",
+     "11:30"
+    ]
+   }
+  ]
+ },
+ "stop": {
+  "price": {
+   "or_mid": "$or_minutes"
+  }
+ },
+ "target": {
+  "r": "$target_r"
+ },
+ "exit": {
+  "flat_by": "auto"
+ },
+ "entries_per_symbol_per_day": 1,
+ "sizing": {
+  "capital": 100000,
+  "risk_per_trade_pct": 1,
+  "max_trades_per_day": 3
+ },
+ "costs": {
+  "slippage_bps": 3,
+  "slippage_ticks": 1
+ },
+ "grid": {
+  "or_minutes": [
+   15,
+   30
+  ],
+  "target_r": [
+   1.5,
+   2,
+   3
+  ]
+ },
+ "walk_forward": {
+  "in_sample": 20,
+  "out_of_sample": 10
+ },
+ "seed": 16,
+ "references": [
+  "Toby Crabel, Day Trading with Short Term Price Patterns and Opening Range Breakout (1990)"
+ ]
+}

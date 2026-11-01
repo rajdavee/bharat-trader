@@ -4,7 +4,7 @@ A zero-install web app for the same tools you run in the terminal. Python
 standard library only, nothing to build, nothing loaded from the internet.
 Paper trading only: it cannot place a live order.
 
-![The strategy builder page: an iron condor on NIFTY, payoff gross and after charges, margin required and probability of profit](images/strategy.webp)
+![Today: the session rail with your entry window and flat-by time, day P&L after charges, the daily loss budget, trades used, risk state, open positions and the plan](images/today.webp)
 
 ```bash
 python3 ui/serve.py --open                         # http://127.0.0.1:8611/
@@ -24,11 +24,60 @@ python3 ui/serve.py --offline tests/fixtures/ui --open
 
 Ctrl-C stops the server cleanly.
 
+## First run
+
+On a folder with no `trader/config.json` the app opens the **setup guide**
+(`#/welcome`), four skippable steps:
+
+1. **Your account**: capital, risk per trade, trades per day, product (MIS or
+   CNC) and broker (only for its square-off time). As you type, the guide shows
+   the config `trader-budget/size.py init` would write and what it means in
+   rupees (`GET /api/onboarding?capital=...`); **Save settings** sends it to the
+   same validated `POST /api/config` the Settings page uses. `broker`, `paper`
+   and `live_enabled` are never part of it: paper stays the default.
+2. **AI assistant**: the MCP server entry for this folder, ready to copy (see
+   [mcp.md](mcp.md)).
+3. **Broker, read only**: which `BT_*` variables are set (names only) and the
+   login command (see [brokers.md](brokers.md)).
+4. **Done**: choose guided or expert detail.
+
+"Skip setup for now" remembers the choice in this browser; the guide stays in
+the menu (Setup guide).
+
+## Layout and navigation
+
+Pages are grouped by the trader's day, so each step's next step is close by
+(the research and the design system are in [design.md](design.md)):
+
+| group | pages |
+| --- | --- |
+| Today | the cockpit, the home page |
+| Discover | Chart, Scanner, Option chain |
+| Plan | Strategy builder, Co-trader (coming in v0.3) |
+| Trade | Portfolio and orders, Risk, Auto-pilot (coming in v0.3) |
+| Review | Strategy Lab, Journal (coming in v0.3), Agents |
+| Setup | Settings, Setup guide, About |
+
+- 1100 px and wider: the groups are a sidebar. Narrower: the menu button opens
+  them as a drawer. Under 760 px a bottom bar holds Today, Chart, Portfolio,
+  Risk and Menu. No page link is ever cut off (#39).
+- **Ctrl K** (**⌘ K** on a Mac) or `/` opens the command palette: type a page,
+  a symbol (`TCS` charts it) or an action (theme, detail level, data self-test).
+- **Guided / Expert** in the top bar: guided shows a one-line meaning under key
+  numbers and roomier type; expert is denser and hides them. A small **?** next
+  to a term explains it in plain words.
+- Gains and losses carry a sign and a ▲ or ▼, not only a colour; pass and block
+  carry ✓ and ✕.
+- The pages for Co-trader, Auto-pilot and Journal are placeholders, labelled
+  "Coming in v0.3", that say what they will show.
+
 ## Pages
 
 | page | shows | from |
 | --- | --- | --- |
-| Dashboard | NSE open or closed (and nseindia.com's own answer), NIFTY 50, BANK NIFTY, INDIA VIX, today's paper P&L, the trade plan, alert rules and what would ring now, the last risk check, the watchlist | trader-alerts `market_status`, `nse_status`, `get_quotes`, `evaluate`; trader-broker |
+| Today | The session rail (pre-open to 15:30 IST with your entry window, exits-only time and flat-by, and a now needle), day P&L after charges (realised, open, charges), the daily loss budget used, trades used, risk state (kill switch, circuit-breakers), open positions, the plan and its last risk check, alerts, NSE status, indices, the data self-test, and places for the market regime and co-trader candidates (coming in v0.3) | `/api/dashboard`, `/api/portfolio`, `/api/risk` |
+| Strategy Lab | Each trader-lab run: the verdict and why, out-of-sample trades (the sample size), expectancy after charges, the Monte Carlo range of the final P&L, max drawdown, the equity curve after charges with the out-of-sample windows shaded, the gates, results by regime, the deflated Sharpe ratio, the probability of overfitting, the paper forward test, and what a backtest does not show | `trader/lab/<name>/results.json`, `status.json`, `equity.csv` from `trader-lab/lab.py run` |
+| Setup guide | The first-run steps above | trader-budget `build_config`, `describe_config`; the settings validator; trader-broker's adapters |
 | Chart | Candles and volume at 1m, 5m or 1d; EMA 9 and 21; session VWAP; the opening-range band; the plan's entry, stop and target; trader-entry's breakout status | Yahoo bars through trader-scanner's `yahoo_get`, parsed and evaluated by trader-entry; `trader/plan.json` |
 | Scanner | `trader/watchlist.json` with setups, RSI, turnover, and delayed quotes for the 10 most traded hits | trader-scanner; trader-alerts quotes |
 | Portfolio | Paper cash, positions marked to a delayed price, P&L if closed now after charges, working stop/target legs, order tickets (an F&O basket as one ticket with one yes form), fills and the decisions log; the F&O book by strategy (marks, P&L, Greeks, margin blocked, payoff at expiry) with adjust and close buttons that only write a proposal; and, on a click, your real broker's holdings and positions (read only) | trader-broker `load_portfolio`, `apply_fill`, `side_charges`, `ticket_json`, `basket_view`, `mtm_view`, `ticket.py adjust`; the broker adapters' `holdings`, `positions` |
@@ -41,10 +90,12 @@ Ctrl-C stops the server cleanly.
 Click any number with a dotted underline for its **why** panel: the formula,
 its inputs, the source and the time.
 
-Keyboard: `g d` dashboard, `g c` chart, `g s` scanner, `g p` portfolio, `g r`
-risk, `g o` option chain, `g b` strategy, `g t` agents, `g e` settings, `/` chart a symbol,
-`t` theme, `?` the list, `Esc` closes a panel. Dark and light themes follow
-your system setting until you press the toggle.
+Keyboard: `Ctrl K` or `/` the palette; `g` then a letter jumps to a page:
+`d` Today, `c` chart, `s` scanner, `o` option chain, `b` strategy, `k`
+co-trader, `p` portfolio, `r` risk, `u` auto-pilot, `l` lab, `j` journal, `t`
+agents, `e` settings, `w` setup guide, `a` about. `t` theme, `x` guided or
+expert, `?` the list, `Esc` closes a panel. Dark and light themes follow your
+system setting until you press the toggle.
 
 ## One implementation of every number
 
@@ -67,7 +118,7 @@ free endpoints again.
 | --- | --- | --- |
 | GET | `/api/meta` | version, workdir, offline mode, the clock, the route list |
 | GET | `/api/status` | NSE status; `?verify=1` also asks nseindia.com |
-| GET | `/api/dashboard` | everything the dashboard shows |
+| GET | `/api/dashboard` | market, indices, today's paper P&L, plan, alerts, risk summary (the Today page) |
 | GET | `/api/indices` | NIFTY 50, BANK NIFTY, INDIA VIX |
 | GET | `/api/quotes?symbols=A,B` | delayed quotes (up to 12 symbols) |
 | GET | `/api/chart?symbol=&interval=1m\|5m\|1d&ema=9,21` | bars, overlays, opening range, plan levels |
@@ -81,6 +132,8 @@ free endpoints again.
 | GET | `/api/broker/holdings?broker=`, `/api/broker/positions?broker=` | read only, from the broker's API (cached 30 s; never called offline) |
 | GET | `/api/doctor` | the last data self-test from `trader/doctor.json` (the header's Data badge) |
 | GET | `/api/agents` | the agent personas (`agents/`) and each one's paper scorecard, read only |
+| GET | `/api/lab` | Strategy Lab runs from `trader/lab/`: verdict, after-charges numbers, gates, robustness, the equity curve (at most 400 points), why panels and what a backtest does not show |
+| GET | `/api/onboarding` | the setup guide: the MCP entry for this folder, broker variables set (names only); with `?capital=&risk_pct=&max_trades=&product=&broker_profile=` the config `size.py init` would write, checked, without saving |
 | GET | `/api/stream` | Server-Sent Events: `status`, `prices`, `alerts` |
 | POST | `/api/risk/check` | `check.py`: record verdicts in `trader/state/risk.json` |
 | POST | `/api/risk/kill` | `check.py kill`: `{"reason"?, "flatten"?}`; no new entries today, recorded entry PASSes revoked |
@@ -161,7 +214,8 @@ you stop, so clicking through the demo never edits the fixtures.
 
 `tests/fixtures/ui/` is such a folder: real Yahoo and NSE answers of 29 Oct
 2026 (BANK NIFTY and INDIA VIX quotes from 30 Oct), with a `trader/` folder
-built by running the skills on them. The clock is pinned to 14:30 IST so the
+built by running the skills on them, and `lab/` with two real Strategy Lab
+runs (copied to the demo's `trader/lab/`). The clock is pinned to 14:30 IST so the
 whole paper flow (risk check, typed yes, fill) can be tried.
 
 ## Screenshots
@@ -171,13 +225,28 @@ From `python3 ui/serve.py --offline tests/fixtures/ui` (saved data of 29 and
 
 | | |
 | --- | --- |
-| ![Dashboard](images/dashboard.webp) | ![Chart with the plan's entry, stop and target](images/chart.webp) |
-| Dashboard | Chart |
-| ![Option chain](images/options.webp) | ![Risk panel](images/risk.webp) |
-| Option chain | Risk panel |
+| ![Today in the dark theme](images/today-dark.webp) | ![Today on a phone, 390 px wide](images/today-phone.webp) |
+| Today, dark | Today on a phone |
+| ![Strategy Lab scorecards](images/lab.webp) | ![Setup guide on a fresh folder](images/setup.webp) |
+| Strategy Lab | Setup guide |
+| ![Chart with the plan's entry, stop and target](images/chart.webp) | ![Option chain](images/options.webp) |
+| Chart | Option chain |
+| ![Risk panel](images/risk.webp) | ![Strategy builder](images/strategy.webp) |
+| Risk | Strategy builder |
 
-They are made with a headless browser against the offline demo, so anyone
-can remake them after a UI change.
+Remake them after a UI change with the headless browser you already have
+(Chrome, Chromium or Edge; set `BT_BROWSER` if it is not found):
+
+```bash
+python3 ui/screenshots.py                                  # every page at 1280, 1440 and 390 px -> ui-shots/
+python3 ui/screenshots.py --pages today,lab --widths 1440 --theme dark
+python3 ui/screenshots.py --fresh --pages welcome          # the setup guide on an empty folder
+```
+
+It drives the browser over its DevTools protocol (standard library only), so a
+phone width is exactly 390 px, and flags any page that scrolls sideways or
+shows an error. `tests/test_ui_screens.py` runs it on the key pages when a
+browser is installed (skipped in CI unless `BT_UI_SCREENS=1`).
 
 ## Charts and licences
 

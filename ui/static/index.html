@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-density="beginner">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <meta name="csrf-token" content="__CSRF_TOKEN__">
 <title>bharat-trader</title>
@@ -13,63 +13,64 @@
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<header class="top">
-  <a class="brand" href="#/" aria-label="bharat-trader, dashboard">
-    <span class="brand-mark" aria-hidden="true">BT</span>
-    <span class="brand-name">bharat-trader</span>
-  </a>
-  <nav class="nav" aria-label="Pages">
-    <ul id="nav">
-      <li><a href="#/" data-page="dashboard"><span class="k" aria-hidden="true">D</span>Dashboard</a></li>
-      <li><a href="#/chart" data-page="chart"><span class="k" aria-hidden="true">C</span>Chart</a></li>
-      <li><a href="#/scanner" data-page="scanner"><span class="k" aria-hidden="true">S</span>Scanner</a></li>
-      <li><a href="#/portfolio" data-page="portfolio"><span class="k" aria-hidden="true">P</span>Portfolio</a></li>
-      <li><a href="#/risk" data-page="risk"><span class="k" aria-hidden="true">R</span>Risk</a></li>
-      <li><a href="#/options" data-page="options"><span class="k" aria-hidden="true">O</span>Option chain</a></li>
-      <li><a href="#/strategy" data-page="strategy"><span class="k" aria-hidden="true">B</span>Strategy</a></li>
-      <li><a href="#/agents" data-page="agents"><span class="k" aria-hidden="true">T</span>Agents</a></li>
-      <li><a href="#/settings" data-page="settings"><span class="k" aria-hidden="true">E</span>Settings</a></li>
-    </ul>
-  </nav>
-  <form id="search" class="search" role="search" autocomplete="off">
-    <label class="sr-only" for="q">Chart a symbol</label>
-    <input id="q" name="q" type="search" placeholder="Symbol" spellcheck="false" autocapitalize="characters"
-           aria-describedby="q-hint">
-    <kbd id="q-hint" class="hint" aria-label="press slash to search">/</kbd>
-  </form>
-  <div id="market" class="pill" role="status" aria-live="polite">…</div>
-  <button id="data" class="pill data" type="button" aria-live="polite"
-          title="Data sources self-test (trader-doctor). Click to run it now.">Data …</button>
-  <button id="theme" class="icon-btn" type="button" aria-label="Switch theme" title="Switch theme (t)">◐</button>
-</header>
-<div id="banner" class="banner" hidden></div>
-<main id="main" tabindex="-1" aria-live="polite"></main>
-<footer class="foot">
-  <span>Paper trading. Education and tooling, not financial advice.</span>
-  <span>Charts by TradingView Lightweight Charts™ (Apache-2.0) · <a href="#/about">About and licenses</a> ·
-    <button id="keys-btn" class="link" type="button">Keyboard <kbd>?</kbd></button></span>
-</footer>
+<div class="shell">
+  <aside id="side" class="side" aria-label="Main menu">
+    <a class="brand" href="#/" id="brand-side"><span class="brand-name">bharat-trader</span></a>
+    <nav id="nav" aria-label="Pages"></nav>
+    <div class="side-foot">
+      <p>Paper trading. Education and tooling, not financial advice.</p>
+      <p><a href="#/about">About and licences</a></p>
+    </div>
+  </aside>
+  <div class="work">
+    <header class="top">
+      <button id="menu-btn" class="icon-btn menu-btn" type="button" aria-label="Open menu" aria-controls="side"
+              aria-expanded="false"></button>
+      <a class="brand" href="#/" id="brand-top" aria-label="bharat-trader, Today"><span class="brand-name">bharat-trader</span></a>
+      <button id="jump" class="jump" type="button" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K">
+        <span><span class="jump-long">Jump to a page, chart a symbol, run an action…</span></span>
+        <kbd id="jump-key">Ctrl K</kbd>
+      </button>
+      <div class="top-right">
+        <span id="market" class="chip" role="status" aria-live="polite">Market…</span>
+        <button id="data" class="chip" type="button" aria-live="polite"
+                aria-describedby="data-desc">Data…</button>
+        <span id="data-desc" class="sr-only">Data sources self-test. Activate to run it now.</span>
+        <div id="density" class="seg-toggle" role="group" aria-label="Detail level">
+          <button type="button" data-density="beginner" aria-pressed="true" title="Plain-words explanations, roomier">Guided</button>
+          <button type="button" data-density="expert" aria-pressed="false" title="Denser, no explanations">Expert</button>
+        </div>
+        <button id="theme" class="icon-btn" type="button" aria-label="Switch theme" title="Switch theme (t)"></button>
+      </div>
+    </header>
+    <div id="banner" class="status-strip" hidden></div>
+    <main id="main" tabindex="-1"></main>
+    <footer class="foot">
+      <span>Paper trading. Education and tooling, not financial advice.</span>
+      <span>Charts by TradingView Lightweight Charts™ (Apache-2.0). <a href="#/about">About and licences</a>.
+        <button id="keys-btn" class="link" type="button">Keyboard <kbd>?</kbd></button></span>
+    </footer>
+  </div>
+</div>
+<nav id="bottom-bar" class="bottom-bar" aria-label="Quick pages"></nav>
+<div id="scrim" class="scrim" hidden></div>
 <div id="why" class="popover" role="dialog" aria-modal="false" aria-labelledby="why-title" hidden></div>
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+<div id="palette" class="palette" hidden>
+  <div class="palette-box" role="dialog" aria-modal="true" aria-label="Jump to">
+    <label class="sr-only" for="palette-q">Type a page, a symbol or an action</label>
+    <input id="palette-q" type="text" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true"
+           aria-controls="palette-list" aria-autocomplete="list" placeholder="Type a page, a symbol (TCS) or an action">
+    <ul id="palette-list" class="palette-list" role="listbox" aria-label="Results"></ul>
+    <div class="palette-foot"><span><kbd>↑</kbd> <kbd>↓</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span></div>
+  </div>
+</div>
 <div id="help" class="modal" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
   <div class="modal-box">
     <h2 id="help-title">Keyboard</h2>
-    <dl class="keys">
-      <dt><kbd>g</kbd> <kbd>d</kbd></dt><dd>Dashboard</dd>
-      <dt><kbd>g</kbd> <kbd>c</kbd></dt><dd>Chart</dd>
-      <dt><kbd>g</kbd> <kbd>s</kbd></dt><dd>Scanner and watchlist</dd>
-      <dt><kbd>g</kbd> <kbd>p</kbd></dt><dd>Paper portfolio and orders</dd>
-      <dt><kbd>g</kbd> <kbd>r</kbd></dt><dd>Risk panel</dd>
-      <dt><kbd>g</kbd> <kbd>o</kbd></dt><dd>Option chain</dd>
-      <dt><kbd>g</kbd> <kbd>b</kbd></dt><dd>Strategy builder</dd>
-      <dt><kbd>g</kbd> <kbd>t</kbd></dt><dd>Agent team and scorecards</dd>
-      <dt><kbd>g</kbd> <kbd>e</kbd></dt><dd>Settings</dd>
-      <dt><kbd>/</kbd></dt><dd>Chart a symbol</dd>
-      <dt><kbd>t</kbd></dt><dd>Dark or light theme</dd>
-      <dt><kbd>?</kbd></dt><dd>This list</dd>
-      <dt><kbd>Esc</kbd></dt><dd>Close a panel</dd>
-    </dl>
-    <p class="muted">Numbers with a dotted underline open a “why” panel: the formula, its inputs, the source
-      and the time.</p>
+    <dl class="keys" id="keys-list"></dl>
+    <p class="muted small">A number with a dotted underline opens its “why” panel: the formula, its inputs, the source
+      and the time. A small ? explains a term in plain words.</p>
     <button type="button" class="btn" data-close>Close</button>
   </div>
 </div>
