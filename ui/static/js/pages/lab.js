@@ -62,6 +62,44 @@ function regimes(run) {
       h('td', { class: 'num' }, h('span', { class: tone(x.net) }, signed(x.net))))), { dense: true, caption: 'Results by regime' }));
 }
 
+const pct = (x) => (x === null || x === undefined ? '–' : num(x, 2) + '%');
+
+// An options run: return on margin, tail losses, streaks, time in drawdown and short-strike breaches.
+function optionsBlock(run) {
+  const o = run.options;
+  if (!o) return null;
+  const w = o.whole_sample || {};
+  const s = o.out_of_sample || {};
+  const tiles = h('div', { class: 'metrics' },
+    metric({ label: 'Return on margin, a year', value: why(pct(w.return_on_margin_annual_pct), o.why.return_on_margin,
+      'return on margin'), tone: tone(w.return_on_margin_annual_pct) || null,
+    sub: `${pct(w.return_on_margin_pct)} in all on ${rupees(w.avg_margin)} average margin; out of sample ${pct(s.return_on_margin_annual_pct)} a year`,
+    explain: 'Net after charges over the estimated margin blocked (SPAN-style), not over the premium.' }),
+    metric({ label: 'Tail loss (5% / 1%)', value: why(`${rupees(w.tail_loss_5pct)} / ${rupees(w.tail_loss_1pct)}`,
+      o.why.tail, 'the tail loss'), tone: 'warn',
+    sub: `Worst position ${rupees(w.worst_trade)}; worst week ${rupees(w.worst_week)}`,
+    explain: 'What the worst 1 in 20 and 1 in 100 positions lost, after charges.' }),
+    metric({ label: 'Short strike breached', value: pct(w.breach_pct),
+      sub: `${num(w.expiries, 0)} expiries; ${num(w.max_consecutive_losses, 0)} losses in a row at worst`,
+      explain: 'Share of expiries where the index closed beyond a short strike while the position was open.' }),
+    metric({ label: 'Time in drawdown', value: pct(w.time_in_drawdown_pct),
+      sub: `Max drawdown ${num(w.max_drawdown_mtm_pct, 2)}% of capital, marked to market daily`,
+      explain: 'Share of sessions the marked-to-market equity sat below its previous high.' }));
+  const rows = [['Positions', 'positions', (x) => num(x, 0)], ['Average margin blocked', 'avg_margin', rupees],
+    ['Return on margin, a position', 'avg_return_on_margin_pct', pct], ['Worst week', 'worst_week', rupees],
+    ['Average of the worst 5%', 'tail_avg_worst_5pct', rupees], ['Max consecutive losses', 'max_consecutive_losses', (x) => num(x, 0)],
+    ['Short strike breached', 'breach_pct', pct]];
+  return h('div', null,
+    h('h3', { class: 'sub' }, `Options: ${o.underlying || ''} ${o.structure || ''}`),
+    o.rules ? h('p', { class: 'small muted' }, o.rules) : null,
+    tiles,
+    table(['', { label: 'Whole sample', num: true }, { label: 'Out of sample', num: true }],
+      rows.map(([label, k, f]) => h('tr', null, h('td', null, label), h('td', { class: 'num' }, f(w[k])),
+        h('td', { class: 'num' }, f(s[k])))), { dense: true, caption: 'Options numbers after charges and slippage' }),
+    w.model_priced_marks ? h('p', { class: 'small muted' }, `${num(w.model_priced_marks, 0)} leg marks were priced by ` +
+      'Black-76 because the strike did not trade that day.') : null);
+}
+
 function runCard(run) {
   const o = run.oos || {};
   const f = run.full || {};
@@ -75,7 +113,8 @@ function runCard(run) {
     metric({ label: 'Expectancy, after charges', term: 'expectancy', tone: tone(o.expectancy_r) || null,
       value: h('span', { class: tone(o.expectancy_r) }, why(r(o.expectancy_r), run.why.oos_expectancy, 'this expectancy')),
       sub: `Net ${signed(o.net)} out of sample; whole sample ${r(f.expectancy_r)}`,
-      explain: 'Average result per trade in units of the amount risked.' }),
+      explain: run.kind === 'options' ? 'Average return on the margin blocked, per position (R = net / margin).'
+        : 'Average result per trade in units of the amount risked.' }),
     metric({ label: 'Final P&L range (5th to 95th percentile)', term: 'monte_carlo',
       value: why(`${rupees(mc.final_p5)} to ${rupees(mc.final_p95)}`, run.why.mc_range, 'this range'),
       sub: `${share(mc.prob_loss)} of ${num(mc.runs, 0)} reshuffles ended in a loss`,
@@ -88,7 +127,8 @@ function runCard(run) {
     ['Probability of overfitting', h('span', null, why(run.pbo === null ? '–' : num(run.pbo, 3), run.why.pbo, 'this probability'), ' ', help('pbo'))],
     ['Paper forward test', run.forward && run.forward.trades ? `${run.forward.trades} trades, ${signed(run.forward.net)}`
       : 'not started (0 trades)'],
-    ['Data', `${(d.symbols || []).length} stocks, ${run.timeframe} bars, ${d.from || '?'} to ${d.to || '?'} (${num(d.sessions, 0)} sessions)`],
+    ['Data', run.kind === 'options' ? `${(d.symbols || []).join(', ')} end-of-day option chains, ${d.from || '?'} to ${d.to || '?'} (${num(d.sessions, 0)} sessions)`
+      : `${(d.symbols || []).length} stocks, ${run.timeframe} bars, ${d.from || '?'} to ${d.to || '?'} (${num(d.sessions, 0)} sessions)`],
     ['Product', run.product],
     ['Run', (run.updated || '') + ' IST, spec ' + (run.spec_hash || '')],
   ]);
@@ -97,6 +137,7 @@ function runCard(run) {
       h('span', { class: 'small muted' }, `${run.timeframe}, ${run.product}`)),
     h('p', null, run.verdict_why || ''),
     tiles,
+    optionsBlock(run),
     curve(run),
     h('div', { class: 'cols' }, h('div', null, gates(run.gates || []), regimes(run)),
       h('div', null, h('h3', { class: 'sub' }, 'Robustness'), robust)),

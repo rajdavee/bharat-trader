@@ -2044,6 +2044,34 @@ def _equity_csv(path):
     return rows
 
 
+LAB_OPTION_STATS = ("positions", "avg_margin", "max_margin", "return_on_margin_pct", "return_on_margin_annual_pct",
+                    "avg_return_on_margin_pct", "worst_week", "tail_loss_5pct", "tail_loss_1pct",
+                    "tail_avg_worst_5pct", "worst_trade", "max_consecutive_losses", "time_in_drawdown_pct",
+                    "max_drawdown_mtm_pct", "breach_pct", "expiries", "exits", "model_priced_marks")
+LAB_LIMITS_OPTIONS = ("An options backtest here is end-of-day only: entries, stops and exits happen at a session's "
+                      "settle (or open) prices, so an intraday move past a stop is not seen, and there are no "
+                      "adjustments. Strikes that did not trade are priced by a model, and only strikes that traded "
+                      "could be picked. Margin is an estimate. A couple of years of short premium can miss the one "
+                      "gap that matters. A strategy goes to the playbook only after the paper forward test agrees.")
+
+
+def _lab_options(res, src, at):
+    """An options run's extra numbers for the Lab page (None for an equity run)."""
+    if res.get("kind") != "options":
+        return None
+    o = res.get("options") or {}
+    w, oo = o.get("whole_sample") or {}, o.get("out_of_sample") or {}
+    return {"underlying": res.get("underlying"), "structure": res.get("structure"), "rules": res.get("rules"),
+            "whole_sample": _pick(w, LAB_OPTION_STATS), "out_of_sample": _pick(oo, LAB_OPTION_STATS),
+            "why": {"return_on_margin": why("net P&L after charges and slippage / the average SPAN-style margin "
+                                            "blocked (the larger of the entry day's and the expiry day's)",
+                                            {"positions": w.get("positions"), "average margin": w.get("avg_margin")},
+                                            src, at, "The margin is an estimate; your broker's may differ."),
+                    "tail": why("the 5th and 1st percentile of the net P&L of a position, after charges",
+                                {"positions": w.get("positions"), "worst position": w.get("worst_trade")}, src, at,
+                                "A short history may not hold the worst day short options can have.")}}
+
+
 def _pick(d, keys):
     d = d if isinstance(d, dict) else {}
     return {k: d.get(k) for k in keys}
@@ -2077,7 +2105,9 @@ def lab_run(ctx, name):
         "forward": st.get("forward") or res.get("forward"), "notes": res.get("notes") or [],
         "history": (st.get("history") or [])[-5:],
         "equity": _equity_csv(os.path.join(d, "equity.csv")),
-        "limits": LAB_LIMITS,
+        "limits": LAB_LIMITS_OPTIONS if res.get("kind") == "options" else LAB_LIMITS,
+        "kind": res.get("kind") or "equity",
+        "options": _lab_options(res, src, at),
         "why": {
             "oos_expectancy": why("average of (net P&L / rupees risked at the stop) over the out-of-sample trades, "
                                   "after charges and slippage", {"trades": oos.get("trades"),
