@@ -42,6 +42,29 @@ def _num(x):
         return None
 
 
+def from_load_continuous(res):
+    """The long-history archive's load_continuous(..., method "none") answer -> rows: its bars (the contract
+    held each day, unadjusted) and its roll log (each roll dated on the first day on the new contract, with
+    both contracts' prices on the old one's last day) as this engine's roll flag and roll price."""
+    if isinstance(res, list):
+        return normalize_continuous(res)
+    bars = list((res or {}).get("bars") or [])
+    rows = normalize_continuous(bars)
+    at = {r["date"]: k for k, r in enumerate(rows)}
+    for ro in (res or {}).get("rolls") or []:
+        k = at.get(ro.get("date"))
+        if k is None or k == 0:
+            continue
+        prev = rows[k - 1]
+        if ro.get("new"):
+            prev["roll"], prev["next_c"] = True, float(ro["new"])
+            rows[k]["break"] = False
+        else:
+            prev["roll"], prev["next_c"] = False, None
+            rows[k]["break"] = True
+    return rows
+
+
 def normalize_continuous(rows):
     """Rows from load_continuous in this engine's shape. Accepts o/open, h/high, l/low, c/close, expiry, lot,
     roll and next_c/next_close. With raw_c/close_raw as well, c is read as the adjusted close and a roll's
@@ -105,22 +128,40 @@ class Market(object):
 
 
 class ArchiveMarket(Market):
-    def __init__(self, root, api, method="ratio", sectors_path=None):
+    def __init__(self, root, api, method="none", sectors_path=None, roll_sessions=1):
         self.root, self.api, self.method = root, api, method
+        self.roll_sessions = roll_sessions
         self.source = "trader-archive at %s" % root
         self.sectors_path = sectors_path
         self._members = {}
+
+    def lot_fn(self, underlying):
+        """(day, expiry) -> lot from that day's F&O board, else the lot-size snapshot on or before it."""
+        cache = {}
+
+        def get(day, expiry):
+            if day not in cache:
+                b = self.api.load_fo_chain_eod(underlying, day, root=self.root) or {}
+                cache[day] = {f["expiry"]: f.get("lot") for f in b.get("futures") or []}
+            lot = cache[day].get(expiry)
+            if not lot:
+                lot = (self.api.load_lots(day, root=self.root).get(str(underlying).upper()) or {}).get(expiry[:7])
+            return lot
+        return get
 
     def futures(self, underlying, start=None, end=None):
         fn = getattr(self.api, "load_continuous", None)
         if fn is not None:
             try:
-                rows = fn(underlying, self.method, start, end)
+                res = fn(underlying, "none", start, end, roll="days:%d" % self.roll_sessions, root=self.root)
             except TypeError:
-                rows = fn(underlying, self.method, start, end, root=self.root)
-            rows = normalize_continuous(rows)
+                res = fn(underlying, self.method, start, end)
+            except Exception:       # the archive has no futures of it in that span
+                res = None
+            rows = from_load_continuous(res)
             if rows:
-                return futures.Continuous(underlying, rows, "load_continuous(%s, %s)" % (underlying, self.method))
+                return futures.Continuous(underlying, rows, "load_continuous(%s, none, days:%d) with its roll log"
+                                          % (underlying, self.roll_sessions), self.lot_fn(underlying))
         days = self.api.trading_days(start, end, root=self.root)
         boards = []
         for d in days:
@@ -148,12 +189,27 @@ class ArchiveMarket(Market):
             return None
         key = (index, day)
         if key not in self._members:
+            if index == "F&O":
+                self._members[key] = self.fno_on(day)
+                return self._members[key]
             try:
-                got = fn(index, day)
-            except TypeError:
                 got = fn(index, day, root=self.root)
+            except TypeError:
+                got = fn(index, day)
+            except Exception:       # the membership is not built for this index or this date
+                got = None
             self._members[key] = sorted(got) if got is not None else None
         return self._members[key]
+
+    def fno_on(self, day):
+        """The F&O stocks on a day: the symbols with a stock future in the latest F&O bhavcopy on or before it."""
+        st = self.api.Store(self.root)
+        dates = [k for k in st.dates("fo") if k <= day]
+        if not dates:
+            return None
+        with gzip.open(st.path("fo", dates[-1]), "rt", encoding="utf-8") as fh:
+            rows = csv.reader(fh.read().splitlines()[1:])
+            return sorted(set(r[0] for r in rows if len(r) > 1 and r[1] == "STF"))
 
     def has_results(self):
         return getattr(self.api, "results_dates", None) is not None
@@ -163,10 +219,21 @@ class ArchiveMarket(Market):
         if fn is None:
             return None
         try:
-            got = fn(symbol, start, end)
-        except TypeError:
             got = fn(symbol, start, end, root=self.root)
-        return [x if isinstance(x, dict) else {"date": str(x)[:10]} for x in (got or [])]
+        except TypeError:
+            got = fn(symbol, start, end)
+        except Exception:           # no results dataset yet
+            return None
+        out = []
+        for x in got or []:
+            if not isinstance(x, dict):
+                out.append({"date": str(x)[:10]})
+            elif x.get("event_session"):
+                # the archive already knows the first session that could react: use it as the date
+                out.append({"date": x["event_session"], "announced": x.get("announced_at")})
+            else:
+                out.append({"date": x["date"], "time": "15:30" if x.get("after_close") else None})
+        return out
 
     def sectors(self):
         fn = getattr(self.api, "sectors", None)

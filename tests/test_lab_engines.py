@@ -104,6 +104,42 @@ class Futures(unittest.TestCase):
         self.assertNotAlmostEqual(s.ret_cc[k + 1], s.c[k + 1] / s.c[k] - 1, places=4)
         self.assertEqual(sum(s.roll), 1)
 
+    def test_the_long_history_archive_shapes(self):
+        """The adapter reads load_continuous / members / results_dates as the long-history archive returns
+        them: a continuous series with its roll log, members that raise when not built, results with the
+        first session that could react."""
+        arc = lab.archive_api()
+        root = os.path.join(LABFIX, "archive")
+        direct = M.ArchiveMarket(root, arc).futures("NIFTY")
+
+        class Api(object):
+            def __getattr__(self, k):
+                return getattr(arc, k)
+
+            def load_continuous(self, u, method="back", start=None, end=None, roll="days:0", root=None):
+                assert (method, roll) == ("none", "days:1")
+                bars = [{"date": d, "o": direct.o[k], "h": direct.h[k], "l": direct.l[k], "c": direct.c[k],
+                         "settle": direct.c[k], "v": 0, "oi": 0, "expiry": direct.expiry[k]} for k, d in enumerate(direct.days)]
+                rolls = [{"date": direct.days[k + 1], "from": direct.expiry[k], "to": direct.expiry[k + 1],
+                          "old": direct.c[k], "new": direct.next_c[k], "why": "1 session before expiry"}
+                         for k in range(direct.n - 1) if direct.roll[k]]
+                return {"underlying": u, "method": method, "bars": bars, "rolls": rolls, "issues": []}
+
+            def members(self, index, day, root=None):
+                raise arc.ArchiveError("no current %s list yet" % index)
+
+            def results_dates(self, symbol, start=None, end=None, root=None):
+                return [{"symbol": symbol, "date": "2026-10-17", "announced_at": "2026-10-17 17:47",
+                         "after_close": True, "event_session": "2026-10-19"}]
+        mk = M.ArchiveMarket(root, Api())
+        s = mk.futures("NIFTY")
+        self.assertIn("load_continuous", s.source)
+        self.assertEqual(s.roll, direct.roll)
+        self.assertEqual(s.ret_cc, direct.ret_cc)
+        self.assertEqual(s.lot_at(s.days.index("2026-10-27")), 65)        # read from that day's board
+        self.assertIsNone(mk.members("NIFTY 200", "2026-10-01"))
+        self.assertEqual(mk.results("HDFCBANK"), [{"date": "2026-10-19", "announced": "2026-10-17 17:47"}])
+
     def test_hand_computed_long_with_a_roll(self):
         rows = [{"date": "2026-04-0%d" % (i + 1), "o": o, "h": c, "l": c, "c": c, "expiry": e, "lot": lot}
                 for i, (o, c, e, lot) in enumerate([(100, 100, "2026-04-03", 10), (101, 102, "2026-04-03", 10),

@@ -381,8 +381,14 @@ The engines read one adapter (`engines/market.py`). With the archive it
 calls the long-history read functions by name when they exist:
 `load_continuous(underlying, method, from, to)`, `members(index, date)`,
 `results_dates(symbol, from, to)`, plus the archive's adjusted daily bars and
-index closes. Without them: a continuous future is built from the archive's
-daily F&O boards; a point-in-time universe or a results-date idea is
+index closes. `load_continuous` is asked for the unadjusted series with its
+roll log (method `none`, roll `days:1`): each bar is the contract held that
+day, and each roll's new-contract price on the old one's last day becomes the
+roll price; lots come from that day's F&O board (else the lot-size
+snapshot), and a day with no lot is sized in single units and said so. The
+F&O stock list on a day (for pairs) is the stocks with a stock future in
+that day's bhavcopy. Without these functions: a continuous future is built
+from the archive's daily F&O boards; a point-in-time universe or a results-date idea is
 **blocked**, not run on today's index (that would be survivorship bias); a
 window the data does not cover is blocked until the history is there.
 `--data DIR` reads a plain folder instead: `SYMBOL-1d.csv(.gz)` bars,

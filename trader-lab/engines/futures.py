@@ -48,9 +48,10 @@ class Continuous(object):
     (from the next contract's price at k-1's close on the day after a roll); ret_co: to the open; ret_oc:
     open to close. roll[k]: at close k the position moves to the next contract, priced next_c[k]."""
 
-    def __init__(self, underlying, rows, source=""):
+    def __init__(self, underlying, rows, source="", lot_fn=None):
         self.underlying = str(underlying).upper()
         self.source = source
+        self.lot_fn = lot_fn          # (day, expiry) -> lot, for sessions whose rows carry none
         rows = sorted(rows, key=lambda r: r["date"])
         self.days = [r["date"] for r in rows]
         self.n = len(rows)
@@ -80,6 +81,23 @@ class Continuous(object):
         for k in range(self.n):
             x *= (1 + self.ret_cc[k])
             self.adj.append(x)
+
+    def lot_at(self, k):
+        """The lot of the contract held on session k (None when the data does not say)."""
+        if self.lot[k] is None and self.lot_fn is not None and self.expiry[k]:
+            try:
+                self.lot[k] = self.lot_fn(self.days[k], self.expiry[k]) or None
+            except Exception:       # a missing file or a missing row: the lot stays unknown
+                self.lot[k] = None
+            if self.lot[k] is None:
+                self.lot_fn_misses = getattr(self, "lot_fn_misses", 0) + 1
+        return self.lot[k]
+
+    def next_lot(self, k):
+        """The lot of the contract rolled into at close k."""
+        if k + 1 < self.n:
+            return self.lot_at(k + 1)
+        return None
 
     def ref_close(self, k):
         """The close a position held overnight from k is marked from on k+1."""
@@ -158,6 +176,7 @@ def simulate(s, intents, a, b, capital, cfg=None, cost_mult=1.0, leverage=1.0, b
     rolls = {"count": 0, "cost": 0.0}
     margins = []
     skipped = 0
+    unknown = 0
 
     def order(value, buy, on):
         c = core.fut_side_charges(value if buy else 0.0, 0.0 if buy else value, cfg, on) * cost_mult
@@ -166,13 +185,15 @@ def simulate(s, intents, a, b, capital, cfg=None, cost_mult=1.0, leverage=1.0, b
         return c
 
     def open_pos(it, k, px_mid, when):
-        nonlocal skipped
-        lot = s.lot[k] or 1
+        nonlocal skipped, unknown
+        lot = s.lot_at(k)
         rolled = when == "close" and s.roll[k] and s.next_c[k]
         if rolled:
             # entering at a roll-day close: straight into the next contract
             px_mid = s.next_c[k]
-            lot = (s.lot[k + 1] if k + 1 < s.n else None) or lot
+            lot = s.next_lot(k) or lot
+        if not lot:
+            lot, unknown = 1, unknown + 1
         fill = core.slip(px_mid, bps, it["side"], cost_mult)
         lots = int(math.floor(eq * leverage / (fill * lot))) if fill > 0 else 0
         if lots <= 0:
@@ -252,7 +273,7 @@ def simulate(s, intents, a, b, capital, cfg=None, cost_mult=1.0, leverage=1.0, b
             out_fill = core.slip(s.c[k], bps, -pos["side"], cost_mult)
             g = pos["side"] * old_units * (out_fill - s.c[k])
             c1 = order(out_fill * old_units, pos["side"] < 0, s.days[k])
-            new_lot = s.lot[k + 1] if k + 1 < s.n and s.lot[k + 1] else pos["lot"]
+            new_lot = s.next_lot(k) or pos["lot"]
             units = pos["lots"] * new_lot
             in_fill = core.slip(s.next_c[k], bps, pos["side"], cost_mult)
             c2 = order(in_fill * units, pos["side"] > 0, s.days[k])
@@ -282,6 +303,9 @@ def simulate(s, intents, a, b, capital, cfg=None, cost_mult=1.0, leverage=1.0, b
         run["extra"]["return_on_avg_margin_pct"] = round(net / core.mean(margins) * 100, 3)
     if skipped:
         run["notes"].append("%d entries skipped: the equity was below one lot's notional" % skipped)
+    if unknown:
+        run["notes"].append("%d entries on days with no lot size in the data: sized in single units" % unknown)
+    run["extra"]["unknown_lot_entries"] = unknown
     return run
 
 

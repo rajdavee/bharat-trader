@@ -180,11 +180,11 @@ class IntradayJob(FuturesJob):
         u = str(p.get("underlying") or self.underlyings()[0]).upper()
         bars = {d: v for d, v in self.bars[u].items() if a <= d <= b}
         fs = self.series.get(u)
-        lots = {d: fs.lot[k] for k, d in enumerate(fs.days)} if fs else {}
         default_lot = {"NIFTY": 75, "BANKNIFTY": 30}.get(u, 1)
 
         def lot_of(d):
-            return lots.get(d) or default_lot
+            k = fs.index.get(d) if fs else None
+            return (fs.lot_at(k) if k is not None else None) or default_lot
         r = futures.intraday_momentum(bars, self.prev[u], lot_of, u, p, self.capital, self.cfg, m)
         if not fs:
             r["notes"].append("lot sizes: %d for every day (no futures series to read them from)" % default_lot)
