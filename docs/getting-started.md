@@ -170,10 +170,11 @@ python3 ui/serve.py --offline tests/fixtures/ui --open    # a demo on saved real
 python3 ui/serve.py --open                                # your own trader/ folder
 ```
 
-The same numbers from the same scripts, on `127.0.0.1` only: dashboard,
-charts with your plan's levels, scanner, option chain, strategy builder,
-paper portfolio, the risk panel with the kill switch, the agent team and
-settings. Click a dotted number for its formula, inputs and source. See
+The same numbers from the same scripts, on `127.0.0.1` only: the Today
+cockpit, charts with your plan's levels, scanner, option chain, strategy
+builder, the co-trader, paper portfolio, the risk panel with the kill switch,
+the paper auto-pilot, the Strategy Lab, the journal, the tax estimate, the
+agent team, settings and the optional Ask page. Click a dotted number for its formula, inputs and source. See
 [ui.md](ui.md).
 
 ## 8. Connect your AI assistant (3 minutes)
@@ -201,6 +202,8 @@ personas the server offers as prompts.
 
 ## Where next
 
+- The daily and weekly routine with the co-trader, what its probabilities
+  mean, and prompts for your assistant: [cotrader-guide.md](cotrader-guide.md).
 - A full trading day, step by step: the README's [A trading day](../README.md#a-trading-day).
 - Your real broker account, read only, and what going live takes (a static
   IP and a daily login): [brokers.md](brokers.md).
