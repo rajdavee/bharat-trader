@@ -19,6 +19,7 @@
     "insider_disclosures": {"offline": "../trader-insider", "now": "2026-10-29"},
     "lab_run": {"offline": "../trader-lab", "now": "2026-10-23 16:00"},
     "lab_forward": {"offline": "../trader-lab", "now": "2026-10-29 09:50"},
+    "discover_strategies": {"offline": "../trader-lab", "now": "2026-11-01 12:00"},
     "doctor": {"offline": "../trader-doctor/ok", "now": "2026-11-01 10:41"},
     "regime_now": {"offline": "../trader-lab", "also": "../trader-regime", "now": "2026-10-30 16:00"}
   }
