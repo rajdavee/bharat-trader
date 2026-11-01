@@ -1851,6 +1851,19 @@ def pid_alive(pid):
         return False
     if pid == os.getpid():
         return True
+    if os.name == "nt":
+        # on Windows os.kill(pid, 0) would TERMINATE the process: ask the kernel instead
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, pid)          # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        try:
+            ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
+        finally:
+            k32.CloseHandle(h)
+        return bool(ok) and code.value == 259               # STILL_ACTIVE
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
