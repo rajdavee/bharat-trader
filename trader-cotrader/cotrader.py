@@ -335,6 +335,247 @@ def label(trades, regs):
     return [(t, cell_of(k)) for t, k, _ in api.label_trades(trades, regs)]
 
 
+MSG = {
+    "en": {
+        "ev_why": "{wins} of {n} past trades in {cell} made money after charges ({raw}, Wilson 95% {lo} to {hi}); all "
+                  "regimes {wins_all} of {n_all} ({p_all}). Shrunk with a prior worth {k} trades: {p} (95% {p_lo} to "
+                  "{p_hi}), expected {ev} a trade after charges.",
+        "ev_none": "no past trades to learn from",
+        "d_past": "It is the past: {n} trades from {start} to {end}. A probability of {p} means about that share of "
+                  "similar past trades made money after charges, not that this one will.",
+        "d_thin": "Only {n} past trades in today's regime ({cell}): the number leans mostly on the strategy's overall "
+                  "rate ({w}% weight on this regime).",
+        "d_research": "UNPROVEN: this strategy has not passed trader-lab's gates ({why}). Study it or paper trade it; "
+                      "it is never eligible for a live order.",
+        "d_watch": "WATCH: the backtest gates passed but the paper forward test is still running. Paper only.",
+        "d_fills": "Fills, slippage and charges are models (next-bar fills, {bps} bps slippage a side). A real fill "
+                   "can be worse, and a gap can jump the stop.",
+        "d_survivor": "The universe is today's liquid stocks applied to the whole history (survivorship bias "
+                      "flatters it).",
+        "d_news": "It knows nothing about today's news, results or events: check trader-news and trader-regime's "
+                  "calendar before acting.",
+        "d_replay": "The time-machine replay plays the stop and target only, not the strategy's own exit rule.",
+        "e_when_1d": "on the {day} close, for the next session's open",
+        "e_when_5m": "on the 5-minute bar closing {time} IST",
+        "e_why_desc": "{title} fired on {sym} {when}. {desc}.",
+        "e_why": "{title} fired on {sym} {when}.",
+        "e_stop_label": "the spec's stop rule",
+        "e_stop": "A trade at or below the stop {stop} ({label}) is out: that is the planned loss.",
+        "e_gap": "If the next session opens at or below {stop}, skip it: the lab never fills through the stop.",
+        "e_flat": "Out by the {time} flat-by whatever happens (intraday).",
+        "e_bars": "Out after {n} bars at most, or earlier on the strategy's exit rule.",
+        "e_regime": "A change of market regime away from {cell} before the entry removes the regime evidence.",
+        "e_tm": " Time machine: {green} green, {target} target first, {stop} stop first, {net} after charges "
+                "({method}).",
+        "ne_headline": "No trade today: sitting out is the decision, not a failure.",
+        "ne_no_gates": "No validated strategy: none of the {n} lab runs has passed the lab's gates ({verdicts}).",
+        "ne_no_lab": "No validated strategy: no strategy has been run in the lab yet (trader/lab/ is empty).",
+        "ne_ch_lab": "A strategy that passes trader-lab's gates (lab.py run NAME) or a trader-discover finalist, then "
+                     "its paper forward test (lab.py forward NAME), becomes a WATCH candidate here.",
+        "ne_mismatch": "{name} does not fit today's market: {why}.",
+        "ne_ch_cells": "{name} had an edge in: {cells}. A move into one of those would bring it back.",
+        "ne_quiet": "No live trigger today for {names}.",
+        "ne_ch_quiet": "A fresh signal on the next bars (re-run this after the next close, or during the session for "
+                       "intraday rules).",
+        "ne_noev": "{n} trigger(s) with no edge after charges in this regime.",
+        "ne_blocked": "{n} candidate(s) blocked by your own rules: {items}.",
+        "ne_locks": "Risk locks on new entries: {locks}.",
+        "ne_ch_locks": "The kill switch and circuit breakers reset with the next session (or lift the kill switch "
+                       "yourself with check.py unkill).",
+        "ne_hidden": "{n} RESEARCH strategies are hidden: today --tier research shows their ideas, labelled {label}.",
+        "ne_research": "RESEARCH ideas: none ready either ({n} strategies: {mis} regime mismatch, {quiet} no live "
+                       "trigger, {other} other).",
+        "ne_nothing": "Nothing qualified today.",
+        "headline": "{n} candidate(s) passed your risk check ({tiers}); each still needs your typed yes on the paper "
+                    "account.",
+        "head": "Co-trader, {as_of} IST ({view})",
+        "view_validated": "PROMOTED + WATCH",
+        "view_all": "all tiers, RESEARCH included",
+        "market": "Market: {words}",
+        "options_line": "  {structure} on {date}, expiry {expiry}: {legs} legs, margin about {margin}, max loss after "
+                        "charges {loss}",
+        "unlimited": "unlimited",
+        "buy_line": "  buy {product} on {date}{when}: entry {entry}, stop {stop}, target {target}",
+        "when_after": " after {time} IST",
+        "when_open": " at the open",
+        "size_line": "  size {qty} shares ({value}), loss at the stop {loss} with charges; charges about {charges} at "
+                     "the target",
+        "odds": "  odds: {p} made money after charges (95% {lo} to {hi}), n = {n} in {cell}, {n_all} in all; expected "
+                "{ev} a trade{rupees}",
+        "odds_rupees": " (about {x})",
+        "tm_line": "  time machine: {green} green, {net} after charges",
+        "disagrees": "  DISAGREES: {text}",
+        "risk_line": "  trader-risk: {verdict}{why}",
+        "not_checked": "not checked",
+        "corr": "  correlation {rho} with {other} (score {score})",
+        "why_line": "  why: {text}",
+        "explain_cmd": "  explain: cotrader.py explain {id}",
+        "why_head": "Why:",
+        "change_head": "What would change that:",
+        "passed_head": "Passed over:",
+        "strategies_head": "Strategies:",
+        "note": "Note: {text}",
+        "footer": "Every order still needs trader-risk PASS and your typed yes; RESEARCH ideas are never for a live "
+                  "order.",
+        "disclaimer": "Education and tooling, not financial advice. Nothing here placed an order.",
+        "wrote": "Wrote trader/cotrader.json ({n} candidate(s), {logged} newly logged).",
+        "x_why": "Why this trade: {text}",
+        "x_inval": "What would invalidate it:",
+        "x_evidence": "Evidence ({basis}): {text}",
+        "x_dns": "What the evidence does NOT show:",
+        "x_similar": "Nearest similar past trades:",
+        "x_risk": "trader-risk preview ({as_of}): {verdict}",
+        "x_paper_opt": "To paper trade it: the basket in trader/cotrader/plans/{id}.json (\"orders\") becomes "
+                       "trader/orders.json through the UI's Draft to paper or paper_order_draft, then check.py and "
+                       "one typed yes for the whole basket.",
+        "x_paper": "To paper trade it: copy trader/cotrader/plans/{id}.json to trader/plan.json, then size.py "
+                   "--write, check.py, and ticket.py show for your typed yes (or the UI's Draft to paper).",
+    },
+    "hi-en": {
+        "ev_why": "{cell} mein {n} purane trades mein se {wins} ne charges ke baad profit kiya ({raw}, Wilson 95% {lo} "
+                  "se {hi}); saare regimes mein {n_all} mein se {wins_all} ({p_all}). {k} trades ke prior se shrink "
+                  "karke: {p} (95% {p_lo} se {p_hi}), charges ke baad har trade se expected {ev}.",
+        "ev_none": "seekhne ke liye koi purane trades nahi",
+        "d_past": "Yeh sab past hai: {start} se {end} tak ke {n} trades. {p} probability ka matlab hai ki milte-julte "
+                  "purane trades mein se lagbhag itne charges ke baad profit mein rahe, yeh nahi ki yeh trade bhi "
+                  "rahega.",
+        "d_thin": "Aaj ke regime ({cell}) mein sirf {n} purane trades: yeh number zyaadatar strategy ke overall rate "
+                  "pe tika hai (is regime ko {w}% weight).",
+        "d_research": "UNPROVEN: is strategy ne trader-lab ke gates pass nahi kiye ({why}). Ise study kijiye ya paper "
+                      "trade kijiye; yeh kabhi bhi live order ke liye eligible nahi hai.",
+        "d_watch": "WATCH: backtest gates pass ho gaye, par paper forward test abhi chal raha hai. Sirf paper.",
+        "d_fills": "Fills, slippage aur charges model hain (next-bar fills, har side {bps} bps slippage). Asli fill "
+                   "isse bura ho sakta hai, aur gap stop ke paar bhi ja sakta hai.",
+        "d_survivor": "Universe aaj ke liquid stocks ka hai, jo poori history pe lagaya gaya (survivorship bias ise "
+                      "behtar dikhata hai).",
+        "d_news": "Ise aaj ki news, results ya events ka kuch pata nahi: kuch bhi karne se pehle trader-news aur "
+                  "trader-regime ka calendar check kijiye.",
+        "d_replay": "Time-machine replay sirf stop aur target chalata hai, strategy ka apna exit rule nahi.",
+        "e_when_1d": "{day} ke close pe, agle session ke open ke liye",
+        "e_when_5m": "{time} IST pe band hue 5-minute bar pe",
+        "e_why_desc": "{title} ka signal {sym} pe aaya, {when}. {desc}.",
+        "e_why": "{title} ka signal {sym} pe aaya, {when}.",
+        "e_stop_label": "spec ka stop rule",
+        "e_stop": "Price stop {stop} ({label}) pe ya usse neeche gaya to trade se bahar: yahi planned loss hai.",
+        "e_gap": "Agar agla session {stop} pe ya usse neeche khule, to ise chhod dijiye: lab kabhi stop ke paar fill "
+                 "nahi karta.",
+        "e_flat": "{time} flat-by tak bahar, kuch bhi ho (intraday).",
+        "e_bars": "Zyada se zyada {n} bars ke baad bahar, ya strategy ke exit rule pe usse pehle.",
+        "e_regime": "Entry se pehle market regime {cell} se badal gaya, to regime wala evidence khatam.",
+        "e_tm": " Time machine: {green} green, {target} mein pehle target, {stop} mein pehle stop, charges ke baad "
+                "{net} ({method}).",
+        "ne_headline": "Aaj koi trade nahi: baith kar intezaar karna bhi ek faisla hai, galti nahi.",
+        "ne_no_gates": "Koi validated strategy nahi: {n} lab runs mein se koi bhi lab ke gates pass nahi kar paaya "
+                       "({verdicts}).",
+        "ne_no_lab": "Koi validated strategy nahi: lab mein abhi tak koi strategy run nahi hui (trader/lab/ khaali "
+                     "hai).",
+        "ne_ch_lab": "Jo strategy trader-lab ke gates pass kare (lab.py run NAME) ya trader-discover ka finalist ho, "
+                     "aur phir uska paper forward test bhi (lab.py forward NAME), woh yahan WATCH candidate banegi.",
+        "ne_mismatch": "{name} aaj ke market mein fit nahi hoti: {why}.",
+        "ne_ch_cells": "{name} ka edge in regimes mein tha: {cells}. Market inme se kisi mein aaye to yeh wapas aa "
+                       "sakti hai.",
+        "ne_quiet": "Aaj {names} ka koi live trigger nahi.",
+        "ne_ch_quiet": "Agle bars pe naya signal (agle close ke baad ise dobara chalaiye, ya intraday rules ke liye "
+                       "session ke dauraan).",
+        "ne_noev": "{n} trigger(s) aaye, par is regime mein charges ke baad koi edge nahi.",
+        "ne_blocked": "{n} candidate(s) aapke apne rules ne block kiye: {items}.",
+        "ne_locks": "Nayi entries pe risk locks lage hain: {locks}.",
+        "ne_ch_locks": "Kill switch aur circuit breakers agle session mein reset hote hain (ya kill switch khud "
+                       "check.py unkill se hataiye).",
+        "ne_hidden": "{n} RESEARCH strategies chhupi hui hain: today --tier research unke ideas dikhata hai (label: "
+                     "{label}).",
+        "ne_research": "RESEARCH ideas: inme se bhi koi ready nahi ({n} strategies: {mis} regime mismatch, {quiet} no "
+                       "live trigger, {other} other).",
+        "ne_nothing": "Aaj kuch bhi qualify nahi hua.",
+        "headline": "{n} candidate(s) aapke risk check mein pass hue ({tiers}); har ek ko ab bhi paper account pe aapka "
+                    "typed yes chahiye.",
+        "head": "Co-trader, {as_of} IST ({view})",
+        "view_validated": "PROMOTED + WATCH",
+        "view_all": "saare tiers, RESEARCH bhi",
+        "market": "Market: {words}",
+        "options_line": "  {structure}, {date}, expiry {expiry}: {legs} legs, margin lagbhag {margin}, charges ke baad "
+                        "max loss {loss}",
+        "unlimited": "unlimited",
+        "buy_line": "  buy {product}, {date}{when}: entry {entry}, stop {stop}, target {target}",
+        "when_after": ", {time} IST ke baad",
+        "when_open": ", open pe",
+        "size_line": "  size {qty} shares ({value}), stop pe charges milakar nuksaan {loss}; target pe charges lagbhag "
+                     "{charges}",
+        "odds": "  odds: charges ke baad {p} mein profit (95% range {lo} se {hi}), {cell} mein n = {n}, kul {n_all}; "
+                "har trade se expected {ev}{rupees}",
+        "odds_rupees": " (lagbhag {x})",
+        "tm_line": "  time machine: {green} green, charges ke baad {net}",
+        "disagrees": "  MEL NAHI KHAATA: {text}",
+        "risk_line": "  trader-risk: {verdict}{why}",
+        "not_checked": "check nahi hua",
+        "corr": "  {other} ke saath correlation {rho} (score {score})",
+        "why_line": "  kyun: {text}",
+        "explain_cmd": "  poori baat: cotrader.py explain {id}",
+        "why_head": "Kyun:",
+        "change_head": "Kya badle to yeh badlega:",
+        "passed_head": "Chhod diye gaye:",
+        "strategies_head": "Strategies:",
+        "note": "Dhyan dein: {text}",
+        "footer": "Har order ko ab bhi trader-risk PASS aur aapka typed yes chahiye; RESEARCH ideas kabhi bhi live "
+                  "order ke liye nahi hain.",
+        "disclaimer": "Yeh education aur tooling hai, financial advice nahi. Yahan se koi order place nahi hua.",
+        "wrote": "trader/cotrader.json likh diya ({n} candidate(s), {logged} naye log hue).",
+        "x_why": "Yeh trade kyun: {text}",
+        "x_inval": "Yeh kab galat saabit hoga:",
+        "x_evidence": "Evidence ({basis}): {text}",
+        "x_dns": "Evidence kya NAHI dikhata:",
+        "x_similar": "Sabse milte-julte purane trades:",
+        "x_risk": "trader-risk preview ({as_of}): {verdict}",
+        "x_paper_opt": "Paper trade karne ke liye: trader/cotrader/plans/{id}.json ka basket (\"orders\") UI ke Draft "
+                       "to paper ya paper_order_draft se trader/orders.json banta hai, phir check.py aur poore basket "
+                       "ke liye ek typed yes.",
+        "x_paper": "Paper trade karne ke liye: trader/cotrader/plans/{id}.json ko trader/plan.json mein copy kijiye, "
+                   "phir size.py --write, check.py, aur aapke typed yes ke liye ticket.py show (ya UI ka Draft to "
+                   "paper).",
+    },
+}
+
+
+# ---------------------------------------------------------------- message catalogue helper (same in every skill with MSG)
+LANGS = ("en", "hi-en")
+
+
+def pick_lang(flag=None, cfg=None):
+    """The output language: --lang beats the config's "lang"; "hi-en" is Hinglish (Roman script), else English."""
+    for v in (flag, cfg.get("lang") if isinstance(cfg, dict) else None):
+        v = str(v or "").strip().lower().replace("_", "-")
+        if v == "hinglish":
+            v = "hi-en"
+        if v in LANGS:
+            return v
+    return "en"
+
+
+def t(key, lang="en", **kw):
+    """MSG[lang][key] filled with kw (str.format); the English text when a language or key is missing."""
+    text = (MSG.get(lang) or {}).get(key)
+    if text is None:
+        text = MSG["en"][key]
+    return text.format(**kw) if kw else text
+# ---------------------------------------------------------------- end of message catalogue helper
+
+
+def lang_for(workdir, flag=None):
+    """--lang, else trader/config.json's "lang", else English."""
+    return pick_lang(flag, read_json(os.path.join(os.path.abspath(workdir or "."), "trader", "config.json")))
+
+
+def evidence_words(ev, lang="en"):
+    """ev["why"] again, in lang, from the numbers evidence() keeps."""
+    if not ev.get("trades_all"):
+        return t("ev_none", lang)
+    n, ci = ev["trades_cell"], ev.get("p_cell_ci")
+    return t("ev_why", lang, wins=ev["wins_cell"], n=n, cell=ev["cell_words"],
+             raw=pc(ev.get("p_cell_raw")) if n else "–", lo=pc(ci[0]) if ci else "–", hi=pc(ci[1]) if ci else "–",
+             wins_all=ev["wins_all"], n_all=ev["trades_all"], p_all=pc(ev.get("p_all")), k=ev.get("prior_trades"),
+             p=pc(ev.get("p")), p_lo=pc(ev.get("p_lo")), p_hi=pc(ev.get("p_hi")), ev=rr(ev.get("ev_r")))
+
+
 def evidence(trades, regs, cell, settings=None, basis=""):
     """The odds for a trade of this strategy in this regime cell, from its past trades (net after charges).
 
@@ -357,7 +598,7 @@ def evidence(trades, regs, cell, settings=None, basis=""):
         out["to"] = max(t["signal_date"] for t in trades)
     if not n_all:
         out.update({"p": None, "p_lo": None, "p_hi": None, "ev_r": None, "ev_lo": None, "ev_hi": None,
-                    "prior_trades": 0, "why": "no past trades to learn from"})
+                    "prior_trades": 0, "why": t("ev_none")})
         return out
     p_all = wins_all / float(n_all)
     p_prior = (wins_all + 1) / float(n_all + 2)      # Laplace: a few all-win (or all-loss) trades never mean 100%
@@ -379,12 +620,10 @@ def evidence(trades, regs, cell, settings=None, basis=""):
         "ev_hi": None if ev["hi"] is None else round(ev["hi"], 4),
         "fits": None if n < int(st["min_cell_trades"]) else bool(m_cell > 0),
     })
-    out["why"] = ("%d of %d past trades in %s made money after charges (%s, Wilson 95%% %s to %s); all regimes "
-                  "%d of %d (%s). Shrunk with a prior worth %d trades: %s (95%% %s to %s), expected %s a trade "
-                  "after charges." % (wins, n, cell_words(cell), pc(out["p_cell_raw"]) if n else "–",
-                                      pc(w_cell[0]) if w_cell else "–", pc(w_cell[1]) if w_cell else "–",
-                                      wins_all, n_all, pc(p_all), k, pc(out["p"]), pc(out["p_lo"]), pc(out["p_hi"]),
-                                      rr(out["ev_r"])))
+    out["why"] = t("ev_why", wins=wins, n=n, cell=cell_words(cell), raw=pc(out["p_cell_raw"]) if n else "–",
+                   lo=pc(w_cell[0]) if w_cell else "–", hi=pc(w_cell[1]) if w_cell else "–", wins_all=wins_all,
+                   n_all=n_all, p_all=pc(p_all), k=k, p=pc(out["p"]), p_lo=pc(out["p_lo"]), p_hi=pc(out["p_hi"]),
+                   ev=rr(out["ev_r"]))
     return out
 
 
@@ -853,54 +1092,61 @@ def check_time(plan, now, cfg):
 
 # ---------------------------------------------------------------- explanations
 
-def does_not_show(c, row, ev, so):
-    out = []
-    out.append("It is the past: %d trades from %s to %s. A probability of %s means about that share of similar "
-               "past trades made money after charges, not that this one will."
-               % (ev["trades_all"], ev.get("from") or "?", ev.get("to") or "?", pc(ev.get("p"))))
+def does_not_show(c, row, ev, so, lang="en"):
+    return dns_words(c, ev, so, (row["doc"].get("costs") or {}).get("slippage_bps", 3), lang)
+
+
+def dns_words(c, ev, so, bps, lang="en"):
+    out = [t("d_past", lang, n=ev["trades_all"], start=ev.get("from") or "?", end=ev.get("to") or "?",
+             p=pc(ev.get("p")))]
     if ev["trades_cell"] < SETTINGS["min_cell_trades"]:
-        out.append("Only %d past trades in today's regime (%s): the number leans mostly on the strategy's overall "
-                   "rate (%d%% weight on this regime)." % (ev["trades_cell"], ev["cell_words"],
-                                                           round(100 * (ev.get("weight_on_cell") or 0))))
+        out.append(t("d_thin", lang, n=ev["trades_cell"], cell=ev["cell_words"],
+                     w=round(100 * (ev.get("weight_on_cell") or 0))))
     if c["tier"] == "RESEARCH":
-        out.append("UNPROVEN: this strategy has not passed trader-lab's gates (%s). Study it or paper trade it; it "
-                   "is never eligible for a live order." % c["tier_why"])
+        out.append(t("d_research", lang, why=c["tier_why"]))
     elif c["tier"] == "WATCH":
-        out.append("WATCH: the backtest gates passed but the paper forward test is still running. Paper only.")
-    out.append("Fills, slippage and charges are models (next-bar fills, %s bps slippage a side). A real fill can be "
-               "worse, and a gap can jump the stop." % ((row["doc"].get("costs") or {}).get("slippage_bps", 3)))
-    out.append("The universe is today's liquid stocks applied to the whole history (survivorship bias flatters it).")
-    out.append("It knows nothing about today's news, results or events: check trader-news and trader-regime's "
-               "calendar before acting.")
+        out.append(t("d_watch", lang))
+    out.append(t("d_fills", lang, bps=bps))
+    out.append(t("d_survivor", lang))
+    out.append(t("d_news", lang))
     if so.get("available") and c["timeframe"] == "1d":
-        out.append("The time-machine replay plays the stop and target only, not the strategy's own exit rule.")
+        out.append(t("d_replay", lang))
     return out
 
 
 def explanation(c, row, ev, so, spec):
-    title = row["doc"].get("title") or row["name"]
-    desc = (row["doc"].get("description") or "").split(". ")[0].strip().rstrip(".")
-    when = ("on the %s close, for the next session's open" % c["signal_date"]) if c["timeframe"] == "1d" else \
-        ("on the 5-minute bar closing %s IST" % c["plan"]["entry_time"])
-    why = "%s fired on %s %s. %s." % (title, c["symbol"], when, desc) if desc else \
-        "%s fired on %s %s." % (title, c["symbol"], when)
+    """Why, invalidation, evidence and what it does not show, in English; "inputs" lets explain_words() say it
+    again in another language."""
+    inputs = {"title": row["doc"].get("title") or row["name"],
+              "desc": (row["doc"].get("description") or "").split(". ")[0].strip().rstrip("."),
+              "max_bars": spec.get("max_bars") if spec is not None else None,
+              "slippage_bps": (row["doc"].get("costs") or {}).get("slippage_bps", 3)}
+    x = explain_words(c, ev, so, inputs, "en")
+    x["inputs"] = inputs
+    return x
+
+
+def explain_words(c, ev, so, inputs, lang="en"):
+    title, desc = inputs["title"], inputs["desc"]
+    when = t("e_when_1d", lang, day=c["signal_date"]) if c["timeframe"] == "1d" else \
+        t("e_when_5m", lang, time=c["plan"]["entry_time"])
+    why = t("e_why_desc", lang, title=title, sym=c["symbol"], when=when, desc=desc) if desc else \
+        t("e_why", lang, title=title, sym=c["symbol"], when=when)
     stop = c["plan"]["stop"]
-    inval = ["A trade at or below the stop %s (%s) is out: that is the planned loss." % (
-        inr(stop), c["plan"].get("stop_label") or "the spec's stop rule")]
+    inval = [t("e_stop", lang, stop=inr(stop), label=c["plan"].get("stop_label") or t("e_stop_label", lang))]
     if c["timeframe"] == "1d":
-        inval.append("If the next session opens at or below %s, skip it: the lab never fills through the stop."
-                     % inr(stop))
+        inval.append(t("e_gap", lang, stop=inr(stop)))
     else:
-        inval.append("Out by the %s flat-by whatever happens (intraday)." % (c["plan"].get("flat_by") or "15:10"))
-    if spec is not None and spec.get("max_bars"):
-        inval.append("Out after %d bars at most, or earlier on the strategy's exit rule." % spec["max_bars"])
-    inval.append("A change of market regime away from %s before the entry removes the regime evidence." %
-                 ev["cell_words"])
-    summary = ev["why"]
+        inval.append(t("e_flat", lang, time=c["plan"].get("flat_by") or "15:10"))
+    if inputs.get("max_bars"):
+        inval.append(t("e_bars", lang, n=inputs["max_bars"]))
+    inval.append(t("e_regime", lang, cell=ev["cell_words"]))
+    summary = ev["why"] if lang == "en" else evidence_words(ev, lang)
     if so.get("available"):
-        summary += " Time machine: %s green, %s target first, %s stop first, %s after charges (%s)." % (
-            pc(so["p_green"]), pc(so["p_target"]), pc(so["p_stop"]), rr(so.get("avg_r_net")), so["method"])
-    return {"why": why, "invalidation": inval, "evidence": summary, "does_not_show": does_not_show(c, row, ev, so)}
+        summary += t("e_tm", lang, green=pc(so["p_green"]), target=pc(so["p_target"]), stop=pc(so["p_stop"]),
+                     net=rr(so.get("avg_r_net")), method=so["method"])
+    return {"why": why, "invalidation": inval, "evidence": summary,
+            "does_not_show": dns_words(c, ev, so, inputs["slippage_bps"], lang)}
 
 
 # ---------------------------------------------------------------- one run: today's candidates
@@ -1153,7 +1399,7 @@ def run_today(workdir=".", view="validated", only=None, now=None, data=None, arc
     return doc
 
 
-def no_edge(doc):
+def no_edge(doc, lang="en"):
     """Sitting out, as a decision: why nothing qualifies and what would change that. None when a candidate is ready."""
     ready = [c for c in doc["candidates"] if c["status"] == "ready"]
     if ready:
@@ -1167,60 +1413,54 @@ def no_edge(doc):
             vs = {}
             for r in labs:
                 vs[r["verdict"] or "no verdict"] = vs.get(r["verdict"] or "no verdict", 0) + 1
-            reasons.append("No validated strategy: none of the %d lab runs has passed the lab's gates (%s)."
-                           % (len(labs), ", ".join("%d %s" % (n, v) for v, n in sorted(vs.items()))))
+            reasons.append(t("ne_no_gates", lang, n=len(labs),
+                             verdicts=", ".join("%d %s" % (n, v) for v, n in sorted(vs.items()))))
         else:
-            reasons.append("No validated strategy: no strategy has been run in the lab yet (trader/lab/ is empty).")
-        change.append("A strategy that passes trader-lab's gates (lab.py run NAME) or a trader-discover finalist, "
-                      "then its paper forward test (lab.py forward NAME), becomes a WATCH candidate here.")
+            reasons.append(t("ne_no_lab", lang))
+        change.append(t("ne_ch_lab", lang))
     mism = [r for r in validated if str(r.get("status") or "").startswith("regime mismatch")]
     for r in mism:
-        reasons.append("%s does not fit today's market: %s." % (r["name"], r["status"][len("regime mismatch: "):]))
+        reasons.append(t("ne_mismatch", lang, name=r["name"], why=r["status"][len("regime mismatch: "):]))
         if r.get("edge_cells"):
-            change.append("%s had an edge in: %s. A move into one of those would bring it back."
-                          % (r["name"], "; ".join(r["edge_cells"])))
+            change.append(t("ne_ch_cells", lang, name=r["name"], cells="; ".join(r["edge_cells"])))
     quiet = [r for r in validated if str(r.get("status") or "").startswith("no live trigger")]
     if quiet:
-        reasons.append("No live trigger today for %s." % ", ".join(r["name"] for r in quiet))
-        change.append("A fresh signal on the next bars (re-run this after the next close, or during the session for "
-                      "intraday rules).")
+        reasons.append(t("ne_quiet", lang, names=", ".join(r["name"] for r in quiet)))
+        change.append(t("ne_ch_quiet", lang))
     noev = [p for p in doc["passed_over"] if p["tier"] in ("PROMOTED", "WATCH")]
     if noev:
-        reasons.append("%d trigger(s) with no edge after charges in this regime." % len(noev))
+        reasons.append(t("ne_noev", lang, n=len(noev)))
     blocked = [c for c in doc["candidates"] if c["status"] != "ready" and c["tier"] in doc["tiers"]]
     if blocked:
-        reasons.append("%d candidate(s) blocked by your own rules: %s." % (
-            len(blocked), "; ".join("%s (%s)" % (c["symbol"], (c["why_not"] or ["blocked"])[0]) for c in blocked[:3])))
+        reasons.append(t("ne_blocked", lang, n=len(blocked), items="; ".join(
+            "%s (%s)" % (c["symbol"], (c["why_not"] or ["blocked"])[0]) for c in blocked[:3])))
     locks = (doc.get("risk_state") or {}).get("locks") or []
     if locks:
-        reasons.append("Risk locks on new entries: %s." % "; ".join(locks))
-        change.append("The kill switch and circuit breakers reset with the next session (or lift the kill switch "
-                      "yourself with check.py unkill).")
+        reasons.append(t("ne_locks", lang, locks="; ".join(locks)))
+        change.append(t("ne_ch_locks", lang))
     if doc.get("hidden_research"):
-        change.append("%d RESEARCH strategies are hidden: today --tier research shows their ideas, labelled %s."
-                      % (doc["hidden_research"], RESEARCH_LABEL))
+        change.append(t("ne_hidden", lang, n=doc["hidden_research"], label=RESEARCH_LABEL))
     research = [r for r in rows if r["tier"] == "RESEARCH" and r["in_view"]]
     if research:
         n_mis = sum(1 for r in research if str(r.get("status") or "").startswith("regime mismatch"))
         n_quiet = sum(1 for r in research if str(r.get("status") or "").startswith("no live trigger"))
-        reasons.append("RESEARCH ideas: none ready either (%d strategies: %d regime mismatch, %d no live trigger, "
-                       "%d other)." % (len(research), n_mis, n_quiet, len(research) - n_mis - n_quiet))
+        reasons.append(t("ne_research", lang, n=len(research), mis=n_mis, quiet=n_quiet,
+                         other=len(research) - n_mis - n_quiet))
     if not reasons:
-        reasons.append("Nothing qualified today.")
-    return {"decision": "sit out", "headline": "No trade today: sitting out is the decision, not a failure.",
+        reasons.append(t("ne_nothing", lang))
+    return {"decision": "sit out", "headline": t("ne_headline", lang),
             "reasons": reasons, "would_change": change,
             "regime_now": doc["regime_now"]["words"]}
 
 
-def headline(doc):
+def headline(doc, lang="en"):
     ready = [c for c in doc["candidates"] if c["status"] == "ready"]
     if doc["no_edge"]:
-        return doc["no_edge"]["headline"]
+        return doc["no_edge"]["headline"] if lang == "en" else t("ne_headline", lang)
     tiers = {}
     for c in ready:
         tiers[c["tier"]] = tiers.get(c["tier"], 0) + 1
-    return "%d candidate(s) passed your risk check (%s); each still needs your typed yes on the paper account." % (
-        len(ready), ", ".join("%d %s" % (n, t) for t, n in sorted(tiers.items())))
+    return t("headline", lang, n=len(ready), tiers=", ".join("%d %s" % (n, tr) for tr, n in sorted(tiers.items())))
 
 
 # ---------------------------------------------------------------- files: cotrader.json, plans, the log
@@ -1451,13 +1691,16 @@ def apply_demotions(rep, workdir, now, lab_out=None):
 
 # ---------------------------------------------------------------- plain words
 
-def render_today(doc):
+def render_today(doc, lang="en"):
+    ne = doc["no_edge"]
+    if ne and lang != "en":
+        ne = no_edge(doc, lang)
     L = []
-    L.append("Co-trader, %s IST (%s)" % (doc["as_of"], "PROMOTED + WATCH" if doc["view"] == "validated"
-                                          else "all tiers, RESEARCH included"))
-    L.append("Market: %s" % doc["regime_now"]["words"])
+    L.append(t("head", lang, as_of=doc["as_of"], view=t("view_validated" if doc["view"] == "validated" else "view_all",
+                                                        lang)))
+    L.append(t("market", lang, words=doc["regime_now"]["words"]))
     L.append("")
-    L.append(doc["headline"])
+    L.append(doc["headline"] if lang == "en" else headline(doc, lang))
     for c in doc["candidates"]:
         ev = c["evidence"]
         L.append("")
@@ -1468,93 +1711,92 @@ def render_today(doc):
         p = c["plan"]
         if c.get("kind") == "options":
             bk = c["basket"]
-            L.append("  %s on %s, expiry %s: %d legs, margin about %s, max loss after charges %s" % (
-                bk["structure"], c["date"], bk["expiry"], bk["legs"], inr(bk["margin_required"] or 0),
-                "unlimited" if bk["unlimited_loss"] else inr(bk["max_loss"] or 0)))
+            L.append(t("options_line", lang, structure=bk["structure"], date=c["date"], expiry=bk["expiry"],
+                       legs=bk["legs"], margin=inr(bk["margin_required"] or 0),
+                       loss=t("unlimited", lang) if bk["unlimited_loss"] else inr(bk["max_loss"] or 0)))
         else:
-            L.append("  buy %s on %s%s: entry %s, stop %s, target %s" % (
-                c["product"], c["date"], (" after %s IST" % p["entry_time"]) if c["timeframe"] == "5m" else
-                " at the open", inr(p["entry"]), inr(p["stop"]), inr(p["target"])))
+            L.append(t("buy_line", lang, product=c["product"], date=c["date"],
+                       when=t("when_after", lang, time=p["entry_time"]) if c["timeframe"] == "5m" else
+                       t("when_open", lang), entry=inr(p["entry"]), stop=inr(p["stop"]), target=inr(p["target"])))
         s = c["sizing"]
         if s and s["qty"]:
-            L.append("  size %d shares (%s), loss at the stop %s with charges; charges about %s at the target" % (
-                s["qty"], inr(s["value"]), inr(s["max_loss_with_charges"]),
-                inr(c["charges_at_target"] or 0)))
-        L.append("  odds: %s made money after charges (95%% %s to %s), n = %d in %s, %d in all; expected %s a trade%s"
-                 % (pc(ev["p"]), pc(ev["p_lo"]), pc(ev["p_hi"]), ev["trades_cell"], ev["cell_words"], ev["trades_all"],
-                    rr(ev["ev_r"]), (" (about %s)" % inr(c["ev_rupees"])) if c.get("ev_rupees") is not None else ""))
+            L.append(t("size_line", lang, qty=s["qty"], value=inr(s["value"]), loss=inr(s["max_loss_with_charges"]),
+                       charges=inr(c["charges_at_target"] or 0)))
+        L.append(t("odds", lang, p=pc(ev["p"]), lo=pc(ev["p_lo"]), hi=pc(ev["p_hi"]), n=ev["trades_cell"],
+                   cell=ev["cell_words"], n_all=ev["trades_all"], ev=rr(ev["ev_r"]),
+                   rupees=t("odds_rupees", lang, x=inr(c["ev_rupees"])) if c.get("ev_rupees") is not None else ""))
         so = c["second_opinion"]
         if so.get("available"):
-            L.append("  time machine: %s green, %s after charges" % (pc(so["p_green"]), rr(so.get("avg_r_net"))))
+            L.append(t("tm_line", lang, green=pc(so["p_green"]), net=rr(so.get("avg_r_net"))))
         for d in c["disagreements"]:
-            L.append("  DISAGREES: %s" % d)
+            L.append(t("disagrees", lang, text=d))
         r = c["risk"]
-        L.append("  trader-risk: %s%s" % (r["verdict"] if r else "not checked",
-                                          (": " + "; ".join(c["why_not"])) if c["why_not"] else ""))
+        L.append(t("risk_line", lang, verdict=r["verdict"] if r else t("not_checked", lang),
+                   why=(": " + "; ".join(c["why_not"])) if c["why_not"] else ""))
         if c.get("rho_with"):
-            L.append("  correlation %.2f with %s (score %.3f)" % (c["rho"], c["rho_with"], c["score"]))
-        L.append("  why: %s" % c["explain"]["why"])
-        L.append("  explain: cotrader.py explain %s" % c["id"])
-    if doc["no_edge"]:
+            L.append(t("corr", lang, rho="%.2f" % c["rho"], other=c["rho_with"], score="%.3f" % c["score"]))
+        x = c["explain"]
+        if lang != "en" and x.get("inputs"):
+            x = explain_words(c, ev, so, x["inputs"], lang)
+        L.append(t("why_line", lang, text=x["why"]))
+        L.append(t("explain_cmd", lang, id=c["id"]))
+    if ne:
         L.append("")
-        L.append("Why:")
-        for r in doc["no_edge"]["reasons"]:
+        L.append(t("why_head", lang))
+        for r in ne["reasons"]:
             L.append("  - %s" % r)
-        if doc["no_edge"]["would_change"]:
-            L.append("What would change that:")
-            for r in doc["no_edge"]["would_change"]:
+        if ne["would_change"]:
+            L.append(t("change_head", lang))
+            for r in ne["would_change"]:
                 L.append("  - %s" % r)
     if doc["passed_over"]:
         L.append("")
-        L.append("Passed over:")
+        L.append(t("passed_head", lang))
         for p in doc["passed_over"][:10]:
             L.append("  %s %s (%s): %s" % (p["symbol"], p["strategy"], p["tier"], p["why"]))
     L.append("")
-    L.append("Strategies:")
+    L.append(t("strategies_head", lang))
     for r in doc["strategies"]:
         L.append("  %-22s %-8s %s" % (r["name"], r["tier"], r["status"] or ""))
     for n in doc["notes"][:12]:
-        L.append("Note: %s" % n)
+        L.append(t("note", lang, text=n))
     L.append("")
-    L.append("Every order still needs trader-risk PASS and your typed yes; RESEARCH ideas are never for a live order.")
-    L.append(DISCLAIMER)
+    L.append(t("footer", lang))
+    L.append(t("disclaimer", lang))
     return "\n".join(L) + "\n"
 
 
-def render_explain(c):
+def render_explain(c, lang="en"):
     ev, so, x = c["evidence"], c["second_opinion"], c["explain"]
+    if lang != "en" and x.get("inputs"):
+        x = explain_words(c, ev, so, x["inputs"], lang)
     L = ["%s  [%s%s]" % (c["id"], c["tier"], (": " + RESEARCH_LABEL) if c["tier"] == "RESEARCH" else ""), ""]
-    L.append("Why this trade: %s" % x["why"])
+    L.append(t("x_why", lang, text=x["why"]))
     L.append("")
-    L.append("What would invalidate it:")
+    L.append(t("x_inval", lang))
     L.extend("  - %s" % s for s in x["invalidation"])
     L.append("")
-    L.append("Evidence (%s): %s" % (ev["basis"], x["evidence"]))
+    L.append(t("x_evidence", lang, basis=ev["basis"], text=x["evidence"]))
     for d in c["disagreements"]:
-        L.append("  DISAGREES: %s" % d)
+        L.append(t("disagrees", lang, text=d))
     L.append("")
-    L.append("What the evidence does NOT show:")
+    L.append(t("x_dns", lang))
     L.extend("  - %s" % s for s in x["does_not_show"])
     if c["similar"]:
         L.append("")
-        L.append("Nearest similar past trades:")
-        for t in c["similar"]:
-            L.append("  %s %s, %s: %s (%s, %s)" % (t["signal_date"], t["symbol"], t["regime"], rr(t["r"]),
-                                                  inr(t["net"]), t["reason"]))
+        L.append(t("x_similar", lang))
+        for tr in c["similar"]:
+            L.append("  %s %s, %s: %s (%s, %s)" % (tr["signal_date"], tr["symbol"], tr["regime"], rr(tr["r"]),
+                                                  inr(tr["net"]), tr["reason"]))
     L.append("")
     r = c["risk"]
-    L.append("trader-risk preview (%s): %s" % ((r or {}).get("as_of", "-"), (r or {}).get("verdict", "not checked")))
+    L.append(t("x_risk", lang, as_of=(r or {}).get("as_of", "-"), verdict=(r or {}).get("verdict") or
+               t("not_checked", lang)))
     for w in c["why_not"]:
         L.append("  - %s" % w)
     L.append("")
-    if c.get("kind") == "options":
-        L.append("To paper trade it: the basket in trader/cotrader/plans/%s.json (\"orders\") becomes "
-                 "trader/orders.json through the UI's Draft to paper or paper_order_draft, then check.py and one "
-                 "typed yes for the whole basket." % c["id"])
-    else:
-        L.append("To paper trade it: copy trader/cotrader/plans/%s.json to trader/plan.json, then size.py --write, "
-                 "check.py, and ticket.py show for your typed yes (or the UI's Draft to paper)." % c["id"])
-    L.append(DISCLAIMER)
+    L.append(t("x_paper_opt" if c.get("kind") == "options" else "x_paper", lang, id=c["id"]))
+    L.append(t("disclaimer", lang))
     return "\n".join(L) + "\n"
 
 
@@ -1608,10 +1850,10 @@ def cmd_today(a):
     if a.json:
         print(json.dumps(doc, indent=1, ensure_ascii=False))
     else:
-        sys.stdout.write(render_today(doc))
+        lang = lang_for(a.workdir, a.lang)
+        sys.stdout.write(render_today(doc, lang))
         if not a.no_write:
-            print("Wrote trader/cotrader.json (%d candidate(s), %d newly logged)." % (len(doc["candidates"]),
-                                                                                    doc.get("logged", 0)))
+            print(t("wrote", lang, n=len(doc["candidates"]), logged=doc.get("logged", 0)))
     return 0
 
 
@@ -1622,7 +1864,7 @@ def cmd_explain(a):
     if a.json:
         print(json.dumps(c, indent=1, ensure_ascii=False))
     else:
-        sys.stdout.write(render_explain(c))
+        sys.stdout.write(render_explain(c, lang_for(a.workdir, a.lang)))
     return 0
 
 
@@ -1695,11 +1937,13 @@ def main(argv=None):
                    help="research also shows the unproven RESEARCH ideas (study and paper only)")
     p.add_argument("--strategy", help="only this lab strategy")
     p.add_argument("--no-write", action="store_true", help="print only: no cotrader.json, plans or log lines")
+    p.add_argument("--lang", choices=LANGS, metavar="LANG", help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
     _src_args(p)
     p = sub.add_parser("explain", help="one candidate in full: why, invalidation, evidence, what it does not show")
     p.add_argument("id")
     p.add_argument("--workdir", default=".")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--lang", choices=LANGS, metavar="LANG", help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
     p = sub.add_parser("calibration", help="score the logged probabilities against outcomes; demote the overconfident")
     p.add_argument("--no-demote", action="store_true", help="report only: change no trader-lab status")
     _src_args(p)

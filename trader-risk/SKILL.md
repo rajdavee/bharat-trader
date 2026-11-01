@@ -348,6 +348,14 @@ lifts the kill switch without the user's typed word, and never treats a PASS
 as the user's yes. The F&O margin is an estimate (SPAN-style, +/-15% for
 index, 35% for stocks): the broker's basket margin is the one that counts.
 
+## Hinglish
+
+Plain words in Hinglish (Hindi in Roman script, trading words in English): the verdict report takes `--lang hi-en`: each BLOCK rule gets a plain Hinglish line, with the exact English reason and its numbers under it, or set `"lang": "hi-en"` in `trader/config.json` for every run. Numbers, ₹, IST, tickers and `--json` output stay the same. See [docs/hinglish.md](../docs/hinglish.md).
+
+```bash
+python3 trader-risk/check.py --lang hi-en
+```
+
 ## Safety
 
 - Education and tooling, not financial advice. Every output here is a rules check, not a recommendation.

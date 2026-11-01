@@ -200,6 +200,14 @@ watched; with `add --opening-bell` the bell rings at 09:15.
 It never places, cancels or changes an order, never claims a quote is
 live, and never predicts where a price is going.
 
+## Hinglish
+
+Plain words in Hinglish (Hindi in Roman script, trading words in English): `check` takes `--lang hi-en` for its rings and summary, or set `"lang": "hi-en"` in `trader/config.json` for every run. Numbers, ₹, IST, tickers and `--json` output stay the same. See [docs/hinglish.md](../docs/hinglish.md).
+
+```bash
+python3 trader-alerts/alerts.py check --lang hi-en
+```
+
 ## Safety
 
 - Education and tooling, not financial advice. Every output here is a rules check, not a recommendation.

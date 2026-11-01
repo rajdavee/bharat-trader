@@ -3022,40 +3022,191 @@ def portfolio_lines(port):
     return lines
 
 
-def report(res):
+# The rule behind a reason is the word before its first colon ("loss: ..."). In Hinglish the report gives
+# the rule's meaning in a line of its own and keeps the exact reason (with its numbers) under it.
+RULES = ("window", "format", "exchange", "product", "tick", "ticker", "expiry", "lot", "lots", "fno", "blocked",
+         "short", "stop", "no stop", "target", "reward", "loss", "daily loss", "daily limit", "trades", "size",
+         "position", "cash", "margin", "price", "duplicate", "ban", "basket", "naked", "premium", "greeks", "scenario",
+         "kill", "breaker", "cooling-off", "api", "research")
+
+MSG = {
+    "en": {
+        "warning": "WARNING: {text}",
+        "kill_on": "KILL SWITCH ON since {since} ({reason}): every new entry is blocked today; exits still pass.",
+        "locked": "LOCKED: {text}",
+        "verdict_PASS": "PASS",
+        "verdict_BLOCK": "BLOCK",
+        "fno_book": "F&O book (open positions + the orders that passed):",
+        "summary": "{passed} passed, {blocked} blocked at {now} IST. Cash after the passed orders: {cash} ({account} "
+                   "account).",
+        "acct_paper": "paper",
+        "acct_live": "LIVE",
+        "blocked_next": "Blocked orders do not go to the broker. Fix the order or your rules, then check again.",
+        "all_passed": "Every order passed. trader-broker still asks you yes or no for each one.",
+        "disclaimer": "Education and tooling, not financial advice.",
+        "rule_window": "Outside the time window for new entries.",
+        "rule_format": "The order is not in a valid shape.",
+        "rule_exchange": "This exchange is not supported.",
+        "rule_product": "This product type is not allowed.",
+        "rule_tick": "A price is not a multiple of the tick size.",
+        "rule_ticker": "The symbol is not an NSE symbol.",
+        "rule_expiry": "The contract has expired.",
+        "rule_lot": "The quantity does not match the lot size.",
+        "rule_lots": "More lots than your limit per underlying.",
+        "rule_fno": "F&O is off in your settings.",
+        "rule_blocked": "This stock is on your blocked list.",
+        "rule_short": "Short selling is not allowed here.",
+        "rule_stop": "The stop-loss is missing or wrong.",
+        "rule_no stop": "No stop-loss: the loss is not capped.",
+        "rule_target": "The target is on the wrong side.",
+        "rule_reward": "Reward:risk is under your minimum.",
+        "rule_loss": "This trade can lose more than your max loss per trade.",
+        "rule_daily loss": "Today's total risk would go over your daily loss limit.",
+        "rule_daily limit": "Today's order limit is used up.",
+        "rule_trades": "Today's trade limit is used up.",
+        "rule_size": "The order value is outside your limits.",
+        "rule_position": "The position would be bigger than your cap.",
+        "rule_cash": "Not enough free cash.",
+        "rule_margin": "Not enough free margin.",
+        "rule_price": "No usable price to value the order.",
+        "rule_duplicate": "The same order twice.",
+        "rule_ban": "The stock is in NSE's F&O ban.",
+        "rule_basket": "A leg was blocked, so the whole basket is blocked.",
+        "rule_naked": "A short leg without a hedge: the loss can be unlimited.",
+        "rule_premium": "The premium is over your limit.",
+        "rule_greeks": "The book's Greeks would be over your limits.",
+        "rule_scenario": "A scenario loses more than your limit.",
+        "rule_kill": "The kill switch is on: no new entries today.",
+        "rule_breaker": "A circuit-breaker is on: no new entries.",
+        "rule_cooling-off": "Cooling-off after a stop: no new entries for a while.",
+        "rule_api": "This order type is not safe through the broker's API.",
+        "rule_research": "An unproven RESEARCH idea: never for a live order.",
+    },
+    "hi-en": {
+        "warning": "DHYAN DEIN: {text}",
+        "kill_on": "KILL SWITCH ON hai {since} se ({reason}): aaj har nayi entry block hai; exits ab bhi pass hote "
+                   "hain.",
+        "locked": "LOCKED: {text}",
+        "verdict_PASS": "PASS",
+        "verdict_BLOCK": "BLOCK",
+        "fno_book": "F&O book (open positions + jo orders pass hue):",
+        "summary": "{passed} pass, {blocked} block, {now} IST pe. Pass hue orders ke baad cash: {cash} ({account} "
+                   "account).",
+        "acct_paper": "paper",
+        "acct_live": "LIVE",
+        "blocked_next": "Block hue orders broker tak nahi jaate. Order ya apne rules theek kijiye, phir dobara check "
+                        "kijiye.",
+        "all_passed": "Saare orders pass hue. trader-broker phir bhi har order ke liye aapse yes ya no poochega.",
+        "disclaimer": "Yeh education aur tooling hai, financial advice nahi.",
+        "rule_window": "Abhi nayi entry ka time window nahi hai.",
+        "rule_format": "Order ka format sahi nahi hai.",
+        "rule_exchange": "Yeh exchange support nahi hota.",
+        "rule_product": "Yeh product type allowed nahi hai.",
+        "rule_tick": "Price tick size ke multiple mein nahi hai.",
+        "rule_ticker": "Yeh NSE ka symbol nahi hai.",
+        "rule_expiry": "Contract expire ho chuka hai.",
+        "rule_lot": "Quantity lot size se match nahi karti.",
+        "rule_lots": "Ek underlying pe aapki limit se zyada lots.",
+        "rule_fno": "Aapki settings mein F&O band hai.",
+        "rule_blocked": "Yeh stock aapki blocked list mein hai.",
+        "rule_short": "Yahan short selling allowed nahi hai.",
+        "rule_stop": "Stop-loss nahi hai ya galat hai.",
+        "rule_no stop": "Stop-loss nahi hai: nuksaan ki koi limit nahi.",
+        "rule_target": "Target galat side pe hai.",
+        "rule_reward": "Reward:risk aapke minimum se kam hai.",
+        "rule_loss": "Is trade mein aapke max loss per trade se zyada nuksaan ho sakta hai.",
+        "rule_daily loss": "Aaj ka total risk aapki daily loss limit se upar chala jaayega.",
+        "rule_daily limit": "Aaj ki order limit poori ho chuki hai.",
+        "rule_trades": "Aaj ki trade limit poori ho chuki hai.",
+        "rule_size": "Order value aapki limits ke bahar hai.",
+        "rule_position": "Position aapke cap se badi ho jaayegi.",
+        "rule_cash": "Itna free cash nahi hai.",
+        "rule_margin": "Itna free margin nahi hai.",
+        "rule_price": "Order ki value nikalne ke liye sahi price nahi mila.",
+        "rule_duplicate": "Same order do baar.",
+        "rule_ban": "Yeh stock NSE ke F&O ban mein hai.",
+        "rule_basket": "Ek leg block hua, isliye poora basket block hai.",
+        "rule_naked": "Short leg bina hedge ke: nuksaan unlimited ho sakta hai.",
+        "rule_premium": "Premium aapki limit se zyada hai.",
+        "rule_greeks": "Book ke Greeks aapki limits se bahar chale jaayenge.",
+        "rule_scenario": "Ek scenario mein nuksaan aapki limit se zyada hai.",
+        "rule_kill": "Kill switch ON hai: aaj koi nayi entry nahi.",
+        "rule_breaker": "Circuit-breaker laga hai: nayi entries band hain.",
+        "rule_cooling-off": "Stop lagne ke baad cooling-off: kuch der nayi entry nahi.",
+        "rule_api": "Broker ke API se yeh order type safe nahi hai.",
+        "rule_research": "Yeh unproven RESEARCH idea hai: live order ke liye kabhi nahi.",
+    },
+}
+
+
+# ---------------------------------------------------------------- message catalogue helper (same in every skill with MSG)
+LANGS = ("en", "hi-en")
+
+
+def pick_lang(flag=None, cfg=None):
+    """The output language: --lang beats the config's "lang"; "hi-en" is Hinglish (Roman script), else English."""
+    for v in (flag, cfg.get("lang") if isinstance(cfg, dict) else None):
+        v = str(v or "").strip().lower().replace("_", "-")
+        if v == "hinglish":
+            v = "hi-en"
+        if v in LANGS:
+            return v
+    return "en"
+
+
+def t(key, lang="en", **kw):
+    """MSG[lang][key] filled with kw (str.format); the English text when a language or key is missing."""
+    text = (MSG.get(lang) or {}).get(key)
+    if text is None:
+        text = MSG["en"][key]
+    return text.format(**kw) if kw else text
+# ---------------------------------------------------------------- end of message catalogue helper
+
+
+def rule_of(reason):
+    """"loss: the order can lose ..." -> "loss" (None when the reason names no known rule)."""
+    head = str(reason).split(":", 1)[0].strip().lower()
+    return head if ":" in str(reason) and head in RULES else None
+
+
+def report(res, lang="en"):
     lines = []
     for w in res["warnings"]:
-        lines.append("WARNING: " + w)
+        lines.append(t("warning", lang, text=w))
     if (res.get("kill") or {}).get("active"):
-        lines.append("KILL SWITCH ON since %s (%s): every new entry is blocked today; exits still pass."
-                     % (str(res["kill"].get("since") or "")[11:16], res["kill"].get("reason")))
+        lines.append(t("kill_on", lang, since=str(res["kill"].get("since") or "")[11:16], reason=res["kill"].get("reason")))
     for x in (res.get("breakers") or {}).get("locks") or []:
-        lines.append("LOCKED: " + x)
+        lines.append(t("locked", lang, text=x))
     if res["warnings"] or (res.get("kill") or {}).get("active") or (res.get("breakers") or {}).get("locks"):
         lines.append("")
     for r in res["results"]:
         what = r.get("contract") or r["symbol"]
-        lines.append("%-5s #%d %s %s %s (%s), %s" % (r["verdict"], r["index"], r["side"], r["qty"], what,
+        verdict = t("verdict_" + r["verdict"], lang) if r["verdict"] in ("PASS", "BLOCK") else r["verdict"]
+        lines.append("%-5s #%d %s %s %s (%s), %s" % (verdict, r["index"], r["side"], r["qty"], what,
                                                          r["product"], r["kind"]))
         for x in r.get("info", []):
             lines.append("          " + x)
         for x in r["reasons"]:
-            lines.append("        - " + x)
+            rule = rule_of(x) if lang != "en" else None
+            if rule:
+                lines.append("        - " + t("rule_" + rule, lang))
+                lines.append("          (" + x + ")")
+            else:
+                lines.append("        - " + x)
         for x in r["warnings"]:
             lines.append("        ~ " + x)
     if res.get("portfolio"):
         lines.append("")
-        lines.append("F&O book (open positions + the orders that passed):")
+        lines.append(t("fno_book", lang))
         lines.extend(portfolio_lines(res["portfolio"]))
     lines.append("")
-    lines.append("%d passed, %d blocked at %s IST. Cash after the passed orders: %s (%s account)."
-                 % (res["pass"], res["block"], res["now_ist"], inr(res["cash_after"]),
-                    "paper" if res["paper"] else "LIVE"))
+    lines.append(t("summary", lang, passed=res["pass"], blocked=res["block"], now=res["now_ist"],
+                   cash=inr(res["cash_after"]), account=t("acct_paper" if res["paper"] else "acct_live", lang)))
     if res["block"]:
-        lines.append("Blocked orders do not go to the broker. Fix the order or your rules, then check again.")
+        lines.append(t("blocked_next", lang))
     else:
-        lines.append("Every order passed. trader-broker still asks you yes or no for each one.")
-    lines.append("Education and tooling, not financial advice.")
+        lines.append(t("all_passed", lang))
+    lines.append(t("disclaimer", lang))
     return "\n".join(lines)
 
 
@@ -3384,6 +3535,8 @@ def main(argv=None):
     ap.add_argument("--out", default="trader/state/risk.json", help="where the verdicts are recorded")
     ap.add_argument("--no-write", action="store_true", help="do not record the verdicts")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--lang", choices=LANGS, metavar="LANG", help="the report's language: en or hi-en (Hinglish); default: the "
+                                                  "config's \"lang\", else en")
     a = ap.parse_args(argv)
     try:
         now = parse_now(a.now)
@@ -3413,7 +3566,7 @@ def main(argv=None):
     except (RiskError, RulesError) as e:
         print("check.py: %s" % e, file=sys.stderr)
         return 1
-    print(json.dumps(res, indent=2, ensure_ascii=False) if a.json else report(res))
+    print(json.dumps(res, indent=2, ensure_ascii=False) if a.json else report(res, pick_lang(a.lang, cfg)))
     return 1 if res["block"] else 0
 
 

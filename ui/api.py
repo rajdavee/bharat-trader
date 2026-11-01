@@ -294,7 +294,7 @@ def rings(ctx, qs=None):
     if qs is None:
         qs, errors = quotes(ctx, syms)
     try:
-        hit, _ = alerts.evaluate(rules, qs, status, state, now)
+        hit, _ = alerts.evaluate(rules, qs, status, state, now, ui_lang(ctx))
     except alerts.AlertError as e:
         raise ApiError(422, str(e))
     rung = state.get("rung", {}) if isinstance(state, dict) else {}
@@ -314,6 +314,7 @@ def r_meta(ctx, q, body):
             "offline_note": ctx.offline_note, "pinned_now": ctx.pinned, "now_ist": ist_text(ctx.now_ist()),
             "paper": bool(c.get("paper", True)) and str(c.get("broker", "paper")).lower() == "paper",
             "config_exists": os.path.exists(ctx.path("config.json")),
+            "lang": cfg.get("lang") if cfg.get("lang") in LANGS else "en",
             "routes": [{"method": r[0], "path": r[1], "about": r[3]} for r in ROUTES],
             "disclaimer": DISCLAIMER}
 
@@ -880,6 +881,8 @@ def r_risk(ctx, q, body):
                                   "delta per 1% move, vega rupees per vol point, theta rupees per calendar day",
                                   {k: v for k, v in fno.items() if k.startswith("max_net") or k.startswith("max_theta")},
                                   "trader-risk book_greeks (Black-76)", now_s)},
+            "rule_words": {r: risk.t("rule_" + r, ui_lang(ctx)) for r in risk.RULES} if ui_lang(ctx) != "en"
+            else None,
             "disclaimer": DISCLAIMER}
 
 
@@ -1152,7 +1155,11 @@ def known_keys():
             keys.setdefault(k, v)
     keys.setdefault("insider_watch_clients", [])
     keys.setdefault("risk_free_rate", skill("options").DEFAULT_RATE)
+    keys.setdefault("lang", "en")
     return keys
+
+
+LANGS = ("en", "hi-en")
 
 
 def _plain(text):
@@ -1228,6 +1235,8 @@ def validate_config(doc):
         errors.append("capital must be above 0")
     if "product" in doc and str(doc["product"]).upper() not in ("MIS", "CNC"):
         errors.append("product is MIS (intraday) or CNC (delivery)")
+    if "lang" in doc and doc["lang"] not in LANGS:
+        errors.append("lang is \"en\" or \"hi-en\" (Hinglish)")
     if "exchange" in doc and str(doc["exchange"]).upper() != "NSE":
         errors.append("exchange is NSE (this version trades the NSE cash market)")
     errors.extend(broker.config_mode_errors(doc))
@@ -1348,6 +1357,51 @@ def r_config_validate(ctx, q, body):
             "summary": _summary(doc) if not errors else None}
 
 
+def write_config(ctx, doc):
+    """Save trader/config.json atomically; the previous file becomes config.json.bak."""
+    p = ctx.path("config.json")
+    with ctx.cmd_lock:
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        if os.path.exists(p):
+            with open(p, encoding="utf-8") as src, open(p + ".bak", "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+        tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        os.replace(tmp, p)
+    return p
+
+
+def r_lang(ctx, q, body):
+    lang = ctx.config().get("lang")
+    return {"lang": lang if lang in LANGS else "en", "langs": [{"code": "en", "name": "English"},
+                                                               {"code": "hi-en", "name": "Hinglish"}],
+            "help": "The language of the plain-words text: the tools' reports, tickets and verdicts, and this UI's "
+                    "labels. Numbers, ₹, IST and tickers stay the same; JSON keys stay English."}
+
+
+def r_lang_save(ctx, q, body):
+    """The Settings page's language toggle: sets only "lang" in trader/config.json (every other key as it is)."""
+    lang = (body or {}).get("lang") if isinstance(body, dict) else None
+    if lang not in LANGS:
+        raise ApiError(400, "send {\"lang\": \"en\"} or {\"lang\": \"hi-en\"}")
+    raw = ctx.read("config.json")
+    if raw is not None and not isinstance(raw, dict):
+        raise ApiError(422, "trader/config.json is not a JSON object: fix it on the Settings page first")
+    if raw is None:
+        # no config yet: the setup guide makes it; a file with only "lang" in it would look like a finished setup
+        return {"ok": True, "saved": False, "lang": lang,
+                "note": "No trader/config.json yet: the UI keeps the language in this browser until the setup guide "
+                        "creates one."}
+    doc = dict(raw)
+    if doc.get("lang", "en") == lang:
+        return {"ok": True, "saved": False, "lang": lang}
+    doc["lang"] = lang
+    p = write_config(ctx, doc)
+    return {"ok": True, "saved": True, "lang": lang, "path": p}
+
+
 def r_config_save(ctx, q, body):
     doc = _body_config(body)
     errors, warnings = validate_config(doc)
@@ -1360,17 +1414,7 @@ def r_config_save(ctx, q, body):
         return {"ok": False, "saved": False, "errors": [
             "%s cannot be changed from this page: going live (or back to paper) is your own edit of "
             "trader/config.json (see docs/brokers.md)" % ", ".join(changed)], "warnings": warnings, "summary": None}
-    p = ctx.path("config.json")
-    with ctx.cmd_lock:
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        if os.path.exists(p):
-            with open(p, encoding="utf-8") as src, open(p + ".bak", "w", encoding="utf-8") as dst:
-                dst.write(src.read())
-        tmp = p + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(doc, fh, indent=2, ensure_ascii=False)
-            fh.write("\n")
-        os.replace(tmp, p)
+    p = write_config(ctx, doc)
     return {"ok": True, "saved": True, "path": p, "backup": p + ".bak" if os.path.exists(p + ".bak") else None,
             "errors": [], "warnings": warnings, "summary": _summary(doc)}
 
@@ -2388,9 +2432,35 @@ def _calibration(ctx):
     return rep
 
 
+def ui_lang(ctx):
+    """trader/config.json's "lang" (en or hi-en)."""
+    lang = ctx.config().get("lang")
+    return lang if lang in LANGS else "en"
+
+
+def cotrader_words(doc, lang):
+    """The run's plain-words text in lang (the run itself stays as written, in English): the headline, the sit-out
+    answer and each candidate's why, invalidation, evidence and what it does not show."""
+    if not isinstance(doc, dict) or lang == "en" or not doc.get("candidates") and not doc.get("no_edge"):
+        return None
+    ct = skill("cotrader")
+    out = {"lang": lang, "explain": {}}
+    try:
+        out["headline"] = ct.headline(doc, lang)
+        out["no_edge"] = ct.no_edge(doc, lang) if doc.get("no_edge") else None
+        for c in doc.get("candidates") or []:
+            x = c.get("explain") or {}
+            if x.get("inputs"):
+                out["explain"][c["id"]] = ct.explain_words(c, c["evidence"], c["second_opinion"], x["inputs"], lang)
+    except (KeyError, TypeError, ValueError):
+        return None                           # an older cotrader.json: the English text it has is shown
+    return out
+
+
 def cotrader_view(ctx):
     doc = ctx.read("cotrader.json")
-    return {"run": doc, "calibration": _calibration(ctx), "limits": COTRADER_LIMITS,
+    return {"run": doc, "words": cotrader_words(doc, ui_lang(ctx)), "calibration": _calibration(ctx),
+            "limits": COTRADER_LIMITS,
             "how": "Refresh here, or in a terminal: python3 trader-cotrader/cotrader.py today (add --tier research "
                    "for the unproven ideas). It reads trader/lab/ and writes trader/cotrader.json.",
             "stale": bool(doc) and str(doc.get("as_of", ""))[:10] != ctx.today(),
@@ -2741,6 +2811,7 @@ ROUTES = [
     ("GET", "/api/risk", r_risk, "your limits, the verdicts, a fresh preview, Greeks, scenarios, kill switch",
      False),
     ("GET", "/api/config", r_config, "trader/config.json, the effective settings and their meaning", False),
+    ("GET", "/api/lang", r_lang, "the language of the plain-words text: en or hi-en (Hinglish)", False),
     ("GET", "/api/options", r_options, "option chain with IV, Greeks, PCR, max pain, walls: ?symbol=&expiry=", False),
     ("GET", "/api/strategy", r_strategy, "strategy templates, symbols and the saved trader/strategy.json", False),
     ("GET", "/api/doctor", r_doctor, "the last data self-test (trader/doctor.json), for the header badge", False),
@@ -2775,6 +2846,8 @@ ROUTES = [
      True),
     ("POST", "/api/config/validate", r_config_validate, "check a config without saving it", True),
     ("POST", "/api/config", r_config_save, "validate and save trader/config.json (keeps a .bak)", True),
+    ("POST", "/api/lang", r_lang_save, "set the language (en or hi-en, Hinglish): only \"lang\" in "
+     "trader/config.json changes (keeps a .bak)", True),
     ("POST", "/api/strategy/price", r_strategy_price, "price a template or custom legs (trader-strategy evaluate)",
      True),
     ("POST", "/api/strategy/draft", r_strategy_draft, "write the legs as a paper PROPOSAL to trader/orders.json", True),

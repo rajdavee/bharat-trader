@@ -159,3 +159,11 @@ from the tag on the drafted order: untagged fills show as unattributed.
 Analytics only: it reads records and writes under `trader/journal.json`
 and `trader/journal/`. It never places, sizes or confirms an order.
 Education and tooling, not financial advice.
+
+## Hinglish
+
+Plain words in Hinglish (Hindi in Roman script, trading words in English): `review` takes `--lang hi-en` for the weekly review's headings, labels and notes, or set `"lang": "hi-en"` in `trader/config.json` for every run. Numbers, ₹, IST, tickers and `--json` output stay the same. See [docs/hinglish.md](../docs/hinglish.md).
+
+```bash
+python3 trader-journal/journal.py review --week last --lang hi-en
+```

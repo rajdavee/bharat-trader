@@ -137,6 +137,12 @@ For each stock and day the tools work out:
 | `insider_watch_clients` | `[]` | Names to highlight in bulk/block deals. |
 | `risk_free_rate` | 0.0557 | Rate for option pricing (decimal; `5.57` is read as 5.57%). Default: the 91-day T-bill cut-off yield at the 08-Oct-2026 auction. Under Black-76 it only discounts, so small errors barely move IV. |
 
+## Language
+
+| key | default | meaning |
+| --- | --- | --- |
+| `lang` | "en" | The language of the plain-words output: `en`, or `hi-en` for Hinglish (Hindi in Roman script, trading words in English; see [hinglish.md](hinglish.md)). A command's `--lang` wins over it; JSON output stays English. |
+
 ## Charges
 
 `include_charges: true` makes sizing and the risk check count the round-trip

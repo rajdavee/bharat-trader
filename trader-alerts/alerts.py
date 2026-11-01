@@ -784,8 +784,104 @@ def _rang_today(stamp, today):
     return dt.astimezone(IST).date().isoformat() == today
 
 
-def evaluate(rules, quotes, status, state, now_utc):
-    """Pure function. Returns (rings, new_state). Each ring: {id, symbol, message}."""
+MSG = {
+    "en": {
+        "bell": "Opening bell: NSE is open ({now} IST, {session} {opens}-{closes}).",
+        "normal_session": "normal session",
+        "pre_open": "Pre-open: NSE pre-open order entry has started ({now} IST); the normal session opens at {opens}.",
+        "auction": "Closing auction: continuous trading in F&O stocks ended at {start} IST; the auction runs to {end} "
+                   "(limit and market orders, no stop-loss orders). Other stocks trade to {closes}.",
+        "time_alert": "time alert",
+        "time": "{label}: it is {now} IST (set for {at})",
+        "time_open": ", the market closes at {closes}.",
+        "time_before": ", the market opens at {opens}.",
+        "time_after": ", the market has closed.",
+        "time_flatten": " If {sym} is still open, close it before the broker's intraday square-off: trader-broker "
+                        "flatten --symbol {sym} builds the exit order, then trader-risk and your yes.",
+        "level": "{sym} {verb} {price}: {where} your {label} {level}{note}.",
+        "verb_is": "is",
+        "verb_last": "last",
+        "where_above": "at or above",
+        "where_below": "at or below",
+        "label_stop": "stop",
+        "label_target": "target",
+        "label_alert": "alert level",
+        "moved": "{sym} moved {move} to {price} (from {ref}).",
+        "market": "NSE {word} ({now} IST, {reason}).",
+        "word_open": "OPEN",
+        "word_pre": "PRE-OPEN",
+        "word_closed": "closed",
+        "warning": "Warning: {text}",
+        "ring": "ALERT {text}",
+        "nothing": "Nothing hit. {n} rule(s) watched today{prices}.",
+        "error": "error: {text}",
+        "after_ring": "An alert is information, not an order. Once your entry fills, the SL-M stop and the LIMIT "
+                      "target sit at the broker: check the position and record any fill with trader-broker. To close "
+                      "a position yourself: trader-broker flatten, then trader-risk and your yes.",
+    },
+    "hi-en": {
+        "bell": "Opening bell: NSE khul gaya ({now} IST, {session} {opens}-{closes}).",
+        "normal_session": "normal session",
+        "pre_open": "Pre-open: NSE mein pre-open order entry shuru ({now} IST); normal session {opens} pe khulega.",
+        "auction": "Closing auction: F&O stocks mein continuous trading {start} IST pe khatam; auction {end} tak "
+                   "chalega (limit aur market orders, stop-loss order nahi). Baaki stocks {closes} tak trade honge.",
+        "time_alert": "time alert",
+        "time": "{label}: abhi {now} IST hai ({at} ke liye set tha)",
+        "time_open": ", market {closes} pe band hoga.",
+        "time_before": ", market {opens} pe khulega.",
+        "time_after": ", market band ho chuka hai.",
+        "time_flatten": " Agar {sym} abhi bhi open hai, broker ke intraday square-off se pehle close kijiye: "
+                        "trader-broker flatten --symbol {sym} exit order banata hai, phir trader-risk aur aapka yes.",
+        "level": "{sym} {verb} {price}: aapke {label} {level} {where}{note}.",
+        "verb_is": "abhi",
+        "verb_last": "last",
+        "where_above": "pe ya usse upar",
+        "where_below": "pe ya usse neeche",
+        "label_stop": "stop",
+        "label_target": "target",
+        "label_alert": "alert level",
+        "moved": "{sym} {move} hila, ab {price} (pehle {ref}).",
+        "market": "NSE {word} ({now} IST, {reason}).",
+        "word_open": "OPEN",
+        "word_pre": "PRE-OPEN",
+        "word_closed": "band",
+        "warning": "Dhyan dein: {text}",
+        "ring": "ALERT {text}",
+        "nothing": "Kuch hit nahi hua. Aaj {n} rule(s) watch ho rahe hain{prices}.",
+        "error": "error: {text}",
+        "after_ring": "Alert sirf jaankari hai, order nahi. Entry fill hone ke baad SL-M stop aur LIMIT target broker "
+                      "ke paas hote hain: position check kijiye aur koi bhi fill trader-broker mein record kijiye. "
+                      "Position khud close karni ho to: trader-broker flatten, phir trader-risk aur aapka yes.",
+    },
+}
+
+
+# ---------------------------------------------------------------- message catalogue helper (same in every skill with MSG)
+LANGS = ("en", "hi-en")
+
+
+def pick_lang(flag=None, cfg=None):
+    """The output language: --lang beats the config's "lang"; "hi-en" is Hinglish (Roman script), else English."""
+    for v in (flag, cfg.get("lang") if isinstance(cfg, dict) else None):
+        v = str(v or "").strip().lower().replace("_", "-")
+        if v == "hinglish":
+            v = "hi-en"
+        if v in LANGS:
+            return v
+    return "en"
+
+
+def t(key, lang="en", **kw):
+    """MSG[lang][key] filled with kw (str.format); the English text when a language or key is missing."""
+    text = (MSG.get(lang) or {}).get(key)
+    if text is None:
+        text = MSG["en"][key]
+    return text.format(**kw) if kw else text
+# ---------------------------------------------------------------- end of message catalogue helper
+
+
+def evaluate(rules, quotes, status, state, now_utc, lang="en"):
+    """Pure function. Returns (rings, new_state). Each ring: {id, symbol, message} (the message in lang)."""
     state = json.loads(json.dumps(state or {}))
     rung = state.setdefault("rung", {})
     today = status["date"]
@@ -801,43 +897,40 @@ def evaluate(rules, quotes, status, state, now_utc):
         if typ == "opening_bell":
             if status["open"] and not _rang_today(rung.get(rid), today):
                 special = status.get("special_session")
-                rings.append({"id": rid, "symbol": "", "message": "Opening bell: NSE is open (%s IST, %s %s-%s)."
-                              % (status["now_ist"][11:], special or "normal session",
-                                 status["opens"], status["closes"])})
+                rings.append({"id": rid, "symbol": "", "message": t(
+                    "bell", lang, now=status["now_ist"][11:], session=special or t("normal_session", lang),
+                    opens=status["opens"], closes=status["closes"])})
                 rung[rid] = stamp
             continue
         if typ == "pre_open":
             if status.get("phase") == "pre-open" and not _rang_today(rung.get(rid), today):
-                rings.append({"id": rid, "symbol": "", "message": "Pre-open: NSE pre-open order entry has started "
-                              "(%s IST); the normal session opens at %s." % (status["now_ist"][11:], status["opens"])})
+                rings.append({"id": rid, "symbol": "", "message": t("pre_open", lang, now=status["now_ist"][11:],
+                                                                    opens=status["opens"])})
                 rung[rid] = stamp
             continue
         if typ == "closing_auction":
             cas = status.get("closing_auction")
             if (cas and _hhmm(cas[0]) <= local.time() < _hhmm(cas[1])
                     and not _rang_today(rung.get(rid), today)):
-                rings.append({"id": rid, "symbol": "", "message": "Closing auction: continuous trading in F&O stocks "
-                              "ended at %s IST; the auction runs to %s (limit and market orders, no stop-loss "
-                              "orders). Other stocks trade to %s." % (cas[0], cas[1], status["closes"])})
+                rings.append({"id": rid, "symbol": "", "message": t("auction", lang, start=cas[0], end=cas[1],
+                                                                    closes=status["closes"])})
                 rung[rid] = stamp
             continue
         if typ == "time":
             at = _hhmm(r.get("at"))
             if status.get("opens") and local.time() >= at and not _rang_today(rung.get(rid), today):
-                label = r.get("label") or "time alert"
-                msg = "%s%s: it is %s IST (set for %s)" % (label[:1].upper(), label[1:],
-                                                           local.strftime("%H:%M"), at.strftime("%H:%M"))
+                label = r.get("label") or t("time_alert", lang)
+                msg = t("time", lang, label=label[:1].upper() + label[1:], now=local.strftime("%H:%M"),
+                        at=at.strftime("%H:%M"))
                 if status["open"]:
-                    msg += ", the market closes at %s." % status["closes"]
+                    msg += t("time_open", lang, closes=status["closes"])
                 elif status.get("phase") == "pre-open" or local.time() < _hhmm(status["opens"]):
-                    msg += ", the market opens at %s." % status["opens"]
+                    msg += t("time_before", lang, opens=status["opens"])
                 else:
-                    msg += ", the market has closed."
+                    msg += t("time_after", lang)
                 sym = str(r.get("symbol") or "").upper()
                 if sym:
-                    msg += (" If %s is still open, close it before the broker's intraday square-off: "
-                            "trader-broker flatten --symbol %s builds the exit order, then trader-risk and "
-                            "your yes." % (sym, sym))
+                    msg += t("time_flatten", lang, sym=sym)
                 rings.append({"id": rid, "symbol": sym, "message": msg})
                 rung[rid] = stamp
             continue
@@ -849,11 +942,11 @@ def evaluate(rules, quotes, status, state, now_utc):
         if typ in ("above", "below"):
             hit = p >= r["price"] if typ == "above" else p <= r["price"]
             if hit and rid not in rung:
-                word = "at or above" if typ == "above" else "at or below"
-                label = {"stop": "stop", "target": "target"}.get(r["type"], "alert level")
-                rings.append({"id": rid, "symbol": sym, "message": "%s %s %s: %s your %s %s%s."
-                              % (sym, "is" if status["open"] else "last", money(sym, p), word, label,
-                                 money(sym, r["price"]), (" (" + r["note"] + ")") if r.get("note") else "")})
+                label = t({"stop": "label_stop", "target": "label_target"}.get(r["type"], "label_alert"), lang)
+                rings.append({"id": rid, "symbol": sym, "message": t(
+                    "level", lang, sym=sym, verb=t("verb_is" if status["open"] else "verb_last", lang),
+                    price=money(sym, p), where=t("where_" + typ, lang), label=label, level=money(sym, r["price"]),
+                    note=(" (" + r["note"] + ")") if r.get("note") else "")})
                 rung[rid] = stamp
             elif not hit and rid in rung and r.get("rearm"):
                 del rung[rid]
@@ -865,8 +958,8 @@ def evaluate(rules, quotes, status, state, now_utc):
             want = r.get("direction")
             hit = abs(move) >= r["pct"] and (not want or (want == "up") == (move > 0))
             if hit and not _rang_today(rung.get(rid), today):
-                rings.append({"id": rid, "symbol": sym, "message": "%s moved %+.2f%% to %s (from %s)."
-                              % (sym, move, money(sym, p), money(sym, float(ref)))})
+                rings.append({"id": rid, "symbol": sym, "message": t("moved", lang, sym=sym, move="%+.2f%%" % move,
+                                                                     price=money(sym, p), ref=money(sym, float(ref)))})
                 rung[rid] = stamp
     state["last_check"] = stamp
     return rings, state
@@ -1026,7 +1119,8 @@ def cmd_check(a):
     syms = _dedupe([normalise(r["symbol"]) for r in watched if r.get("type") not in NO_QUOTE and r.get("symbol")])
     quotes, errors = (get_quotes(syms, a.offline) if syms else ({}, []))
     state = _read(a.state, {})
-    rings, state = evaluate(rules, quotes, status, state, now)
+    lang = pick_lang(a.lang, _read(a.config, None))
+    rings, state = evaluate(rules, quotes, status, state, now, lang)
     if not a.no_write:
         _write(a.state, state)
         if quotes:
@@ -1035,22 +1129,20 @@ def cmd_check(a):
         print(json.dumps({"market": status, "rings": rings, "errors": errors,
                           "quotes": {s: q["price"] for s, q in quotes.items()}}, indent=2, ensure_ascii=False))
     else:
-        word = "OPEN" if status["open"] else ("PRE-OPEN" if status["phase"] == "pre-open" else "closed")
-        print("NSE %s (%s IST, %s)." % (word, status["now_ist"], status["reason"]))
+        word = t("word_open" if status["open"] else ("word_pre" if status["phase"] == "pre-open" else "word_closed"),
+                 lang)
+        print(t("market", lang, word=word, now=status["now_ist"], reason=status["reason"]))
         if status.get("warning"):
-            print("Warning: " + status["warning"])
+            print(t("warning", lang, text=status["warning"]))
         for r in rings:
-            print("ALERT " + r["message"])
+            print(t("ring", lang, text=r["message"]))
         if not rings:
-            print("Nothing hit. %d rule(s) watched today%s." % (
-                len(watched), (", " + ", ".join("%s %s" % (s, money(s, quotes[s]["price"])) for s in syms
-                                                if s in quotes)) if quotes else ""))
+            print(t("nothing", lang, n=len(watched), prices=(", " + ", ".join(
+                "%s %s" % (s, money(s, quotes[s]["price"])) for s in syms if s in quotes)) if quotes else ""))
         for e in errors:
-            print("error: " + e)
+            print(t("error", lang, text=e))
         if rings:
-            print("An alert is information, not an order. Once your entry fills, the SL-M stop and the LIMIT "
-                  "target sit at the broker: check the position and record any fill with trader-broker. To "
-                  "close a position yourself: trader-broker flatten, then trader-risk and your yes.")
+            print(t("after_ring", lang))
     return 0 if rings else 1
 
 
@@ -1189,8 +1281,10 @@ def main(argv=None):
     p.add_argument("--rules", default="trader/alerts.json")
     p.add_argument("--state", default="trader/state/alerts.json")
     p.add_argument("--prices-out", default="trader/prices.json")
-    p.add_argument("--config", default="trader/config.json", help="extra_holidays and special_sessions")
+    p.add_argument("--config", default="trader/config.json", help="extra_holidays, special_sessions and lang")
     p.add_argument("--no-write", action="store_true")
+    p.add_argument("--lang", choices=LANGS, metavar="LANG", help="the rings' language: en or hi-en (Hinglish); default: the "
+                                                 "config's \"lang\", else en")
     p = sub.add_parser("add", help="add a rule")
     p.add_argument("--rules", default="trader/alerts.json")
     p.add_argument("--state", default="trader/state/alerts.json")

@@ -343,6 +343,14 @@ estimate or a verdict.
 - Never switches `"paper"` to false or `"broker"` away from paper. The user does that themselves.
 - Never promises a fill price: a market order and a stop fill at whatever the market gives.
 
+## Hinglish
+
+Plain words in Hinglish (Hindi in Roman script, trading words in English): `show`, `confirm` and `decline` (and the live `place`, `cancel` and `modify-exits` confirmations) take `--lang hi-en`, or set `"lang": "hi-en"` in `trader/config.json` for every run. Numbers, ₹, IST, tickers and `--json` output stay the same. See [docs/hinglish.md](../docs/hinglish.md).
+
+```bash
+python3 trader-broker/ticket.py show --lang hi-en
+```
+
 ## Safety
 
 - Education and tooling, not financial advice. Every output here is a rules check, not a recommendation.

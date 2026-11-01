@@ -1,0 +1,10 @@
+BLOCK #1 BUY 42 RELIANCE (MIS), entry
+          entry 1174.30 (the limit price), stop 1163.30, target 1196.30: risk 11.00 a share
+          loss at the stop ₹462.00 + ₹52.11 charges = ₹514.11 (limit ₹300.00), reward:risk 2.00 (min 1.5)
+          today before this: 0 of 3 trades, ₹0.00 of ₹3,000.00 daily loss
+        - Is trade mein aapke max loss per trade se zyada nuksaan ho sakta hai.
+          (loss: 42 shares x 11.00 risk a share = ₹462.00 + ₹52.11 charges = ₹514.11 at the stop, over your ₹300.00 max loss per trade)
+
+0 pass, 1 block, 2026-10-29 09:40 IST pe. Pass hue orders ke baad cash: ₹1,00,000.00 (paper account).
+Block hue orders broker tak nahi jaate. Order ya apne rules theek kijiye, phir dobara check kijiye.
+Yeh education aur tooling hai, financial advice nahi.

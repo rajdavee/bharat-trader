@@ -1175,41 +1175,142 @@ def build_plan(a, now):
     return plan, warnings
 
 
-def describe(plan):
+MSG = {
+    "en": {
+        "setup_orb": "opening-range breakout",
+        "setup_level": "close above a level",
+        "at": " at {time} IST",
+        "bar": " (bar {n})",
+        "head": "Exit plan: {sym} (NSE) long, {day}, {setup} on {bars} bars",
+        "bars_5m": "5-minute",
+        "bars_1m": "1-minute",
+        "entry": "  Entry         {entry}{when}",
+        "stop": "  Stop          {stop}  {label}{detail}",
+        "target": "  Target        {target}  {label}",
+        "risk": "  Risk a share  {risk} ({pct}% of the entry)",
+        "rr_net": "  Reward:risk   {gross} gross, {net} net of charges",
+        "charges": "  Charges       {at_target} at the target, {at_stop} at the stop, round trip on {qty} shares "
+                   "({product}, {source})",
+        "qty_flag": "your --qty",
+        "qty_max": "the most your max loss per trade allows",
+        "rr_gross": "  Reward:risk   {gross} (charges not included)",
+        "flat_by": "  Flat by       {time} IST, win or lose: no overnight hold",
+        "auction": "  F&O stock     continuous trading ends {end}, then the closing auction {start}-{stop} IST: no "
+                   "stop-loss orders there{assumed}",
+        "assumed": " (no F&O list yet, so assumed)",
+        "never_move": "Set before the entry. If price hits the stop, you are out; never move it further away.",
+        "gap": "A stop is a plan, not a guarantee: a gap or a fast market can fill past it.",
+        "note": "Note: {text}",
+        "wrote": "Wrote {path}.",
+        "next": "Next: /trader-timemachine replays it, then /trader-budget sizes it to your max loss. Nothing was "
+                "placed.",
+        "not_today": "Note: this plan is for {date}, not today ({today}).",
+    },
+    "hi-en": {
+        "setup_orb": "opening-range breakout",
+        "setup_level": "level ke upar close",
+        "at": ", {time} IST",
+        "bar": " (bar {n})",
+        "head": "Exit plan: {sym} (NSE) long, {day}, {setup}, {bars} bars pe",
+        "bars_5m": "5-minute",
+        "bars_1m": "1-minute",
+        "entry": "  Entry         {entry}{when}",
+        "stop": "  Stop          {stop}  {label}{detail}",
+        "target": "  Target        {target}  {label}",
+        "risk": "  Risk / share  {risk} (entry ka {pct}%)",
+        "rr_net": "  Reward:risk   {gross} gross, charges ke baad {net}",
+        "charges": "  Charges       target pe {at_target}, stop pe {at_stop}, {qty} shares ka round trip "
+                   "({product}, {source})",
+        "qty_flag": "aapka --qty",
+        "qty_max": "jitna aapka max loss per trade allow karta hai",
+        "rr_gross": "  Reward:risk   {gross} (charges shaamil nahi)",
+        "flat_by": "  Flat by       {time} IST, profit ho ya loss: overnight hold nahi",
+        "auction": "  F&O stock     continuous trading {end} pe khatam, phir closing auction {start}-{stop} IST: "
+                   "wahan stop-loss order nahi lagte{assumed}",
+        "assumed": " (F&O list abhi nahi hai, isliye maan liya)",
+        "never_move": "Yeh entry se pehle set kijiye. Price stop pe aaye to aap bahar; stop ko kabhi aur door mat "
+                      "kijiye.",
+        "gap": "Stop ek plan hai, guarantee nahi: gap ya tez market mein fill stop se aage bhi ho sakta hai.",
+        "note": "Dhyan dein: {text}",
+        "wrote": "{path} mein save kiya.",
+        "next": "Aage: /trader-timemachine ise replay karega, phir /trader-budget aapke max loss ke hisaab se size "
+                "nikalega. Kuch bhi place nahi hua.",
+        "not_today": "Dhyan dein: yeh plan {date} ka hai, aaj ({today}) ka nahi.",
+    },
+}
+
+
+# ---------------------------------------------------------------- message catalogue helper (same in every skill with MSG)
+LANGS = ("en", "hi-en")
+
+
+def pick_lang(flag=None, cfg=None):
+    """The output language: --lang beats the config's "lang"; "hi-en" is Hinglish (Roman script), else English."""
+    for v in (flag, cfg.get("lang") if isinstance(cfg, dict) else None):
+        v = str(v or "").strip().lower().replace("_", "-")
+        if v == "hinglish":
+            v = "hi-en"
+        if v in LANGS:
+            return v
+    return "en"
+
+
+def t(key, lang="en", **kw):
+    """MSG[lang][key] filled with kw (str.format); the English text when a language or key is missing."""
+    text = (MSG.get(lang) or {}).get(key)
+    if text is None:
+        text = MSG["en"][key]
+    return text.format(**kw) if kw else text
+# ---------------------------------------------------------------- end of message catalogue helper
+
+
+def describe(plan, lang="en"):
     day = datetime.date.fromisoformat(plan["date"])
-    setup = {"orb": "opening-range breakout", "level": "close above a level"}.get(plan["setup"], plan["setup"])
+    setup = t("setup_" + plan["setup"], lang) if plan["setup"] in ("orb", "level") else plan["setup"]
     e = D(plan["entry"])
     risk = D(plan["risk_per_share"])
     pct = (risk / e * 100).quantize(PAISE, rounding=ROUND_HALF_UP)
     when = ""
     if plan.get("entry_time"):
-        when = " at %s IST" % plan["entry_time"]
+        when = t("at", lang, time=plan["entry_time"])
         if plan.get("entry_bar") is not None:
-            when += " (bar %d)" % plan["entry_bar"]
-    out = ["Exit plan: %s (NSE) long, %s, %s on %s bars" % (
-        plan["symbol"], day.strftime("%a %Y-%m-%d"), setup, "5-minute" if plan["interval"] == "5m" else "1-minute")]
-    out.append("  Entry         %s%s" % (inr(plan["entry"]), when))
-    out.append("  Stop          %s  %s%s" % (inr(plan["stop"]), plan["stop_label"],
-                                             (": " + plan["stop_detail"]) if plan.get("stop_detail") else ""))
-    out.append("  Target        %s  %s" % (inr(plan["target"]), plan["target_label"]))
-    out.append("  Risk a share  %s (%s%% of the entry)" % (inr(plan["risk_per_share"]), pct))
+            when += t("bar", lang, n=plan["entry_bar"])
+    out = [t("head", lang, sym=plan["symbol"], day=day.strftime("%a %Y-%m-%d"), setup=setup,
+             bars=t("bars_5m" if plan["interval"] == "5m" else "bars_1m", lang))]
+    out.append(t("entry", lang, entry=inr(plan["entry"]), when=when))
+    out.append(t("stop", lang, stop=inr(plan["stop"]), label=plan["stop_label"],
+                 detail=(": " + plan["stop_detail"]) if plan.get("stop_detail") else ""))
+    out.append(t("target", lang, target=inr(plan["target"]), label=plan["target_label"]))
+    out.append(t("risk", lang, risk=inr(plan["risk_per_share"]), pct=pct))
     ch = plan.get("charges")
     if ch:
-        out.append("  Reward:risk   %s gross, %s net of charges" % (ratio(plan["reward_risk"]), ratio(ch["reward_risk_net"])))
-        out.append("  Charges       %s at the target, %s at the stop, round trip on %d shares (%s, %s)" % (
-            inr(ch["at_target"]["total"]), inr(ch["at_stop"]["total"]), ch["qty"], ch["product"],
-            "your --qty" if ch["qty_source"] == "--qty" else "the most your max loss per trade allows"))
+        out.append(t("rr_net", lang, gross=ratio(plan["reward_risk"]), net=ratio(ch["reward_risk_net"])))
+        out.append(t("charges", lang, at_target=inr(ch["at_target"]["total"]), at_stop=inr(ch["at_stop"]["total"]),
+                     qty=ch["qty"], product=ch["product"],
+                     source=t("qty_flag" if ch["qty_source"] == "--qty" else "qty_max", lang)))
     else:
-        out.append("  Reward:risk   %s (charges not included)" % ratio(plan["reward_risk"]))
-    out.append("  Flat by       %s IST, win or lose: no overnight hold" % plan["flat_by"])
+        out.append(t("rr_gross", lang, gross=ratio(plan["reward_risk"])))
+    out.append(t("flat_by", lang, time=plan["flat_by"]))
     cas = plan.get("closing_auction")
     if cas:
-        out.append("  F&O stock     continuous trading ends %s, then the closing auction %s-%s IST: no stop-loss "
-                   "orders there%s" % (cas["continuous_end"], cas["start"], cas["end"],
-                                       "" if cas.get("fno_list") else " (no F&O list yet, so assumed)"))
-    out.append("Set before the entry. If price hits the stop, you are out; never move it further away.")
-    out.append(NOTE)
+        out.append(t("auction", lang, end=cas["continuous_end"], start=cas["start"], stop=cas["end"],
+                     assumed="" if cas.get("fno_list") else t("assumed", lang)))
+    out.append(t("never_move", lang))
+    out.append(t("gap", lang))
     return out
+
+
+def lang_of(a):
+    """--lang, else the config's "lang" (a missing or unreadable config is English)."""
+    cfg = None
+    path = getattr(a, "config", None) or "trader/config.json"
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                cfg = json.load(fh)
+        except (OSError, ValueError):
+            cfg = None
+    return pick_lang(getattr(a, "lang", None), cfg)
 
 
 def cmd_plan(a):
@@ -1225,13 +1326,14 @@ def cmd_plan(a):
     if a.json:
         print(json.dumps(dict(plan, warnings=warnings), indent=2, ensure_ascii=False))
         return 0
-    for line in describe(plan):
+    lang = lang_of(a)
+    for line in describe(plan, lang):
         print(line)
     for w in warnings:
-        print("Note: " + w)
+        print(t("note", lang, text=w))
     if a.write:
-        print("Wrote %s." % a.write)
-    print("Next: /trader-timemachine replays it, then /trader-budget sizes it to your max loss. Nothing was placed.")
+        print(t("wrote", lang, path=a.write))
+    print(t("next", lang))
     return 0
 
 
@@ -1246,11 +1348,12 @@ def cmd_show(a):
     if a.json:
         print(json.dumps(plan, indent=2, ensure_ascii=False))
         return 0
-    for line in describe(dict({"setup": "orb", "interval": "5m", "stop_label": "", "target_label": ""}, **plan)):
+    lang = lang_of(a)
+    for line in describe(dict({"setup": "orb", "interval": "5m", "stop_label": "", "target_label": ""}, **plan), lang):
         print(line)
     today = parse_now(a.now).date().isoformat()
     if plan["date"] != today:
-        print("Note: this plan is for %s, not today (%s)." % (plan["date"], today))
+        print(t("not_today", lang, date=plan["date"], today=today))
     return 0
 
 
@@ -1292,10 +1395,13 @@ def main(argv=None):
     p.add_argument("--write", nargs="?", const="trader/plan.json", metavar="PATH",
                    help="save the plan (default trader/plan.json)")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--lang", choices=LANGS, metavar="LANG", help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
     p = sub.add_parser("show", help="print the current plan")
     p.add_argument("--plan", default="trader/plan.json")
+    p.add_argument("--config", default="trader/config.json", help="only its \"lang\" is read")
     p.add_argument("--now")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--lang", choices=LANGS, metavar="LANG", help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
     a = ap.parse_args(argv)
     if not a.cmd:
         ap.print_help()
