@@ -1131,14 +1131,132 @@ def stats(entries, capital=None):
     }
 
 
-def sample_words(n):
+MSG = {
+    "en": {
+        "title": "# Weekly review {week} ({start} to {end})",
+        "intro": "From trader-journal at {as_of} IST. Paper and imported live trades closed this week, after every "
+                 "charge. The journal-coach persona reads this file; it suggests one process change, never a stock.",
+        "numbers": "## The numbers",
+        "none_closed": "No trades closed this week.",
+        "row_closed": "closed trades",
+        "closed_val": "{n} ({won} won, {lost} lost, {flat} flat)",
+        "row_win": "win rate",
+        "win_val": "{rate} (95% range {lo} to {hi}, Wilson)",
+        "row_net": "net P&L after charges",
+        "row_gross": "gross P&L / charges",
+        "row_exp": "expectancy a trade",
+        "exp_range": " (95% range {lo} to {hi})",
+        "row_r": "average R",
+        "r_val": "{r} over {n} trades with a recorded max loss",
+        "r_none": "no max loss on record",
+        "row_pf": "profit factor",
+        "pf_none": "n/a (no losses)",
+        "row_dd": "max drawdown in the week",
+        "row_streak": "longest losing streak",
+        "rule_breaks": "## Rule breaks",
+        "breaks_sum": "Trades with a rule break: {n}, net {net}. Trades with none: net {clean}.",
+        "breaks_none": "None found in the records.",
+        "costs": "## Overtrading and costs",
+        "ledger": "## Counterfactual ledger (plans dated this week)",
+        "ledger_none": "- No co-trader candidates or blocked orders this week.",
+        "coach": "## For the journal coach",
+        "coach_small": "Under {n} closed trades: review process only, not results.",
+        "coach_enough": "Enough trades to look at results, still with the ranges above.",
+        "coach_break": "- Most frequent rule break: {kind}.",
+        "none": "none",
+        "coach_one": "- Write ONE process change for next week as a rule the risk officer can enforce.",
+        "dns": "## What this does not show",
+        "dns_why": "- Why a trade was taken: add notes (journal.py note ID \"...\").",
+        "dns_luck": "- Whether a pattern is skill or luck: a week is a tiny sample.",
+        "dns_future": "- The future: it is a record of the past, not a forecast.",
+        "disclaimer": "Education and tooling, not financial advice.",
+        "sample_0": "No closed trades yet: nothing to judge.",
+        "sample_few": "{n} closed trade{s}: far too few to tell skill from luck (want {min} or more); read the ranges, "
+                      "not the point numbers.",
+        "sample_ok": "{n} closed trades. A record of the past, not a forecast: the ranges show how much is still "
+                     "chance.",
+        "wrote": "Wrote {path}.",
+    },
+    "hi-en": {
+        "title": "# Weekly review {week} ({start} se {end})",
+        "intro": "trader-journal se, {as_of} IST. Is hafte close hue paper aur imported live trades, har charge ke "
+                 "baad. Journal-coach persona yeh file padhta hai; woh process mein ek badlaav suggest karta hai, "
+                 "kabhi koi stock nahi.",
+        "numbers": "## Numbers",
+        "none_closed": "Is hafte koi trade close nahi hua.",
+        "row_closed": "closed trades",
+        "closed_val": "{n} ({won} jeete, {lost} haare, {flat} flat)",
+        "row_win": "win rate",
+        "win_val": "{rate} (95% range {lo} se {hi}, Wilson)",
+        "row_net": "charges ke baad net P&L",
+        "row_gross": "gross P&L / charges",
+        "row_exp": "har trade ki expectancy",
+        "exp_range": " (95% range {lo} se {hi})",
+        "row_r": "average R",
+        "r_val": "{n} trades pe {r} (jinka max loss record hai)",
+        "r_none": "koi max loss record nahi",
+        "row_pf": "profit factor",
+        "pf_none": "n/a (koi loss nahi)",
+        "row_dd": "hafte ka max drawdown",
+        "row_streak": "sabse lambi losing streak",
+        "rule_breaks": "## Rule breaks",
+        "breaks_sum": "Rule break wale trades: {n}, net {net}. Bina rule break wale: net {clean}.",
+        "breaks_none": "Records mein koi nahi mila.",
+        "costs": "## Overtrading aur costs",
+        "ledger": "## Counterfactual ledger (is hafte ke plans)",
+        "ledger_none": "- Is hafte koi co-trader candidate ya blocked order nahi.",
+        "coach": "## Journal coach ke liye",
+        "coach_small": "{n} se kam closed trades: sirf process review kijiye, results nahi.",
+        "coach_enough": "Results dekhne layak trades hain, par upar ki ranges ke saath hi.",
+        "coach_break": "- Sabse zyada hone wala rule break: {kind}.",
+        "none": "koi nahi",
+        "coach_one": "- Agle hafte ke liye process mein SIRF EK badlaav likhiye, aise rule ki tarah jo risk officer "
+                     "enforce kar sake.",
+        "dns": "## Yeh kya nahi dikhata",
+        "dns_why": "- Trade kyun liya gaya: notes jodiye (journal.py note ID \"...\").",
+        "dns_luck": "- Koi pattern skill hai ya luck: ek hafta bahut chhota sample hai.",
+        "dns_future": "- Future: yeh past ka record hai, forecast nahi.",
+        "disclaimer": "Yeh education aur tooling hai, financial advice nahi.",
+        "sample_0": "Abhi koi closed trade nahi: judge karne ko kuch nahi.",
+        "sample_few": "{n} closed trade{s}: skill aur luck mein farq batane ke liye bahut kam ({min} ya zyada "
+                      "chahiye); point numbers nahi, ranges padhiye.",
+        "sample_ok": "{n} closed trades. Yeh past ka record hai, forecast nahi: ranges dikhati hain ki ab bhi kitna "
+                     "chance hai.",
+        "wrote": "{path} likh diya.",
+    },
+}
+
+
+# ---------------------------------------------------------------- message catalogue helper (same in every skill with MSG)
+LANGS = ("en", "hi-en")
+
+
+def pick_lang(flag=None, cfg=None):
+    """The output language: --lang beats the config's "lang"; "hi-en" is Hinglish (Roman script), else English."""
+    for v in (flag, cfg.get("lang") if isinstance(cfg, dict) else None):
+        v = str(v or "").strip().lower().replace("_", "-")
+        if v == "hinglish":
+            v = "hi-en"
+        if v in LANGS:
+            return v
+    return "en"
+
+
+def t(key, lang="en", **kw):
+    """MSG[lang][key] filled with kw (str.format); the English text when a language or key is missing."""
+    text = (MSG.get(lang) or {}).get(key)
+    if text is None:
+        text = MSG["en"][key]
+    return text.format(**kw) if kw else text
+# ---------------------------------------------------------------- end of message catalogue helper
+
+
+def sample_words(n, lang="en"):
     if n == 0:
-        return "No closed trades yet: nothing to judge."
+        return t("sample_0", lang)
     if n < MIN_SAMPLE:
-        return ("%d closed trade%s: far too few to tell skill from luck (want %d or more); read the ranges, not "
-                "the point numbers." % (n, "" if n == 1 else "s", MIN_SAMPLE))
-    return ("%d closed trades. A record of the past, not a forecast: the ranges show how much is still chance."
-            % n)
+        return t("sample_few", lang, n=n, s="" if n == 1 else "s", min=MIN_SAMPLE)
+    return t("sample_ok", lang, n=n)
 
 
 def breakdown(entries, by):
@@ -1538,40 +1656,45 @@ def week_bounds(text, now):
     return "%d-W%02d" % (y, w), mon, mon + datetime.timedelta(days=6)
 
 
-def review(paths, week, bars_dir=None, offline=True, now=None):
-    """The weekly review (markdown), the journal-coach persona's input: trader/journal/weekly-YYYY-Www.md."""
+def review(paths, week, bars_dir=None, offline=True, now=None, lang=None):
+    """The weekly review (markdown), the journal-coach persona's input: trader/journal/weekly-YYYY-Www.md.
+    lang: en or hi-en (default: the config's "lang"); the headings and plain-words lines change, the numbers not."""
     now = now or parse_now()
     doc = gather(paths, bars_dir, offline, True, now)
     label, mon, sun = week_bounds(week, now)
     a, b = mon.isoformat(), sun.isoformat()
     mine = [e for e in doc["entries"] if a <= e["closed_at"][:10] <= b]
     cfg = config_of(paths)
+    lang = pick_lang(lang, cfg)
     s = stats(mine, _f(cfg.get("capital")))
+    verdict = s["verdict"] if lang == "en" else sample_words(s["trades"], lang)
     beh = behaviour(mine, cfg, verdicts_by_fp(risk_records(paths))) if mine else doc["behaviour"]
     cf = counterfactual(paths, doc["entries"], cfg, bars_dir, offline, a, b)
-    L = ["# Weekly review %s (%s to %s)" % (label, mon.strftime("%a %d %b %Y"), sun.strftime("%a %d %b %Y")), "",
-         "From trader-journal at %s IST. Paper and imported live trades closed this week, after every charge. "
-         "The journal-coach persona reads this file; it suggests one process change, never a stock." % doc["as_of"]
-         .replace("T", " "), ""]
-    L += ["## The numbers", ""]
+    L = [t("title", lang, week=label, start=mon.strftime("%a %d %b %Y"), end=sun.strftime("%a %d %b %Y")), "",
+         t("intro", lang, as_of=doc["as_of"].replace("T", " ")), ""]
+    L += [t("numbers", lang), ""]
     if not mine:
-        L += ["No trades closed this week.", ""]
+        L += [t("none_closed", lang), ""]
     else:
         lo, hi = s["win_rate_ci"]
+
+        def row(key, value):
+            return "| %s | %s |" % (t(key, lang), value)
         L += ["| | |", "| --- | --- |",
-              "| closed trades | %d (%d won, %d lost, %d flat) |" % (s["trades"], s["wins"], s["losses"], s["scratches"]),
-              "| win rate | %s (95%% range %s to %s, Wilson) |" % (_pct(s["win_rate"]), _pct(lo), _pct(hi)),
-              "| net P&L after charges | %s |" % signed_inr(s["net"]),
-              "| gross P&L / charges | %s / %s |" % (signed_inr(s["gross"]), inr(s["charges"])),
-              "| expectancy a trade | %s%s |" % (signed_inr(s["expectancy"]), (" (95%% range %s to %s)" % (
-                  signed_inr(s["expectancy_ci"][0]), signed_inr(s["expectancy_ci"][1]))) if s["expectancy_ci"] else ""),
-              "| average R | %s |" % (("%+.2fR over %d trades with a recorded max loss" % (s["expectancy_r"],
-                                                                                        s["r_trades"]))
-                                       if s["expectancy_r"] is not None else "no max loss on record"),
-              "| profit factor | %s |" % (s["profit_factor"] if s["profit_factor"] is not None else "n/a (no losses)"),
-              "| max drawdown in the week | %s |" % inr(s["max_drawdown"]),
-              "| longest losing streak | %d |" % s["longest_loss_streak"], "",
-              "> %s" % s["verdict"], ""]
+              row("row_closed", t("closed_val", lang, n=s["trades"], won=s["wins"], lost=s["losses"],
+                                  flat=s["scratches"])),
+              row("row_win", t("win_val", lang, rate=_pct(s["win_rate"]), lo=_pct(lo), hi=_pct(hi))),
+              row("row_net", signed_inr(s["net"])),
+              row("row_gross", "%s / %s" % (signed_inr(s["gross"]), inr(s["charges"]))),
+              row("row_exp", signed_inr(s["expectancy"]) + (t("exp_range", lang, lo=signed_inr(s["expectancy_ci"][0]),
+                                                              hi=signed_inr(s["expectancy_ci"][1]))
+                                                            if s["expectancy_ci"] else "")),
+              row("row_r", t("r_val", lang, r="%+.2fR" % s["expectancy_r"], n=s["r_trades"])
+                  if s["expectancy_r"] is not None else t("r_none", lang)),
+              row("row_pf", s["profit_factor"] if s["profit_factor"] is not None else t("pf_none", lang)),
+              row("row_dd", inr(s["max_drawdown"])),
+              row("row_streak", "%d" % s["longest_loss_streak"]), "",
+              "> %s" % verdict, ""]
         for by, title in (("persona", "By persona"), ("strategy", "By strategy"), ("regime", "By market regime "
                                                                                            "(NIFTY, the close before)")):
             L += ["### %s" % title, "", "| %s | trades | win rate (95%% range) | net after charges | expectancy |" % by,
@@ -1581,24 +1704,24 @@ def review(paths, week, bars_dir=None, offline=True, now=None):
                                                                   _pct(r["win_rate_ci"][0]), _pct(r["win_rate_ci"][1]),
                                                                   signed_inr(r["net"]), signed_inr(r["expectancy"])))
             L.append("")
-    L += ["## Rule breaks", ""]
+    L += [t("rule_breaks", lang), ""]
     if beh["log"]:
         for r in beh["log"]:
             L.append("- %s %s IST, %s (%s): %s; net %s" % (r["at"][:10], r["at"][11:16], r["symbol"], r["kind"],
                                                          r["text"], signed_inr(r["net"])))
-        L += ["", "Trades with a rule break: %d, net %s. Trades with none: net %s." % (
-            beh["rule_break_trades"], signed_inr(beh["rule_break_net"]), signed_inr(beh["clean_net"])), ""]
+        L += ["", t("breaks_sum", lang, n=beh["rule_break_trades"], net=signed_inr(beh["rule_break_net"]),
+                    clean=signed_inr(beh["clean_net"])), ""]
     else:
-        L += ["None found in the records.", ""]
+        L += [t("breaks_none", lang), ""]
     o, c = beh["overtrading"], beh["cost_drag"]
-    L += ["## Overtrading and costs", "",
+    L += [t("costs", lang), "",
           "- %d entries on %d days, %.2f a day against a plan of %s a day%s." % (
               o["entries"], o["days"], o["avg_per_day"], o["plan_per_day"] or "no limit",
               (" (overtrading index %.2f; 1.00 is the plan)" % o["index"]) if o["index"] is not None else ""),
           "- Days over plan: %s." % (", ".join("%s (%d)" % kv for kv in sorted(o["days_over_plan"].items())) or "none"),
           "- Charges %s: %s." % (inr(c["charges"]), c["words"]), ""]
     g = cf["groups"]
-    L += ["## Counterfactual ledger (plans dated this week)", ""]
+    L += [t("ledger", lang), ""]
     for name in ("co-trader skipped", "co-trader blocked by risk", "your orders blocked by risk"):
         x = g[name]
         if not x["plans"]:
@@ -1606,19 +1729,18 @@ def review(paths, week, bars_dir=None, offline=True, now=None):
         L.append("- %s: %d plan%s, %d replayed; %s." % (name, x["plans"], "" if x["plans"] == 1 else "s",
                                                        x["replayed"], x["words"]))
     if not any(g[n]["plans"] for n in g if n != "all"):
-        L.append("- No co-trader candidates or blocked orders this week.")
+        L.append(t("ledger_none", lang))
     L += ["", "Caveats: " + " ".join(CAVEATS[:3]), ""]
-    L += ["## For the journal coach", "",
-          "- %s" % ("Under %d closed trades: review process only, not results." % MIN_SAMPLE if s["trades"] < MIN_SAMPLE
-                    else "Enough trades to look at results, still with the ranges above."),
-          "- Most frequent rule break: %s." % (max(beh["counts"].items(), key=lambda kv: kv[1])[0]
-                                               if beh["counts"] else "none"),
-          "- Write ONE process change for next week as a rule the risk officer can enforce.", "",
-          "## What this does not show", "",
-          "- Why a trade was taken: add notes (journal.py note ID \"...\").",
-          "- Whether a pattern is skill or luck: a week is a tiny sample.",
-          "- The future: it is a record of the past, not a forecast.", "",
-          "Education and tooling, not financial advice.", ""]
+    L += [t("coach", lang), "",
+          "- %s" % (t("coach_small", lang, n=MIN_SAMPLE) if s["trades"] < MIN_SAMPLE else t("coach_enough", lang)),
+          t("coach_break", lang, kind=max(beh["counts"].items(), key=lambda kv: kv[1])[0]
+            if beh["counts"] else t("none", lang)),
+          t("coach_one", lang), "",
+          t("dns", lang), "",
+          t("dns_why", lang),
+          t("dns_luck", lang),
+          t("dns_future", lang), "",
+          t("disclaimer", lang), ""]
     text = "\n".join(L)
     path = paths.j("weekly-%s.md" % label)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1718,6 +1840,7 @@ def main(argv=None):
     _common(p)
     p = sub.add_parser("review", help="write the weekly review to trader/journal/weekly-YYYY-Www.md")
     p.add_argument("--week", nargs="?", const="this", default="this", help="ISO week like 2026-W44, this or last")
+    p.add_argument("--lang", choices=LANGS, help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
     _common(p)
     p = sub.add_parser("import", help="import a broker trade book (CSV or JSON)")
     p.add_argument("file")
@@ -1772,12 +1895,12 @@ def main(argv=None):
                                                         ", ".join(cur["tags"]) or "none"))
             return 0
         if a.cmd == "review":
-            res = review(paths, a.week, a.bars, off, now)
+            res = review(paths, a.week, a.bars, off, now, a.lang)
             if a.json:
                 print(json.dumps({k: v for k, v in res.items() if k != "text"}, indent=1, ensure_ascii=False))
             else:
                 print(res["text"])
-                print("Wrote %s." % os.path.relpath(res["path"], paths.workdir))
+                print(t("wrote", pick_lang(a.lang, config_of(paths)), path=os.path.relpath(res["path"], paths.workdir)))
             return 0
         doc = gather(paths, a.bars, off, True, now)
         if a.cmd == "list":
