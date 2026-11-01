@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "id": "eh-93-fixture-blocked-pead",
+  "rank": 3,
+  "family": "pead",
+  "title": "Fixture: results drift with no results data",
+  "hypothesis": "Stocks in the top fraction of the 3-session abnormal return around their results date outperform the point-in-time NIFTY 500 (with a liquidity floor) over the next 20 to 60 sessions, after delivery charges.",
+  "mechanism": {
+    "kind": [
+      "behavioural"
+    ],
+    "text": "Investors under-react to earnings news; arbitrage is limited in less liquid names."
+  },
+  "evidence": [
+    {
+      "source": "Bernard and Thomas, Journal of Accounting Research 27",
+      "year": 1989,
+      "market": "US",
+      "finding": "Prices drift for about 60 days after earnings surprises."
+    },
+    {
+      "source": "Chordia, Goyal, Sadka, Sadka and Shivakumar, Financial Analysts Journal 65(4)",
+      "year": 2009,
+      "market": "US",
+      "finding": "Drift concentrated in illiquid stocks; costs eat most of it."
+    },
+    {
+      "source": "Event study of 469 Indian firms (University of Nottingham eprint 26569)",
+      "year": 2012,
+      "market": "India, 2002-2011",
+      "finding": "Drift for bad news over about a week; good news priced fast."
+    },
+    {
+      "source": "Post-earnings drift in NSE firms, Trends Economics and Management",
+      "year": 2019,
+      "market": "India",
+      "finding": "Drift present after surprises, into the third month."
+    }
+  ],
+  "instrument": {
+    "segment": "EQ-CNC",
+    "underlying": "NIFTY 500 constituents",
+    "side": "long"
+  },
+  "universe": {
+    "name": "nifty500-pit-liquid",
+    "point_in_time": true,
+    "rule": "NIFTY 500 members on the results date with a 60-session median traded value of at least ₹10 crore."
+  },
+  "holding_period": "20, 40 or 60 sessions",
+  "turnover": {
+    "round_trips_per_year": 6,
+    "charge_drag_pct_per_year": 1.98,
+    "basis": "capital cycling about 6 times a year x 0.33% CNC round trip"
+  },
+  "data": {
+    "needs": [
+      "results (board meeting) dates 2010-2026",
+      "point-in-time NIFTY 500",
+      "adjusted EOD prices"
+    ],
+    "available_now": [
+      "EOD equity bhavcopies 2024-2026",
+      "trader-news reads current announcements only"
+    ],
+    "blocked_by": [
+      71,
+      72
+    ]
+  },
+  "span": {
+    "train": {
+      "from": "2025-07-01",
+      "to": "2025-12-31"
+    },
+    "validation": {
+      "from": "2026-01-15",
+      "to": "2026-05-29"
+    },
+    "holdout": {
+      "from": "2026-06-15",
+      "to": "2026-10-30"
+    },
+    "embargo_days": 14
+  },
+  "parameters": {
+    "top_fraction": [
+      0.1,
+      0.2
+    ],
+    "hold_sessions": [
+      20,
+      40,
+      60
+    ],
+    "entry_lag_sessions": [
+      1,
+      2
+    ]
+  },
+  "trial_budget": 12,
+  "prior_trials": {
+    "count": 0,
+    "basis": "No event rule has been run in this repo."
+  },
+  "gates": {
+    "lab_defaults": true,
+    "overrides": {
+      "max_drawdown_pct": 20.0
+    },
+    "extra": {
+      "drawdown_basis": "active",
+      "fdr_q": 0.1
+    },
+    "min_span_years": 10,
+    "span_exception": null
+  },
+  "primary_metric": "oos_mean_event_return",
+  "holdout_rule": {
+    "opened_once": true,
+    "pass_if": "Holdout mean abnormal return of the selected events above zero after charges, over at least 100 events."
+  },
+  "kill_criteria": [
+    "Holdout mean abnormal return at or below zero after charges.",
+    "The effect only in the bottom liquidity tercile of the universe.",
+    "Benjamini-Hochberg across the programme at q = 0.10 does not keep it."
+  ],
+  "prior": {
+    "probability": 0.15,
+    "reason": "Long-lived globally, some Indian support; our surprise is a price proxy and costs are delivery STT on both sides."
+  },
+  "feasibility": {
+    "score": 0.45,
+    "reason": "Results-date history is not in the archive (#71); event engine (#72)."
+  },
+  "contamination": "Test fixture only: ten NIFTY 50 stocks and NIFTY closes, Oct 2024 to Oct 2026. Not a research registration.",
+  "registered_on": "2026-11-01",
+  "status": "registered",
+  "outcome": null
+}

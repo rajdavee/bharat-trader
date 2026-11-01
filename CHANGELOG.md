@@ -46,6 +46,37 @@ All notable changes are documented here. The format follows
   `tests/test_edge_hunt.py` validates the schema, the date splits, the
   ranking, the hashes and the brief's cost table.
 
+- **Lab engine v2 and the edge-hunt executor** (#72): `lab.py hunt list |
+  run EH-ID [--dry-run] | status` runs a pre-registered hypothesis exactly
+  as its file says. The file must match its manifest hash; every grid point
+  runs on train and validation (each window purged, the data read only up
+  to the validation's last day) and counts as one trial; the deflated Sharpe
+  is charged for the grid, the file's prior trials, the same family's other
+  runs and any declared extra; the train-best finalist is screened by the
+  lab's gates on validation (with PBO over the grid, 1.5x and 2x costs, the
+  neighbourhood, walk-forward by year and a regime split); only a passing
+  finalist opens the sealed holdout, logged in `holdout.json` before any
+  holdout number exists, and never again. The verdict goes into the file's
+  `status` and `outcome`, with a scorecard and the programme's
+  Benjamini-Hochberg cut in `hunt status`. New engines in
+  `trader-lab/engines/`: futures (continuous near-month series, lots by
+  date, SPAN-style margin, the dated 2026 futures charges, roll costs,
+  overnight or intraday holding, daily MTM), cross-sectional portfolios
+  (point-in-time universe, 12-1 and 6-1 momentum, low volatility,
+  short-term reversal, weekly to semi-annual rebalances, top-N or quantile,
+  equal or inverse-volatility weights, CNC charges with a DP charge per
+  sell, turnover, the equal-weighted universe and a NIFTY total-return
+  proxy, a capacity note), events (turn of the month, pre-holiday, expiry
+  week, overnight, results-date drift) and pairs (correlation and
+  Engle-Granger on train only, z-score bands, futures legs), all with
+  portfolio metrics. The data adapter reads the long-history archive
+  (#71: `load_continuous` with its roll log, `members`, `results_dates`,
+  index history and VIX), blocks a point-in-time or results-date run when
+  that data is not there, and copies the archive's membership caveat into
+  the scorecard. MCP: `edge_hunt_status`
+  and `edge_hunt_run` (57 tools). The Lab page lists the hypotheses with
+  their status and outcome. No real hunt was run (that is #74).
+
 ## [0.3.0] - 2026-11-01
 
 The co-trader release: candidates only from validated rules, odds with their

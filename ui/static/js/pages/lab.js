@@ -174,6 +174,32 @@ function discoveryCard(d) {
     h('p', { class: 'small muted' }, 'Full report: ', h('code', null, 'python3 trader-discover/discover.py report RUN')));
 }
 
+function huntTag(st) {
+  const k = { watch: 'watch', promoted: 'promote', rejected: 'reject' }[st] || '';
+  return h('span', { class: 'verdict-tag ' + k }, st || 'registered');
+}
+
+function edgeHuntCard(d) {
+  const e = d.edge_hunt || {};
+  const rows = (e.hypotheses || []).map((x) => h('tr', null,
+    h('td', { class: 'num' }, num(x.rank, 0)),
+    h('td', null, h('code', null, x.id), h('div', { class: 'small muted' }, x.title || '')),
+    h('td', null, x.family), h('td', null, x.engine),
+    h('td', null, huntTag(x.status), x.registered_ok === false ? h('div', { class: 'small' }, 'file changed: ' + (x.problem || '')) : null),
+    h('td', { class: 'num' }, `${num(x.trials_run, 0)} of ${num(x.trial_budget, 0)}`),
+    h('td', null, x.holdout_opened ? `opened ${x.holdout_opened}` + (x.p_value === null || x.p_value === undefined ? '' : `, p ${num(x.p_value, 3)}`) : 'sealed'),
+    h('td', null, x.verdict ? h('span', null, verdictTag(x.verdict), ' ', h('span', { class: 'small muted' }, x.why || '')) : '–')));
+  if (!rows.length) return null;
+  return card('Edge hunt: pre-registered hypotheses',
+    h('p', { class: 'explain' }, 'Ideas written down with their data, grid, trial budget and gates before any run. ' +
+      'Trials: grid points run on train and validation. The holdout is opened once, only for a finalist that passed ' +
+      'every validation gate. ' + (e.note || '') + '.'),
+    table([{ label: 'Rank', num: true }, 'Hypothesis', 'Family', 'Engine', 'Status', { label: 'Trials', num: true },
+      'Holdout', 'Outcome'], rows, { caption: 'Edge-hunt hypotheses' }),
+    h('div', { class: 'note warn' }, h('b', null, 'What this does not show. '), e.limits || ''),
+    h('p', { class: 'small muted' }, 'Run one: ', h('code', null, 'python3 trader-lab/lab.py hunt run EH-ID --dry-run')));
+}
+
 export async function render(root, ctx) {
   clear(root);
   if (ctx && ctx.bus) {
@@ -193,10 +219,12 @@ export async function render(root, ctx) {
   }
   clear(body);
   const disc = discoveryCard(d);
+  const hunt = edgeHuntCard(d);
   if (!d.runs.length) {
     body.appendChild(card('No lab runs yet', empty('Test a strategy before you trust it',
       'Run a backtest from the built-in library; its scorecard and equity curve appear here.',
       h('code', null, 'python3 trader-lab/lab.py run orb15-vwap'))));
+    if (hunt) body.appendChild(hunt);
     if (disc) body.appendChild(disc);
     return;
   }
@@ -210,6 +238,7 @@ export async function render(root, ctx) {
     h('td', { class: 'num' }, h('span', { class: tone(x.oos.net) }, signed(x.oos.net))), h('td', null, (x.updated || '') + ' IST'))),
   { caption: 'Lab runs' }), h('p', { class: 'explain' }, Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ') +
     '. A REJECT is the lab doing its job: most ideas should fail here, before they cost money.')));
+  if (hunt) body.appendChild(hunt);
   if (disc) body.appendChild(disc);
   for (const run of d.runs) {
     const c = runCard(run);
