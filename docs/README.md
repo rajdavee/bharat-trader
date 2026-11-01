@@ -13,6 +13,7 @@ your own AI assistant in about 30 minutes.
 | [options.md](options.md) | The option chain, Greeks (Black-76), strategies, after-charges payoffs, STT on exercise, the margin estimate and its limits, probability of profit two ways, and paper F&O (basket, margin, MTM, expiry). |
 | [lab.md](lab.md) | The Strategy Lab: why most backtests lie, the spec, the backtest, walk-forward, deflated Sharpe, overfitting odds, the gates and the paper forward test. |
 | [cotrader.md](cotrader.md) | The co-trader: evidence tiers, how a candidate's probability is made (Wilson interval, empirical-Bayes shrinkage, the time-machine second opinion), what it means and does not, ranking, the no-edge answer, and calibration (Brier score, reliability, demotion). |
+| [autopilot.md](autopilot.md) | The auto-pilot on paper: the safety model (paper only, in code), a day step by step, fills, F&O baskets at the close, how its forward record feeds the lab's promote and demote, and replay. |
 | [discovery.md](discovery.md) | Strategy discovery: why most found strategies are noise, the declared search, the purged time split, the deflated Sharpe, overfitting odds, Reality Check / SPA and FDR with the true trial count, the holdout, and the limits. |
 | [brokers.md](brokers.md) | Upstox, Zerodha Kite and Dhan: setup, the **static IP** and **daily login** rules, read-only commands, and every gate before a live order. |
 | [ui.md](ui.md) | The local web UI: running it, the pages, the routes, the security model and the offline demo. |

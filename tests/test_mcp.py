@@ -28,7 +28,8 @@ TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit
          "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "discover_strategies", "discover_report", "lab_forward",
          "strategy_build",
          "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor", "persona_scorecards", "regime_now",
-         "cotrader_candidates", "cotrader_explain", "calibration_report"]
+         "cotrader_candidates", "cotrader_explain", "calibration_report", "autopilot_status", "autopilot_replay",
+         "autopilot_start", "autopilot_stop"]
 # one offline call per tool, on the real saved answers in tests/fixtures (see tests/fixtures/mcp/offline.json)
 CALLS = [
     ("market_status", {}),
@@ -68,6 +69,10 @@ CALLS = [
     ("cotrader_candidates", {}),
     ("cotrader_explain", {}),
     ("calibration_report", {}),
+    ("autopilot_status", {}),
+    ("autopilot_replay", {"date": "2026-09-21"}),
+    ("autopilot_stop", {"typed": "stop paper"}),
+    ("autopilot_start", {"typed": "start paper"}),
     ("paper_order_draft", {}),
     ("paper_order_confirm", {"index": 1, "risk_fingerprint": FP, "yes_text": "yes 42 RELIANCE"}),
 ]
@@ -1064,6 +1069,46 @@ class Cotrader(ServerCase):
         self.assertTrue(os.path.exists(os.path.join(self.c.workdir, "trader", "plan.json.bak")))
         r = self.result(self.c.call("paper_order_draft", {"candidate": "2026-01-01-nothing-SBIN"}))
         self.assertTrue(r["isError"])
+
+
+# ---------------------------------------------------------------- the auto-pilot
+
+class Autopilot(ServerCase):
+    def data(self, name, args):
+        r = self.result(self.c.call(name, args))
+        self.assertFalse(r["isError"], r["content"][0]["text"][:400])
+        return r["structuredContent"]["data"]
+
+    def err(self, name, args):
+        r = self.result(self.c.call(name, args))
+        self.assertTrue(r["isError"], name)
+        return r["content"][0]["text"]
+
+    def test_status_replay_and_the_typed_words(self):
+        s = self.data("autopilot_status", {})
+        self.assertFalse(s["running"])
+        self.assertEqual(s["positions"], [])
+        self.assertIn("never write it yourself", self.err("autopilot_start", {}).lower())
+        self.assertIn("start paper", self.err("autopilot_start", {"typed": "yes"}))
+        self.assertIn("stop paper", self.err("autopilot_stop", {"typed": "stop"}))
+        r = self.data("autopilot_replay", {"date": "2026-09-21"})
+        self.assertEqual(r["sandbox"], "trader/autopilot/replays/2026-09-21")
+        self.assertEqual(r["reports"][0]["date"], "2026-09-21")
+        self.assertIn("not a session", self.err("autopilot_replay", {"date": "2026-09-19"}).lower().replace(
+            "is not an nse session", "not a session"))
+        s = self.data("autopilot_status", {})
+        self.assertEqual(s["replays"][0]["name"], "2026-09-21")
+
+    def test_a_live_config_is_refused_before_asking(self):
+        path = os.path.join(self.c.workdir, "trader", "config.json")
+        with open(path, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        cfg.update(paper=False, broker="upstox", live_enabled={"upstox": True})
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh)
+        self.assertIn("PAPER", self.err("autopilot_start", {"typed": "start paper"}))
+        self.assertFalse(os.path.exists(os.path.join(self.c.workdir, "trader", "autopilot", "lock.json")))
+        self.assertIn("PAPER", self.err("autopilot_replay", {"date": "2026-09-21"}))
 
 
 # ---------------------------------------------------------------- streamable HTTP
