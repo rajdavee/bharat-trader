@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "id": "eh-92-fixture-turn-of-month",
+  "rank": 2,
+  "family": "calendar",
+  "title": "Fixture: turn of the month on NIFTY (index proxy)",
+  "hypothesis": "Index futures held from the close one or two sessions before month end to two to four sessions into the new month earn a higher mean daily return than on other sessions, and a positive return after charges.",
+  "mechanism": {
+    "kind": [
+      "structural"
+    ],
+    "text": "Salary and SIP inflows early in the month, fund flows and window dressing at month end."
+  },
+  "evidence": [
+    {
+      "source": "Ariel, Journal of Financial Economics 18",
+      "year": 1987,
+      "market": "US",
+      "finding": "Returns concentrated in the first half of the month and its turn."
+    },
+    {
+      "source": "McConnell and Xu, Financial Analysts Journal 64(2)",
+      "year": 2008,
+      "market": "35 countries",
+      "finding": "Turn-of-month effect in 30 of 35 countries."
+    },
+    {
+      "source": "Review of Finance and Banking 15 (citing Karmakar and Chakraborty 2003; Archana, Safeer and Kevin 2014)",
+      "year": 2023,
+      "market": "India",
+      "finding": "Mixed: found in some samples, not significant in others."
+    }
+  ],
+  "instrument": {
+    "segment": "FUT",
+    "underlying": "NIFTY, BANKNIFTY",
+    "side": "long"
+  },
+  "universe": {
+    "name": "nifty-banknifty-futures",
+    "point_in_time": false,
+    "rule": "Near-month futures (next month when the near one expires inside the window); notional equal to capital."
+  },
+  "holding_period": "4 to 6 sessions a month",
+  "turnover": {
+    "round_trips_per_year": 12,
+    "charge_drag_pct_per_year": 0.96,
+    "basis": "12 round trips x 0.080% futures round trip, on notional"
+  },
+  "data": {
+    "needs": [
+      "index futures EOD 2005-2026",
+      "dated NSE session calendar"
+    ],
+    "available_now": [
+      "F&O bhavcopies 2024-2026",
+      "index closes 2024-2026",
+      "holiday tables 2026"
+    ],
+    "blocked_by": [
+      71,
+      72
+    ]
+  },
+  "span": {
+    "train": {
+      "from": "2024-12-02",
+      "to": "2025-08-29"
+    },
+    "validation": {
+      "from": "2025-09-15",
+      "to": "2026-03-31"
+    },
+    "holdout": {
+      "from": "2026-04-15",
+      "to": "2026-10-30"
+    },
+    "embargo_days": 14
+  },
+  "parameters": {
+    "entry_session": [
+      -2,
+      -1
+    ],
+    "exit_session": [
+      2,
+      3
+    ],
+    "underlying": [
+      "NIFTY"
+    ]
+  },
+  "trial_budget": 4,
+  "prior_trials": {
+    "count": 0,
+    "basis": "No calendar rule has been run in this repo."
+  },
+  "gates": {
+    "lab_defaults": true,
+    "overrides": {
+      "max_drawdown_pct": 20.0
+    },
+    "extra": {
+      "fdr_q": 0.1
+    },
+    "min_span_years": 10,
+    "span_exception": "Fixture: about 2 years."
+  },
+  "primary_metric": "oos_net_sharpe",
+  "holdout_rule": {
+    "opened_once": true,
+    "pass_if": "Holdout net return after charges above zero and the in-window mean daily return above the other sessions' mean."
+  },
+  "kill_criteria": [
+    "Holdout net at or below zero after charges.",
+    "In-window mean daily return not above the other sessions' mean (a two-sample bootstrap p above 0.10).",
+    "Benjamini-Hochberg across the programme at q = 0.10 does not keep it."
+  ],
+  "prior": {
+    "probability": 0.12,
+    "reason": "Cheap, few knobs, plausible flows; Indian evidence mixed and the effect small next to index noise."
+  },
+  "feasibility": {
+    "score": 0.8,
+    "reason": "Index closes alone can test it now; futures from #71 for the final run."
+  },
+  "contamination": "Test fixture only: ten NIFTY 50 stocks and NIFTY closes, Oct 2024 to Oct 2026. Not a research registration.",
+  "registered_on": "2026-11-01",
+  "status": "registered",
+  "outcome": null
+}

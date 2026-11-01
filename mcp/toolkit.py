@@ -1714,6 +1714,79 @@ def t_lab_run(kit, a, call):
     return _lab_execute(kit, a, call, "lab_run", doc)
 
 
+# ---- the edge hunt: pre-registered hypotheses run exactly as registered
+
+HUNT_ID_RE = re.compile(r"^(eh-\d\d(-[a-z0-9]+)*|EH-\d\d)$")
+HUNT_LIMITS = ("A hypothesis runs exactly as registered: train and validation for every grid point, each one trial; "
+               "the sealed holdout is opened once, only for a finalist that passed every validation gate, and its "
+               "numbers are kept whatever they are. A WATCH is a candidate for the paper forward test, not a "
+               "strategy to trade; most hypotheses are expected to fail.")
+
+
+def _hunt_paths(kit):
+    """(the hypothesis folder, the data market) for the edge-hunt tools: $BT_EDGE_HUNT_DIR, else the offline
+    bundle's trader-lab/hunt/edge-hunt, else trader-lab's own library; data from the offline bundle's folder,
+    else the local archive."""
+    lab = api.skill("lab")
+    eng = lab.engines_api()
+    folder = os.environ.get("BT_EDGE_HUNT_DIR")
+    if kit.offline:
+        base = kit.offline.path("edge_hunt_run", "trader-lab")
+        hunt = os.path.join(base, "hunt")
+        mkt = eng.market.FolderMarket(hunt, lab.archive_api(), bars_dir=base)
+        folder = folder or os.path.join(hunt, "edge-hunt")
+    else:
+        root = os.environ.get("BT_ARCHIVE") or kit.p("archive")
+        arch = lab.archive_api()
+        mkt = eng.market.ArchiveMarket(root, arch) if (arch is not None and os.path.isdir(root)) else eng.market.Market()
+        folder = folder or lab.EDGE_HUNT_DIR
+    return folder, mkt, eng
+
+
+def t_edge_hunt_status(kit, a, call):
+    folder, _, eng = _hunt_paths(kit)
+    st = eng.executor.status(folder, kit.p("lab"))
+    return st, [st["bh_note"] + ".", HUNT_LIMITS]
+
+
+def t_edge_hunt_run(kit, a, call):
+    lab = api.skill("lab")
+    hid = str(a.get("hypothesis") or "").strip()
+    if not HUNT_ID_RE.match(hid):
+        raise ToolError("hypothesis is a registered id such as eh-03-index-trend or EH-03 (edge_hunt_status lists them)")
+    folder, mkt, eng = _hunt_paths(kit)
+    ex = eng.executor
+    budget = float(a.get("max_seconds") or 300)
+    started = time.monotonic()
+
+    def progress(msg, f):
+        if call.cancel.is_set():
+            return
+        call.progress(min(0.95, 0.05 + 0.9 * f), msg)
+        call.log("info", msg)
+    n = kit.now_text("edge_hunt_run")
+    now = (lab.ist_now(str(n)) if n else lab.ist_now()).replace(tzinfo=None)
+    try:
+        path = ex.resolve(hid, folder)
+        call.progress(0.02, "checking the registration and the data")
+        r = ex.execute(path, mkt, kit.p("lab"), now, progress, lambda: time.monotonic() - started > budget,
+                       call.cancel.is_set, int(a.get("extra_trials") or 0), bool(a.get("dry_run")))
+    except (ex.HuntError, lab.LabError) as e:
+        raise ToolError(str(e))
+    view = {k: v for k, v in r.items() if k != "results"}
+    if r.get("results"):
+        res = r["results"]
+        view["gates"] = res["gates"]
+        view["scorecard"] = ex.scorecard(ex.read_json(path), res)
+    steps = {"blocked": "It cannot run yet: tell the user what is missing (the blockers), plainly.",
+             "dry-run": "Nothing ran. Call again without dry_run to run it exactly as registered.",
+             "paused": "Paused; call edge_hunt_run again with the same hypothesis to carry on (no trial runs twice).",
+             "decided": "Read the verdict and every failed gate to the user. A WATCH goes to the paper forward test; "
+                        "any paper order still needs risk_check and the user's own yes."}
+    view["next_step"] = steps[r["state"]]
+    return view, [HUNT_LIMITS]
+
+
 MAX_SPEC_TEXT = 20000
 
 
@@ -2379,6 +2452,32 @@ def build_tools():
                   "the run does NOT prove. Read only.", t_lab_report,
                   {"strategy": lab_name, "include_trades": S("boolean", "add the out-of-sample trades (up to 500)")},
                   ["strategy"], data=lab_data, network=False))
+    T.append(tool("edge_hunt_status", "Edge hunt: the registered hypotheses",
+                  "Every pre-registered edge-hunt hypothesis (trader-lab/library/edge-hunt/) with its status, run "
+                  "state, trials run against its budget, whether its sealed holdout was opened, its verdict and the "
+                  "programme-level Benjamini-Hochberg cut over the holdout p-values. Read only.", t_edge_hunt_status,
+                  {}, data=obj({"hypotheses": ANY_LIST, "fdr_q": S("number")}, ["hypotheses"], extra=True),
+                  network=False))
+    T.append(tool("edge_hunt_run", "Edge hunt: run one hypothesis as registered",
+                  "Run one pre-registered hypothesis exactly as its file says (the file must match its manifest "
+                  "hash): every grid point on train and validation after charges (each one counted trial), the "
+                  "finalist screened by the lab's gates with the deflated Sharpe charged for every trial, then the "
+                  "sealed holdout opened once only if it passed, logged before any number exists, never opened "
+                  "again. Writes the verdict to the file's status and outcome and trader/lab/edge-hunt/<id>/. "
+                  "dry_run checks the file, the data and the trial count and runs nothing. Sends progress, pauses at "
+                  "max_seconds or on cancel and carries on when called again. Expect most to be rejected or "
+                  "blocked until the long-history data is there.", t_edge_hunt_run,
+                  {"hypothesis": S("string", "a registered id, e.g. eh-03-index-trend or EH-03", pattern=HUNT_ID_RE.pattern,
+                                   maxLength=48),
+                   "dry_run": S("boolean", "check only: nothing runs, nothing is written"),
+                   "extra_trials": S("integer", "earlier trials of this idea to charge the deflated Sharpe for",
+                                     minimum=0, maximum=100000),
+                   "max_seconds": S("integer", "time budget in seconds (default 300); the run pauses, resumable",
+                                    minimum=5, maximum=1800)},
+                  ["hypothesis"], data=obj({"state": S("string"), "plan": ANY_OBJ, "next_step": S("string")},
+                                           ["state", "next_step"], extra=True),
+                  annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+                  network=False))
     run_name = S("string", "a discovery run's name (discover_report lists them), e.g. nifty50-1d-s7-b100",
                  pattern=RUN_NAME_RE.pattern, maxLength=64)
     T.append(tool("discover_strategies", "Strategy discovery: search with overfitting controls",
