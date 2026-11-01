@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "registered_on": "2026-11-01",
+  "note": "SHA-256 of each file's registered content: canonical JSON (keys sorted, no spaces) without status and outcome.",
+  "hypotheses": [
+    {
+      "id": "eh-01-xs-momentum",
+      "rank": 1,
+      "sha256": "e3439cc1b7ee6f1dd52bb7707921037dec32d1f02b8b35441f2ed87e06a3594e"
+    },
+    {
+      "id": "eh-02-low-volatility",
+      "rank": 2,
+      "sha256": "83158c2b69ac34c814a593b138ddea29b61a06e84790f0ce35e13adf4c3d10f7"
+    },
+    {
+      "id": "eh-03-index-trend",
+      "rank": 3,
+      "sha256": "a6a9b84b5d4fa9e447cb94bc698d658c1fa81b4ee4097deacb60e874b772c3ca"
+    },
+    {
+      "id": "eh-04-turn-of-month",
+      "rank": 4,
+      "sha256": "a2c3a39de218b571eb8d8a4e3bf34251b842d9d986caf92e976a78d5ad522e55"
+    },
+    {
+      "id": "eh-05-vrp-condor",
+      "rank": 5,
+      "sha256": "679f61dc17896f2826248471fd316cd60626e89a8c0160a5d0efa980fbea2dd6"
+    },
+    {
+      "id": "eh-06-pead",
+      "rank": 6,
+      "sha256": "5e3cb06bee925abd5ae6165f2ebde24ef8036f93dddd37a342842db126830733"
+    },
+    {
+      "id": "eh-07-preholiday-expiry",
+      "rank": 7,
+      "sha256": "6e096e9fd0a221c89e4d2813a512306abf3d82e0cfb3e58bd5fbc9440a5f9f19"
+    },
+    {
+      "id": "eh-08-event-crush",
+      "rank": 8,
+      "sha256": "71a6bef9a52e7112feb0dce083bb300412fd53ea8260e18bf467389a7b4bac34"
+    },
+    {
+      "id": "eh-09-event-runup",
+      "rank": 9,
+      "sha256": "bdff9ea3c6349fec8637dd9847dfae32b241377a60da8240d619e55bfec5bcd2"
+    },
+    {
+      "id": "eh-10-st-reversal",
+      "rank": 10,
+      "sha256": "0b58fece42dce3315192f6cc78ae9116832b1f1cde15975acf33ec6f7af47b8d"
+    },
+    {
+      "id": "eh-11-pairs",
+      "rank": 11,
+      "sha256": "4a963399eaaf7f8168e5559daf39c4ddc5bb58acba22a3da5db9fb94105af2bc"
+    },
+    {
+      "id": "eh-12-intraday-momentum",
+      "rank": 12,
+      "sha256": "119272714deb18aba976e617a2c90edadfeb076e2804fb8c95892d8af6231584"
+    },
+    {
+      "id": "eh-13-overnight-drift",
+      "rank": 13,
+      "sha256": "37da0012cc47f507f1d493b2b4131ce93902868dcff75b2044a47a52cb540ed4"
+    },
+    {
+      "id": "eh-14-trend-day-buying",
+      "rank": 14,
+      "sha256": "6d3ad0a138a373ad1459f0e6f70968a8e6670ecd59fc43881074f23aedc06e0e"
+    }
+  ]
+}

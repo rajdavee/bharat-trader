@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "id": "eh-13-overnight-drift",
+  "rank": 13,
+  "family": "overnight",
+  "title": "Overnight hold of index futures",
+  "hypothesis": "NIFTY or BANKNIFTY futures bought at the close and sold at the next open, on all sessions or a conditioned subset, earn a positive return after charges.",
+  "mechanism": {
+    "kind": [
+      "risk-premium",
+      "structural"
+    ],
+    "text": "Overnight returns carry news risk while the market is shut; intraday flows push the other way."
+  },
+  "evidence": [
+    {
+      "source": "Cliff, Cooper and Gulen, working paper",
+      "year": 2008,
+      "market": "US",
+      "finding": "Equity returns earned almost entirely overnight."
+    },
+    {
+      "source": "Lou, Polk and Skouras, Journal of Financial Economics 134(1)",
+      "year": 2019,
+      "market": "US",
+      "finding": "Overnight and intraday expected returns pull apart by clientele."
+    },
+    {
+      "source": "Secondary analyses of NIFTY (not peer reviewed)",
+      "year": 2023,
+      "market": "India, 2000-2023",
+      "finding": "Most NIFTY points earned overnight, intraday sum negative."
+    }
+  ],
+  "instrument": {
+    "segment": "FUT",
+    "underlying": "NIFTY, BANKNIFTY",
+    "side": "long"
+  },
+  "universe": {
+    "name": "nifty-banknifty-futures",
+    "point_in_time": false,
+    "rule": "Near-month futures, close to next open."
+  },
+  "holding_period": "overnight",
+  "turnover": {
+    "round_trips_per_year": 250,
+    "charge_drag_pct_per_year": 19.93,
+    "basis": "every session x 0.080% futures round trip, on notional; conditioned variants trade less"
+  },
+  "data": {
+    "needs": [
+      "index futures open and close 2005-2026"
+    ],
+    "available_now": [
+      "F&O bhavcopies 2024-2026 (open, close)"
+    ],
+    "blocked_by": [
+      71,
+      72
+    ]
+  },
+  "span": {
+    "train": {
+      "from": "2005-01-03",
+      "to": "2016-12-30"
+    },
+    "validation": {
+      "from": "2017-01-16",
+      "to": "2021-12-31"
+    },
+    "holdout": {
+      "from": "2022-01-17",
+      "to": "2026-10-30"
+    },
+    "embargo_days": 14
+  },
+  "parameters": {
+    "condition": [
+      "every_session",
+      "after_down_session",
+      "before_weekend_or_holiday"
+    ],
+    "underlying": [
+      "NIFTY",
+      "BANKNIFTY"
+    ]
+  },
+  "trial_budget": 6,
+  "prior_trials": {
+    "count": 0,
+    "basis": "No overnight rule has been run in this repo."
+  },
+  "gates": {
+    "lab_defaults": true,
+    "overrides": {
+      "max_drawdown_pct": 20.0
+    },
+    "extra": {
+      "fdr_q": 0.1
+    },
+    "min_span_years": 10,
+    "span_exception": null
+  },
+  "primary_metric": "oos_net_sharpe",
+  "holdout_rule": {
+    "opened_once": true,
+    "pass_if": "Holdout net after charges above zero."
+  },
+  "kill_criteria": [
+    "Holdout net at or below zero after charges (the expected result for every_session).",
+    "Gross overnight return below the round-trip cost per trade in validation."
+  ],
+  "prior": {
+    "probability": 0.02,
+    "reason": "Arithmetic: about 20% a year of charges against a single-digit gross overnight return."
+  },
+  "feasibility": {
+    "score": 0.8,
+    "reason": "Opens and closes are in the bhavcopies; #71 for history."
+  },
+  "contamination": "trader-regime and the lab's regime split read NIFTY 50 closes for 2024 to 2026; no calendar or trend rule on index futures has been run in this repo. The holdout overlaps those sessions.",
+  "registered_on": "2026-11-01",
+  "status": "registered",
+  "outcome": null
+}

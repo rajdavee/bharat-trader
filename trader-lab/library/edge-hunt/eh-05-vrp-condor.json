@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "id": "eh-05-vrp-condor",
+  "rank": 5,
+  "family": "vrp-selling",
+  "title": "VIX-timed monthly NIFTY iron condor",
+  "hypothesis": "A monthly NIFTY iron condor sold only when India VIX exceeds the 20-session realised volatility by a threshold earns a positive return on margin after charges, and more than the same condor sold every month.",
+  "mechanism": {
+    "kind": [
+      "risk-premium"
+    ],
+    "text": "Index option buyers pay for crash insurance; the seller is paid for carrying the crash. A wide implied-over-realised spread should mean a richer premium."
+  },
+  "evidence": [
+    {
+      "source": "Carr and Wu, Review of Financial Studies 22(3)",
+      "year": 2009,
+      "market": "US",
+      "finding": "Variance risk premia are large and negative for index options buyers."
+    },
+    {
+      "source": "NIFTY variance risk premium study, SDMIMD journal (informaticsjournals.com)",
+      "year": 2025,
+      "market": "India, Apr 2021-Jul 2025",
+      "finding": "Consistently positive, significant VRP; volatility-selling strategies tested."
+    },
+    {
+      "source": "Jain, Varma and Agarwalla, Journal of Futures Markets",
+      "year": 2018,
+      "market": "India",
+      "finding": "Indian single-stock IV far above realised."
+    },
+    {
+      "source": "This repo, docs/lab.md options table",
+      "year": 2026,
+      "market": "India, 2024-2026",
+      "finding": "Strangles and condors REJECT out of sample; one gap erased months of premium."
+    }
+  ],
+  "instrument": {
+    "segment": "OPT",
+    "underlying": "NIFTY monthly options",
+    "side": "short premium, defined risk"
+  },
+  "universe": {
+    "name": "nifty-monthly-options",
+    "point_in_time": false,
+    "rule": "The monthly expiry at least 21 calendar days away on the entry session; strikes that traded that day."
+  },
+  "holding_period": "3 to 5 weeks, one position at a time",
+  "turnover": {
+    "round_trips_per_year": 12,
+    "charge_drag_pct_per_year": 0.0,
+    "basis": "charges and slippage about 8% of the credit a condor (see the brief); drag on capital depends on the credit, so 0 here and the per-trade cost is in the backtest"
+  },
+  "data": {
+    "needs": [
+      "NIFTY options EOD 2010-2026 (legacy bhavcopies)",
+      "India VIX 2010-2026"
+    ],
+    "available_now": [
+      "F&O bhavcopies 2024-01-01 to 2026-10-30",
+      "India VIX 2024-2026"
+    ],
+    "blocked_by": [
+      71,
+      73
+    ]
+  },
+  "span": {
+    "train": {
+      "from": "2010-01-04",
+      "to": "2018-12-31"
+    },
+    "validation": {
+      "from": "2019-01-15",
+      "to": "2024-11-15"
+    },
+    "holdout": {
+      "from": "2024-12-02",
+      "to": "2026-10-30"
+    },
+    "embargo_days": 14
+  },
+  "parameters": {
+    "short_delta": [
+      0.1,
+      0.16,
+      0.2
+    ],
+    "wing_width_pct_of_spot": [
+      1.5,
+      3.0
+    ],
+    "vrp_threshold_vol_points": [
+      0,
+      2,
+      4
+    ],
+    "exit": [
+      "expiry",
+      "take_50pct_profit"
+    ]
+  },
+  "trial_budget": 36,
+  "prior_trials": {
+    "count": 46,
+    "basis": "The five options library specs' grids (12 + 4 + 9 + 12 + 9) on the same family of short premium."
+  },
+  "gates": {
+    "lab_defaults": true,
+    "overrides": {},
+    "extra": {
+      "min_holdout_trades": 20,
+      "fdr_q": 0.1
+    },
+    "min_span_years": 10,
+    "span_exception": null
+  },
+  "primary_metric": "oos_return_on_margin",
+  "holdout_rule": {
+    "opened_once": true,
+    "pass_if": "Holdout return on margin above zero after charges over at least 20 condors, and above the untimed condor with the same strikes."
+  },
+  "kill_criteria": [
+    "Holdout return on margin at or below zero.",
+    "The timed condor no better than the untimed one in validation (the filter is noise).",
+    "Any single position losing more than 3 months of the average credit in validation."
+  ],
+  "prior": {
+    "probability": 0.11,
+    "reason": "The premium is real, but this repo's condors and strangles all failed and costs take about 8% of the credit."
+  },
+  "feasibility": {
+    "score": 0.8,
+    "reason": "The options engine exists; needs the VRP filter (#73) and legacy bhavcopies (#71)."
+  },
+  "contamination": "The five options library specs (46 grid points, short premium on NIFTY and BANKNIFTY) ran on F&O bhavcopies from 2024-01-01 to 2026-10-30, so most of the holdout has been looked at for related rules. The VIX-minus-realised filter has not been run.",
+  "registered_on": "2026-11-01",
+  "status": "registered",
+  "outcome": null
+}
