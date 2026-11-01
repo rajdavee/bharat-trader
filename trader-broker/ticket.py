@@ -947,6 +947,26 @@ MSG = {
         "paper_placed": "Placed on the PAPER account as {id}: {plain}.",
         "when_fills": "When it fills: ticket.py fill --index {i} --price P (or the fresh price in trader/prices.json).",
         "declined": "Recorded: you said no to order {i} ({plain}). Nothing was sent.",
+        "sent_linked": "SENT to {broker} (real money): {what} ({when}): {order}; stop trigger {stop}, target {target}. "
+                       "{broker} id {id}.",
+        "when_after_fill": "after the fill",
+        "when_with_entry": "with the entry",
+        "linked_after": "When one exit fills, {broker} cancels the other. Cancel it: ticket.py cancel --index {i} --leg "
+                        "{leg}. A new stop or target: a new ticket, trader-risk, your yes, then ticket.py modify-exits.",
+        "sent": "SENT to {broker} (real money): {plain}. {broker} order id {id}, tag {tag}.",
+        "exits_not_yet_oco": "The stop and the target are NOT at the broker yet. When the entry fills, send both as one "
+                             "linked order: ticket.py place --index {i} --leg oco (or leg by leg: --leg stop)",
+        "exits_not_yet": "The stop and the target are NOT at the broker yet. When the entry fills, send the stop: "
+                         "ticket.py place --index {i} --leg stop{hint}",
+        "bracket_hint": " (next time, {broker} can carry them with the entry: --leg bracket)",
+        "cancel_sent": "Cancel sent to {broker} for {kind} {id} (the {what}{of}).",
+        "kind_linked": "linked order",
+        "kind_order": "order",
+        "what_oco": "linked stop and target",
+        "what_bracket": "bracket: the entry if open, and its stop and target",
+        "of_order": " of order {i}",
+        "change_sent": "CHANGE SENT to {broker} (real money): linked order {id} now has the stop at {stop} and the "
+                       "target {target} (ticket {i}, your yes \"{yes}\").",
     },
     "hi-en": {
         "order_head": "ORDER {i} / {n}, {account}",
@@ -981,6 +1001,27 @@ MSG = {
         "paper_placed": "PAPER account pe {id} ke roop mein place hua: {plain}.",
         "when_fills": "Fill hone par: ticket.py fill --index {i} --price P (ya trader/prices.json ka fresh price).",
         "declined": "Record hua: aapne order {i} ko no kaha ({plain}). Kuch bhi bheja nahi gaya.",
+        "sent_linked": "{broker} ko BHEJA GAYA (asli paisa): {what} ({when}): {order}; stop trigger {stop}, target "
+                       "{target}. {broker} id {id}.",
+        "when_after_fill": "fill ke baad",
+        "when_with_entry": "entry ke saath",
+        "linked_after": "Ek exit fill hote hi {broker} doosra cancel kar deta hai. Cancel karna ho to: ticket.py cancel "
+                        "--index {i} --leg {leg}. Naya stop ya target: naya ticket, trader-risk, aapka yes, phir "
+                        "ticket.py modify-exits.",
+        "sent": "{broker} ko BHEJA GAYA (asli paisa): {plain}. {broker} order id {id}, tag {tag}.",
+        "exits_not_yet_oco": "Stop aur target abhi broker ke paas NAHI hain. Entry fill hone ke baad dono ko ek linked "
+                             "order mein bhejiye: ticket.py place --index {i} --leg oco (ya ek-ek karke: --leg stop)",
+        "exits_not_yet": "Stop aur target abhi broker ke paas NAHI hain. Entry fill hone ke baad stop bhejiye: "
+                         "ticket.py place --index {i} --leg stop{hint}",
+        "bracket_hint": " (agli baar {broker} inhe entry ke saath hi le ja sakta hai: --leg bracket)",
+        "cancel_sent": "{broker} ko {kind} {id} ka cancel bheja gaya ({what}{of}).",
+        "kind_linked": "linked order",
+        "kind_order": "order",
+        "what_oco": "linked stop aur target",
+        "what_bracket": "bracket: entry agar open hai to woh, aur uska stop aur target",
+        "of_order": ", order {i}",
+        "change_sent": "{broker} ko BADLAAV BHEJA GAYA (asli paisa): linked order {id} mein ab stop {stop} pe aur target "
+                       "{target} hai (ticket {i}, aapka yes \"{yes}\").",
     },
 }
 
@@ -3618,28 +3659,24 @@ def cmd_place(a):
                                                                if twin.get("filled") else twin.get("why")))
         except Exception as e:          # the live order is out already: the twin never changes that
             print("Shadow: could not record the paper twin (%s); the live order is unaffected." % e, file=sys.stderr)
+    lang = pick_lang(getattr(a, "lang", None), cfg)
     if leg in LINKED_LEGS:
         st, tg = single["stop"], single["target"]
-        what = (plain(base.leg_order(ticket, "entry"), cfg) if leg == "bracket" else
+        what = (" / ".join(plain_words(base.leg_order(ticket, "entry"), cfg, lang)) if leg == "bracket" else
                 "exit %s %s %s" % (single["side"], single["qty"], single["symbol"]))
-        print("SENT to %s (real money): %s (%s): %s; stop trigger %s, target %s. %s id %s." % (
-            ad.title, LINKED_WORDS[leg], "after the fill" if leg == "oco" else "with the entry", what,
-            _p(st.get("trigger_price")), _p(tg.get("price")), ad.title, oid))
-        print("When one exit fills, %s cancels the other. Cancel it: ticket.py cancel --index %d --leg %s. A new stop "
-              "or target: a new ticket, trader-risk, your yes, then ticket.py modify-exits." % (ad.title, a.index, leg))
+        print(t("sent_linked", lang, broker=ad.title, what=LINKED_WORDS[leg],
+                when=t("when_after_fill" if leg == "oco" else "when_with_entry", lang), order=what,
+                stop=_p(st.get("trigger_price")), target=_p(tg.get("price")), id=oid))
+        print(t("linked_after", lang, broker=ad.title, i=a.index, leg=leg))
         return 0
-    print("SENT to %s (real money): %s. %s order id %s, tag %s." % (ad.title, plain(single, cfg), ad.title, oid,
-                                                                   gp.tag))
+    print(t("sent", lang, broker=ad.title, plain=" / ".join(plain_words(single, cfg, lang)), id=oid, tag=gp.tag))
     if leg == "entry" and approved.get("has_legs"):
         nl = ad.linked_leg()
         if nl == "oco":
-            print("The stop and the target are NOT at the broker yet. When the entry fills, send both as one linked "
-                  "order: ticket.py place --index %d --leg oco (or leg by leg: --leg stop)" % a.index)
+            print(t("exits_not_yet_oco", lang, i=a.index))
         else:
-            print("The stop and the target are NOT at the broker yet. When the entry fills, send the stop: "
-                  "ticket.py place --index %d --leg stop%s" % (a.index, (" (next time, %s can carry them with the "
-                                                                          "entry: --leg bracket)" % ad.title)
-                                                                         if nl == "bracket" else ""))
+            print(t("exits_not_yet", lang, i=a.index,
+                    hint=t("bracket_hint", lang, broker=ad.title) if nl == "bracket" else ""))
     return 0
 
 
@@ -3690,10 +3727,10 @@ def cmd_cancel(a):
                                            "fingerprint": fp, "leg": leg, "broker": b, "live": True,
                                            "status": "cancel_sent", "broker_order_id": sent[-1]["broker_order_id"]})
     write_json(a.state, state)
-    print("Cancel sent to %s for %s %s (the %s%s)." % (
-        ad.title, "linked order" if leg in LINKED_LEGS else "order", sent[-1]["broker_order_id"],
-        {"oco": "linked stop and target", "bracket": "bracket: the entry if open, and its stop and target"}.get(
-            leg, leg), (" of order %d" % a.index) if getattr(a, "index", None) else ""))
+    lang = pick_lang(getattr(a, "lang", None), cfg)
+    print(t("cancel_sent", lang, broker=ad.title, kind=t("kind_linked" if leg in LINKED_LEGS else "kind_order", lang),
+            id=sent[-1]["broker_order_id"], what=t("what_" + leg, lang) if leg in ("oco", "bracket") else leg,
+            of=t("of_order", lang, i=a.index) if getattr(a, "index", None) else ""))
     return 0
 
 
@@ -3748,9 +3785,9 @@ def cmd_modify_exits(a):
     out["status"] = "modify_sent"
     state.setdefault("orders", []).append(out)
     write_json(a.state, state)
-    print("CHANGE SENT to %s (real money): linked order %s now has the stop at %s and the target %s (ticket %d, your "
-          "yes \"%s\")." % (ad.title, a.linked_id, _p(exits["stop"].get("trigger_price")),
-                            _p(exits["target"].get("price")), a.index, approved.get("yes_text")))
+    print(t("change_sent", pick_lang(getattr(a, "lang", None), cfg), broker=ad.title, id=a.linked_id,
+            stop=_p(exits["stop"].get("trigger_price")), target=_p(exits["target"].get("price")), i=a.index,
+            yes=approved.get("yes_text")))
     return 0
 
 
