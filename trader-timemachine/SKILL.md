@@ -47,7 +47,9 @@ python3 "<skill dir>/timemachine.py" chart --from           # ASCII fan chart of
 Other flags: `--replays N`, `--seed N` (default 19), `--window N` (default 2
 bars), `--qty N` (shares for the charges), `--no-charges`, `--config PATH`,
 `--offline FILE` (a saved Yahoo chart JSON, `.json` or `.json.gz`), `--now
-"2026-10-26 10:15"` (IST) to pin the clock.
+"2026-10-26 10:15"` (IST) to pin the clock. With a trader-archive folder
+(`trader/archive`, or `--archive DIR`; `--no-archive` to skip), the stock's
+older 5-minute sessions there join the pool: months instead of 60 days.
 
 ## What it reads and writes
 

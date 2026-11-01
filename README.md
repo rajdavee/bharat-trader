@@ -40,8 +40,10 @@ breakouts, bull flags, 20-DMA reclaims, oversold bounces, opening-range
 breakouts during the day); Yahoo headlines and NSE announcements tagged for
 Indian events; quarterly results straight from NSE XBRL filings; bulk and
 block deals and SEBI insider (PIT) disclosures; alerts on the NSE calendar;
-and `trader-doctor`, a self-test of every data source with since-when history
-and the fallback in use.
+`trader-doctor`, a self-test of every data source with since-when history
+and the fallback in use; and `trader-archive`, years of NSE bhavcopies (equity
+and F&O), index closes, India VIX and broker intraday candles on your own
+disk, split- and bonus-adjusted, read offline by the lab and the time machine.
 
 **Options and strategies.** The NSE option chain with our own Black-76 IV and
 Greeks off the put-call-parity forward, PCR, max pain, call and put walls,
@@ -141,6 +143,8 @@ python3 trader-lab/lab.py report orb15-vwap            # the scorecard, and what
 python3 trader-broker/ticket.py holdings --broker kite # your real holdings, read only
 python3 trader-broker/ticket.py preflight upstox       # static IP and today's login: ready for live?
 python3 trader-doctor/doctor.py                        # is every NSE and Yahoo source answering? (exit 1 if not)
+python3 trader-archive/archive.py backfill --years 3    # years of NSE EOD history on your disk, resumable
+python3 trader-archive/archive.py verify                # gaps, duplicates, checksums, survivorship
 ```
 
 </details>
@@ -196,6 +200,7 @@ Copy one or all into your agent's skills folder; each works on its own:
 | `trader-strategy` | Strategy builder on the real chain: spreads, straddles, strangles, condors, flies, butterflies, ratios, calendars, custom legs. Payoff at expiry and today, gross and after 2026 F&O charges, breakevens, Greeks, margin with its method and error, probability of profit textbook vs simulated. |
 | `trader-lab` | Strategy Lab: backtests a JSON strategy bar by bar after Indian charges, then walk-forward, parameter neighbourhood, Monte Carlo, deflated Sharpe and overfitting odds. Pre-registered gates: REJECT, WATCH (paper forward test) or PROMOTE. Six library strategies, no promises. |
 | `trader-doctor` | Self-test of every data source (NSE APIs and archives, Yahoo): ok, slow, changed, down or blocked, since when, which tools it breaks and the fallback in use. Holiday-aware freshness in IST. |
+| `trader-archive` | A local NSE data archive: equity and F&O bhavcopies (UDiFF and legacy), index closes, India VIX, lot sizes, ban lists, settlement prices and split/bonus factors, backfilled politely and resumably; broker intraday candles merged with Yahoo; option-chain snapshots; verify and a data-quality report. Read offline by the lab and the time machine. |
 
 ## How it compares
 

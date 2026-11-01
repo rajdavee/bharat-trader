@@ -590,6 +590,22 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("--stop", err)
 
+    def test_archive_adds_older_sessions_to_the_pool(self):
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from test_lab import archive_with
+        root = archive_with(os.path.join(self.d, "archive"), hdfc_july=True)
+        code, text, _ = run(self.base("--json", "--replays", "500"))
+        plain = json.loads(text)
+        code, text, err = run(self.base("--json", "--replays", "500", "--archive", root))
+        self.assertEqual(code, 0, err)
+        doc = json.loads(text)
+        self.assertEqual(doc["source"], "offline+archive")
+        self.assertGreaterEqual(doc["mc"]["pool_sessions"], plain["mc"]["pool_sessions"] + 20)
+        self.assertTrue(doc["mc"]["pool_from"].startswith("2026-07"))
+        self.assertEqual(plain["source"], "offline")
+        code, text, _ = run(self.base("--json", "--replays", "500", "--archive", root, "--no-archive"))
+        self.assertEqual(json.loads(text)["mc"]["pool_sessions"], plain["mc"]["pool_sessions"])
+
     def test_offline_folder_and_default_paths(self):
         shutil.copy(CHART, self.d)
         cwd = os.getcwd()

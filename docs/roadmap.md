@@ -65,7 +65,8 @@ Tracked in the [v0.3.0 milestone](https://github.com/rajdavee/bharat-trader/mile
 
 | Theme | Plan |
 | --- | --- |
-| Strategy Lab phase 2 ([#35](https://github.com/rajdavee/bharat-trader/issues/35)) | A local NSE F&O bhavcopy archive (UDiFF, holiday-aware backfill); multi-leg option strategies (short strangle and iron condor by IV rank, expiry-day iron fly, calendars) through the lab with charges, walk-forward, DSR/PBO and gates; longer intraday history than Yahoo's 60 sessions. |
+| Market data archive ([#41](https://github.com/rajdavee/bharat-trader/issues/41)) | ✅ `trader-archive`: years of equity and F&O bhavcopies, indices, VIX, lots, bans, settle prices and split/bonus factors on disk, resumable backfill, broker intraday, chain snapshots, verify. |
+| Strategy Lab phase 2 ([#35](https://github.com/rajdavee/bharat-trader/issues/35)) | The F&O bhavcopy archive (done in #41); multi-leg option strategies (short strangle and iron condor by IV rank, expiry-day iron fly, calendars) through the lab with charges, walk-forward, DSR/PBO and gates; longer intraday history than Yahoo's 60 sessions. |
 | Brokers phase 2 ([#34](https://github.com/rajdavee/bharat-trader/issues/34)) | Native linked stop and target at the broker (OCO / GTT) instead of one exit leg at a time; Angel One; an optional bridge to a self-hosted execution layer; the broker's basket margin next to our estimate; sandbox smoke tests in CI. |
 | `trader-journal` | Auto-journal from paper and broker tradebooks, expectancy by setup and time of day, a rule-break log. |
 | `trader-tax` | A financial-year report: speculative (intraday), non-speculative (F&O, with turnover) and capital gains. An estimate; verify with your CA. |
