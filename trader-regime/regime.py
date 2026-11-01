@@ -1318,6 +1318,7 @@ class Sources(object):
 
     def __init__(self, archive=None, data_dir=None, fetch=True, workdir="trader"):
         self.root = archive if archive and os.path.isdir(archive) else None
+        self.data_dirs = [x for x in str(data_dir).split(",") if x] if data_dir else []
         self.data_dir = data_dir
         self.fetch = fetch and not data_dir
         self.workdir = workdir
@@ -1336,11 +1337,11 @@ class Sources(object):
         sym = symbol.upper()
         bars, src = None, None
         if self.data_dir:
-            for ext in (".csv.gz", ".csv"):
-                p = os.path.join(self.data_dir, "%s-1d%s" % (file_name(sym), ext))
-                if os.path.isfile(p):
-                    bars, src = read_bars_file(p), os.path.basename(p)
-                    break
+            for d in self.data_dirs:
+                for ext in (".csv.gz", ".csv"):
+                    p = os.path.join(d, "%s-1d%s" % (file_name(sym), ext))
+                    if bars is None and os.path.isfile(p):
+                        bars, src = read_bars_file(p), os.path.basename(p)
             if bars is None:
                 raise RegimeError("no %s-1d.csv(.gz) in %s" % (file_name(sym), self.data_dir))
         if bars is None and self.root:
@@ -1404,10 +1405,11 @@ class Sources(object):
             except (OSError, ValueError):
                 doc = None
         if self.data_dir:
-            p = os.path.join(self.data_dir, "board-%s.json" % symbol.upper())
-            if os.path.exists(p):
-                with open(p, encoding="utf-8") as fh:
-                    return parse_board(json.load(fh))
+            for d in self.data_dirs:
+                p = os.path.join(d, "board-%s.json" % symbol.upper())
+                if os.path.exists(p):
+                    with open(p, encoding="utf-8") as fh:
+                        return parse_board(json.load(fh))
             return doc.get("meetings") if doc else None
         if self.fetch and (not doc or doc.get("fetched") != now.date().isoformat()):
             try:
@@ -1726,9 +1728,12 @@ def render_now(r):
     rec = r["today"] or d
     cal = rec["calendar"]
     e = cal["expiry"]
+    how = e["source"]
+    if how.startswith("rule: "):
+        how = "the dated weekday rule: no archived F&O bhavcopy for the day"
     L.append("  expiry: %s (%s)" % ("next %s %s, %s sessions away" % (e["next_kind"], e["next_expiry"],
                                                                        e["sessions_to_expiry"])
-                                   if e.get("next_expiry") else "not known", e["source"]))
+                                   if e.get("next_expiry") else "not known", how))
     if cal.get("session") and cal["session"].get("closing_auction"):
         L.append("  closing auction (F&O stocks): %s; %s continuous trading ends %s" % (
             cal["session"]["closing_auction"], cal["session"]["segment"], cal["session"]["continuous_end"]))
@@ -1846,7 +1851,8 @@ def main(argv=None):
     common.add_argument("--workdir", default="trader", help="the trader/ folder (default trader)")
     common.add_argument("--archive", help="a trader-archive folder (default trader/archive or $BT_ARCHIVE)")
     common.add_argument("--no-archive", action="store_true", help="ignore the archive")
-    common.add_argument("--data", help="offline: a folder of SYMBOL-1d.csv(.gz) files (^NSEI, ^NSEBANK, ^INDIAVIX)")
+    common.add_argument("--data", help="offline: folders (comma separated) of SYMBOL-1d.csv(.gz) files (^NSEI, ^NSEBANK, "
+                        "^INDIAVIX) and board-SYMBOL.json")
     common.add_argument("--offline", action="store_true", help="no network at all (archive or --data only)")
     common.add_argument("--config", help="thresholds file (default trader/regime-config.json)")
     common.add_argument("--now", help="pin the clock, IST: YYYY-MM-DD HH:MM")
