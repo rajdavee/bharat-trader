@@ -89,7 +89,7 @@ export async function render(root) {
   const draw = () => {
     clear(log);
     if (!STATE.log.length) log.appendChild(empty('No questions yet', 'Try: "Give me today\'s co-trader brief" or ' +
-      '"Design an expiry-day NIFTY strategy and test it once in the lab."'));
+      '"Draft an expiry-day NIFTY strategy as a lab spec."'));
     STATE.log.forEach((m) => log.appendChild(bubble(m)));
   };
   const enable = () => {

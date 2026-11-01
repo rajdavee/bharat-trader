@@ -33,7 +33,7 @@ sys.path.insert(0, HERE)
 import serve  # noqa: E402
 
 FIXTURES = os.path.join(ROOT, "tests", "fixtures", "ui")
-PAGES = ["today", "chart", "scanner", "options", "strategy", "cotrader", "portfolio", "risk", "autopilot",
+PAGES = ["today", "chart", "scanner", "options", "strategy", "cotrader", "ask", "portfolio", "risk", "autopilot",
          "lab", "journal", "agents", "settings", "welcome", "about"]
 HEIGHTS = {390: 844}
 CANDIDATES = [
