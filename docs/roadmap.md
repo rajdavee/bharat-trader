@@ -21,6 +21,9 @@ and open-source projects give them away). What nobody offers together:
    and trades never leave your machine.
 5. **Risk that fits how traders actually lose.** Scenario and Greeks limits
    for options, behavioural circuit-breakers, and a kill switch.
+6. **Odds that are checked afterwards.** Every co-trader probability comes
+   with its range and sample size, is logged before the outcome, and is
+   scored later. When nothing has an edge, the answer is to sit out.
 
 ## v0.2.0: F&O, strategies, the lab, brokers and the local UI (done)
 
@@ -73,7 +76,7 @@ detail, and the [co-trader guide](cotrader-guide.md) puts it together.
 | 4 | Strategy Lab phase 2 ([#35](https://github.com/rajdavee/bharat-trader/issues/35)) | ✅ Multi-leg option strategies backtested on the archive's EOD chains with charges, walk-forward, DSR/PBO and gates. All five library specs REJECT on 703 real sessions; the expiry-day iron fly comes closest. See [lab.md](lab.md#options-strategies). |
 | 5 | Co-trader ([#44](https://github.com/rajdavee/bharat-trader/issues/44)) | ✅ `trader-cotrader`: candidates from lab-validated rules with evidence tiers, after-charges odds with a 95% range and n, a second opinion, ranking per unit risk, the no-edge answer, and calibration tracking with demotion. See [cotrader.md](cotrader.md). |
 | 6 | Paper auto-pilot ([#45](https://github.com/rajdavee/bharat-trader/issues/45)) | ✅ `trader-autopilot`: the co-trader loop on paper on the NSE clock; forward records drive promote and demote; replay. Paper only, enforced in code. See [autopilot.md](autopilot.md). |
-| 7 | Live co-pilot ([#46](https://github.com/rajdavee/bharat-trader/issues/46)) | In review. Per-order approval for PROMOTED strategies only. Fully autonomous live trading is not built, and would be a separate decision. |
+| 7 | Live co-pilot ([#46](https://github.com/rajdavee/bharat-trader/issues/46)) | In progress. Per-order approval for PROMOTED strategies only. Fully autonomous live trading is not built, and would be a separate decision. |
 | 8 | AI integration v2 ([#47](https://github.com/rajdavee/bharat-trader/issues/47)) | ✅ Co-trader workflow tools and prompts, honest trial counting, 53 tools and 16 prompts; the optional Ask page with your own LLM. See [mcp.md](mcp.md), [ai-chat.md](ai-chat.md). |
 | 9 | UI redesign ([#48](https://github.com/rajdavee/bharat-trader/issues/48), [#39](https://github.com/rajdavee/bharat-trader/issues/39)) | ✅ Design system, grouped navigation that works on a phone, Today, Strategy Lab, Co-trader, Auto-pilot, Journal, Tax and Ask pages, the setup guide. See [ui.md](ui.md), [design.md](design.md). |
 | 10 | Journal and counterfactuals ([#49](https://github.com/rajdavee/bharat-trader/issues/49)) | ✅ `trader-journal`: entries from paper, live and five brokers' trade books; stats with intervals; rule breaks; the counterfactual ledger; the weekly review. See [journal.md](journal.md). |
