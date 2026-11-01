@@ -2699,21 +2699,6 @@ def build_tools():
                   ["date"], data=obj({"sandbox": S("string"), "reports": ANY_LIST}, ["sandbox", "reports"]),
                   annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
                   network=False))
-    T.append(tool("copilot_status", "Co-pilot: status (read only)",
-                  "The LIVE co-pilot, read only: which trader-lab strategies may make live proposals and the reason "
-                  "for each one that may not (lab verdict, paper forward trades and weeks, drawdown in R, Brier score "
-                  "of its odds, a recent demote), today's live caps (orders, capital at risk, live loss, cool-off), "
-                  "the live kill switch and what was sent today. It cannot propose, approve or send anything.",
-                  t_copilot_status, {},
-                  data=obj({"live": S("boolean"), "eligibility": ANY_LIST, "caps": ANY_OBJ, "pending": S("integer")},
-                           ["live", "eligibility", "caps"], extra=True), network=False))
-    T.append(tool("copilot_proposals", "Co-pilot: pending live tickets (read only)",
-                  "The live proposals waiting for the user's own typed approval, each as a plain ticket: the order, "
-                  "size in the live bucket, max loss with charges, linked exits, the evidence tier, odds with n and "
-                  "range, calibration, trader-risk's verdict, the broker's margin and when it expires. Read only: "
-                  "there is no tool that approves one; the user does that in their terminal or the local UI.",
-                  t_copilot_proposals, {},
-                  data=obj({"pending": ANY_LIST, "caps": ANY_OBJ}, ["pending"], extra=True), network=False))
     T.append(tool("autopilot_start", "Auto-pilot: start on paper",
                   "Start the auto-pilot loop on the PAPER account, with the user's typed confirmation (the words "
                   "start paper). A config that is not paper is refused before anything. When the client supports "
@@ -2732,6 +2717,21 @@ def build_tools():
                   data=obj({"stopped": S("string"), "via": S("string")}, ["stopped"], extra=True),
                   annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
                   network=False))
+    T.append(tool("copilot_status", "Co-pilot: status (read only)",
+                  "The LIVE co-pilot, read only: which trader-lab strategies may make live proposals and the reason "
+                  "for each one that may not (lab verdict, paper forward trades and weeks, drawdown in R, Brier score "
+                  "of its odds, a recent demote), today's live caps (orders, capital at risk, live loss, cool-off), "
+                  "the live kill switch and what was sent today. It cannot propose, approve or send anything.",
+                  t_copilot_status, {},
+                  data=obj({"live": S("boolean"), "eligibility": ANY_LIST, "caps": ANY_OBJ, "pending": S("integer")},
+                           ["live", "eligibility", "caps"], extra=True), network=False))
+    T.append(tool("copilot_proposals", "Co-pilot: pending live tickets (read only)",
+                  "The live proposals waiting for the user's own typed approval, each as a plain ticket: the order, "
+                  "size in the live bucket, max loss with charges, linked exits, the evidence tier, odds with n and "
+                  "range, calibration, trader-risk's verdict, the broker's margin and when it expires. Read only: "
+                  "there is no tool that approves one; the user does that in their terminal or the local UI.",
+                  t_copilot_proposals, {},
+                  data=obj({"pending": ANY_LIST, "caps": ANY_OBJ}, ["pending"], extra=True), network=False))
     return T
 
 

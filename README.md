@@ -21,7 +21,7 @@ placed without your yes.
   next to simulated ones. The Strategy Lab rejects most strategies, and says why.
 - **Standard library only.** Python 3.8+, nothing to `pip install`, every tool runs by hand.
 - **Agent-native.** Twenty-one [Agent Skills](https://agentskills.io), six agent
-  personas, and an [MCP](https://modelcontextprotocol.io/) server with 53 tools
+  personas, and an [MCP](https://modelcontextprotocol.io/) server with 55 tools
   for any MCP-compatible AI assistant.
 - **Zero-install UI.** `python3 ui/serve.py --open`: a web app on `127.0.0.1`
   that never loads anything from the internet.
@@ -89,6 +89,17 @@ close and expiry settlement, then the end-of-day report, calibration and the
 lab's forward record (promote or demote). It refuses a live config. Replay any
 past day on a simulated clock. See [docs/autopilot.md](docs/autopilot.md).
 
+**Live co-pilot, one typed approval per order.** `trader-copilot` is the
+bridge to real money, and slow on purpose. Only a PROMOTED strategy whose
+paper forward record meets your thresholds (trades, weeks, drawdown, the
+Brier score of its odds, no recent demote) can make a live proposal, sized in
+the co-pilot's own capital bucket and checked by trader-risk on your live
+config. Each one is sent only after you type its exact phrase (`yes live BUY
+42 RELIANCE`) in your terminal or the local UI (after a 10-second countdown),
+then through trader-broker's six live gates. Daily caps, an automatic live
+kill switch, a shadow paper twin. No auto-approve, and no assistant can
+approve. See [docs/copilot.md](docs/copilot.md).
+
 **Brokers.** Read your real Upstox, Zerodha Kite, Dhan or Angel One account
 (funds, holdings, positions, orders, instruments) with a one-shot local login
 (Angel One: your TOTP code) and a static-IP preflight, and check the broker's
@@ -106,7 +117,7 @@ first-run setup and a validated settings editor. Grouped navigation that works
 on a phone, a command palette (Ctrl/Cmd-K), guided or expert detail, and a
 "why" panel for every number. See [docs/ui.md](docs/ui.md).
 
-**Your AI assistant, via MCP.** 53 tools and 16 prompts for any
+**Your AI assistant, via MCP.** 55 tools and 16 prompts for any
 MCP-compatible assistant, over stdio or loopback HTTP. Paper only: there is
 no live-order tool at all. See [docs/mcp.md](docs/mcp.md).
 
@@ -189,6 +200,7 @@ python3 trader-cotrader/cotrader.py today              # today's candidates with
 python3 trader-cotrader/cotrader.py calibration        # did past probabilities come true? (Brier, reliability)
 python3 trader-autopilot/autopilot.py replay --date 2026-09-21   # the auto-pilot on a past day, simulated clock
 python3 trader-autopilot/autopilot.py start            # the auto-pilot loop on PAPER (status, stop, report)
+python3 trader-copilot/copilot.py status               # LIVE co-pilot: who may trade live, caps (propose, approve ID)
 python3 trader-broker/ticket.py holdings --broker kite # your real holdings, read only
 python3 trader-broker/ticket.py preflight upstox       # static IP and today's login: ready for live?
 python3 trader-doctor/doctor.py                        # is every NSE and Yahoo source answering? (exit 1 if not)
@@ -262,6 +274,7 @@ Copy one or all into your agent's skills folder; each works on its own:
 | `trader-discover` | Strategy discovery with strict overfitting controls: a fixed trial budget over the lab's rule vocabulary, train / validation / untouched holdout with purging and an embargo, every trial logged and counted; deflated Sharpe with the true trial count, overfitting odds over the trial matrix, a Reality Check / SPA bootstrap, a false-discovery cut, cost stress, neighbourhood and regime checks. Survivors go to the lab as specs that still need a paper forward test. |
 | `trader-cotrader` | Co-trader: today's candidates from strategies the lab validated (PROMOTED, WATCH; RESEARCH ideas only on request, never for live), each a full plan with size, charges and a trader-risk verdict; the share of past trades in today's regime that made money after charges with a Wilson / Beta 95% range and n, shrunk toward the rule's overall rate; expected R after charges; a time-machine second opinion; ranked per unit risk, penalised for uncertainty and correlation. No edge is a first-class answer. Every probability is logged and scored (Brier, log loss, reliability); overconfident rules are demoted. |
 | `trader-autopilot` | Auto-pilot on PAPER only: the co-trader loop on the NSE clock (pre-open brief, PROMOTED and WATCH candidates in per-strategy capital buckets, trader-risk and a machine yes labelled autopilot, stops, targets, trailing and time exits, flat-by, F&O baskets at the close and expiry), then the journal hook, calibration, the lab's forward record and promote or demote, and a daily report. Resumable, one loop per folder, kill switch aware; replays any past day on a simulated clock. Refuses a live config. |
+| `trader-copilot` | Live co-pilot: LIVE proposals only for PROMOTED strategies whose paper forward record meets your thresholds (trades, weeks, drawdown in R, Brier score, no recent demote), sized in its own live bucket, trader-risk PASS on the live config, a plain live ticket (max loss with charges, linked exits, evidence and calibration, broker margin), and your exact typed phrase per order (terminal, or the UI after a 10-second countdown) before trader-broker's six gates. Daily caps, automatic live kill with flatten tickets, cool-off, expiry and price-move invalidation, shadow paper twin. No auto-approve. |
 | `trader-journal` | The trade journal: one entry per closed trade (an F&O strategy as one entry) from paper fills, your live trade book and Zerodha, Upstox, Dhan, Angel One or Groww tradebook imports, with persona, strategy, regime, R multiple, MAE/MFE and your notes; expectancy and win rate with intervals by strategy, persona, regime and time of day; rule breaks, overtrading and cost drag; a counterfactual ledger of every skipped or blocked trade; the weekly review. |
 | `trader-tax` | A financial-year tax estimate for your CA: intraday equity as speculative business income, F&O as non-speculative, delivery shares as short- or long-term capital gains (s.111A, s.112A, the 31 Jan 2018 grandfathering); charges per head; F&O and intraday turnover the ICAI way with the audit check; set-off and carry-forward; special-rate amounts, advance-tax dates and ITR-3 schedules; FY 2025-26 under the 1961 Act, tax year 2026-27 under the 2025 Act; CSV and markdown export. Not tax advice. |
 
@@ -272,7 +285,7 @@ all of these together, run on your own machine:
 
 | | after-charges payoff | honest-odds simulation | out-of-sample lab | multi-broker paper F&O | local-first | MCP | dated rules |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 53 tools | ✅ effective date and source per rule |
+| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 55 tools | ✅ effective date and source per rule |
 | Typical free option-analytics apps | ◐ often gross only | ◐ one model-based PoP | — | ◐ one broker, forward only | — hosted, broker login | — rarely | ◐ |
 | Typical paid backtesting platforms | ◐ often | ◐ | ◐ backtests, rarely overfitting statistics | ◐ their own simulator | — hosted, your strategies on their servers | — rarely | ◐ |
 | Typical open-source NSE toolkits | ◐ | — rarely | — rarely | ◐ a few, often needing a live broker session | ✅ | ◐ some | — rarely |

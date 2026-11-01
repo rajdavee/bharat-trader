@@ -25,11 +25,12 @@ import * as journal from './pages/journal.js';
 import * as tax from './pages/tax.js';
 import * as ask from './pages/ask.js';
 import * as autopilot from './pages/autopilot.js';
+import * as copilot from './pages/copilot.js';
 
 const MODULES = {
   today, chart, scanner, portfolio, risk, settings, options, strategy, agents, about, lab, welcome, cotrader, journal,
   tax, ask,
-  autopilot,
+  autopilot, copilot,
 };
 const ALIASES = { '': 'today', dashboard: 'today', onboarding: 'welcome' };
 

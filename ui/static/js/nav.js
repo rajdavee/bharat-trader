@@ -4,7 +4,7 @@ export const GROUPS = [
   { name: null, pages: ['today'] },
   { name: 'Discover', pages: ['chart', 'scanner', 'options'] },
   { name: 'Plan', pages: ['strategy', 'cotrader', 'ask'] },
-  { name: 'Trade', pages: ['portfolio', 'risk', 'autopilot'] },
+  { name: 'Trade', pages: ['portfolio', 'risk', 'autopilot', 'copilot'] },
   { name: 'Review', pages: ['lab', 'journal', 'tax', 'agents'] },
   { name: 'Setup', pages: ['settings', 'welcome', 'about'] },
 ];
@@ -20,6 +20,7 @@ export const PAGES = {
   ask: { label: 'Ask', title: 'Ask your co-trader', icon: 'ask', key: 'q', words: 'chat assistant llm question ai' },
   portfolio: { label: 'Portfolio and orders', title: 'Paper portfolio and orders', icon: 'portfolio', key: 'p', words: 'positions tickets fills yes' },
   risk: { label: 'Risk', title: 'Risk', icon: 'risk', key: 'r', words: 'kill switch breakers limits verdicts' },
+  copilot: { label: 'Co-pilot (live)', title: 'Co-pilot', icon: 'copilot', key: 'v', words: 'live real money approve approval kill caps' },
   autopilot: { label: 'Auto-pilot', title: 'Auto-pilot', icon: 'autopilot', key: 'u', words: 'automatic paper loop replay forward record' },
   lab: { label: 'Strategy Lab', title: 'Strategy Lab', icon: 'lab', key: 'l', words: 'backtest scorecard equity walk-forward' },
   journal: { label: 'Journal', title: 'Journal', icon: 'journal', key: 'j', words: 'review notes mistakes trades win rate expectancy counterfactual' },

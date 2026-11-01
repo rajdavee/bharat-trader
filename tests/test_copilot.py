@@ -13,7 +13,6 @@ the real 2026-10-29 opening-range plan in tests/fixtures/trader-risk/orders-reli
 import ast
 import json
 import os
-import re
 import shutil
 import sys
 import tempfile
@@ -21,7 +20,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _load import FIX, ROOT, load  # noqa: E402
-from test_broker_adapters import CFG_PATH, ENV, ORDERS_PATH, Stub, jload  # noqa: E402
+from test_broker_adapters import CFG_PATH, ENV, Stub, jload, run  # noqa: E402
 
 cp = load("trader-copilot", "copilot")
 broker = cp.broker_api()                      # the copilot's own copy of trader-broker (ADAPTER_KW lives here)
@@ -453,11 +452,12 @@ class Approve(Base):
         wd = self.wd()
         p = self.proposal(wd)
         # the auto-pilot's machine yes on this live config: trader-broker refuses to even record it
-        code = broker.main(["confirm", "--orders", p["order_file"], "--risk", p["risk_file"], "--config",
+        code, _, err = run(broker, ["confirm", "--orders", p["order_file"], "--risk", p["risk_file"], "--config",
                             os.path.join(wd, "trader", "config.json"), "--state",
                             os.path.join(wd, "trader", "state", "broker.json"), "--index", "1", "--yes-text",
                             "yes (autopilot machine yes, paper account)", "--actor", "autopilot", "--now", NOW])
         self.assertEqual(code, 1)
+        self.assertIn("never approves a live order", err)
         # and a yes recorded as autopilot (written by hand) does not satisfy place's gate either
         write(os.path.join(wd, "trader", "state", "broker.json"), {"orders": [{
             "date": DAY, "at": "2026-10-29T09:41:00+05:30", "fingerprint": p["order_fp"], "status": "approved",
