@@ -391,7 +391,8 @@ def execute(path, mkt, out, now=None, progress=None, deadline=None, cancel=None,
             doc["id"], d, str(st.get("registration_hash"))[:12], h[:12]))
     if doc["status"] == "withdrawn":
         raise HuntError("%s is withdrawn" % doc["id"])
-    if st.get("phase") == "decided":
+    if st.get("phase") == "decided" or doc["status"] in ("rejected", "watch", "promoted"):
+        # decided once: the file's own outcome stands even if the run folder was deleted
         return {"state": "decided", "already": True, "outcome": doc.get("outcome") or st.get("outcome"),
                 "plan": st.get("plan"), "dir": d}
     try:
@@ -459,7 +460,7 @@ def execute(path, mkt, out, now=None, progress=None, deadline=None, cancel=None,
             progress("trial %d of %d: %s" % (len(done), len(pts), ", ".join("%s=%s" % kv for kv in p.items())),
                      len(done) / float(len(pts)))
     trials = [done[j] for j in range(len(pts))]
-    res = decide(doc, h, job, trials, pl, d, now, context)
+    res = decide(doc, h, job, trials, pl, d, now, context, path)
     status = STATUS_OF.get(res["verdict"], "rejected")
     outcome = res["outcome"]
     doc = set_status(path, doc, status, outcome)
@@ -471,7 +472,7 @@ def execute(path, mkt, out, now=None, progress=None, deadline=None, cancel=None,
     return {"state": "decided", "already": False, "outcome": outcome, "plan": pl, "dir": d, "results": res}
 
 
-def decide(doc, h, job, trials, pl, d, now, context=None):
+def decide(doc, h, job, trials, pl, d, now, context=None, path=None):
     lab = core.L()
     g, extra = gates_for(doc)
     pts = [t["params"] for t in trials]
@@ -529,7 +530,7 @@ def decide(doc, h, job, trials, pl, d, now, context=None):
         why = "%d of %d validation gates failed: %s. The holdout stays sealed." % (len(failed), len(rows),
                                                                                   "; ".join(failed))
     else:
-        holdout = open_holdout(doc, h, job, ft["params"], hold_path, now, extra)
+        holdout = open_holdout(doc, h, job, ft["params"], hold_path, now, extra, path)
         if holdout.get("error"):
             why = holdout["error"]
         elif all(c["pass"] for c in holdout["checks"]):
@@ -572,10 +573,14 @@ def _align(t, dates):
     return [t["series"][pos[x]] if x in pos else 0.0 for x in dates]
 
 
-def open_holdout(doc, h, job, params, path, now, extra):
-    """The sealed holdout, once. The opening is logged (holdout.json) before a single holdout number is
-    computed; an existing holdout.json is never opened again."""
+def open_holdout(doc, h, job, params, path, now, extra, file_path=None):
+    """The sealed holdout, once. The opening is logged (holdout.json, and the hypothesis file's outcome)
+    before a single holdout number is computed; an existing record of an opening is never opened again."""
     prev = read_json(path)
+    was = (doc.get("outcome") or {}).get("holdout_opened_at") if isinstance(doc.get("outcome"), dict) else None
+    if prev is None and was:
+        return {"error": "the hypothesis file records a holdout opened on %s whose record is gone; it is never "
+                         "opened again (register a new id)" % was, "opened_at": was, "checks": []}
     if prev is not None:
         if prev.get("metrics") is not None and prev.get("registration_hash") == h and prev.get("params") == params:
             return prev
@@ -586,6 +591,9 @@ def open_holdout(doc, h, job, params, path, now, extra):
     rec = {"id": doc["id"], "registration_hash": h, "params": params, "opened_at": now.strftime("%Y-%m-%d %H:%M"),
            "window": [w["from"], w["to"]], "metrics": None, "opened_once": True}
     write_json(path, rec)
+    if file_path:
+        set_status(file_path, doc, "running", {"verdict": None, "holdout_opened_at": rec["opened_at"],
+                                               "finalist": params, "registration_hash": h})
     try:
         job.load(w["to"])
         first, last, n = job.coverage(w["from"], w["to"])

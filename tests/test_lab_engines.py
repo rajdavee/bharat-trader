@@ -458,6 +458,24 @@ class Executor(unittest.TestCase):
         self.assertIn("never opened again", r2["outcome"]["why"])
         self.assertEqual(json.load(open(os.path.join(d2, "holdout.json")))["opened_at"], "2026-10-31 09:00")
 
+    def test_deleting_the_run_folder_does_not_reopen_the_holdout(self):
+        lib, out = tmp_library(self)
+        p = os.path.join(lib, "eh-92-fixture-turn-of-month.json")
+        real = X.gate_rows
+        X.gate_rows = all_pass(real)
+        self.addCleanup(setattr, X, "gate_rows", real)
+        X.execute(p, market(), out, NOW)
+        shutil.rmtree(out)
+        r = X.execute(p, market(), out, NOW)
+        self.assertTrue(r["already"])                      # the file's own outcome stands
+        self.assertFalse(os.path.exists(os.path.join(out, "edge-hunt", "eh-92-fixture-turn-of-month", "holdout.json")))
+        # opened, then the record lost before a verdict: the file still says it was opened
+        doc = json.load(open(p, encoding="utf-8"))
+        X.set_status(p, doc, "running", {"verdict": None, "holdout_opened_at": "2026-10-31 09:00"})
+        r = X.execute(p, market(), out, NOW)
+        self.assertEqual(r["outcome"]["verdict"], "REJECT")
+        self.assertIn("never opened again", r["outcome"]["why"])
+
     def test_a_crash_inside_the_holdout_still_counts_as_opened(self):
         lib, out = tmp_library(self)
         p = os.path.join(lib, "eh-92-fixture-turn-of-month.json")
