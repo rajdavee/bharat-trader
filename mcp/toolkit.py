@@ -11,6 +11,7 @@ plus the user's own typed yes.
 """
 
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -51,6 +52,7 @@ def _load_api():
         "cotrader": ("trader-cotrader", "cotrader"),
         "autopilot": ("trader-autopilot", "autopilot"),
         "journal": ("trader-journal", "journal"),
+        "archive": ("trader-archive", "archive"),
     })
     return mod
 
@@ -912,52 +914,6 @@ def t_lab_list(kit, a, call):
     return {"library": lib, "runs": runs}, ["Library specs are strategies to test, not promises. lab_run tests one."]
 
 
-def t_lab_run(kit, a, call):
-    lab = api.skill("lab")
-    name = _lab_strategy(a)
-    out = kit.p("lab")
-    budget = float(a.get("max_seconds") or 180)
-    started = time.monotonic()
-    done = [0, 1]
-
-    def check(message, fraction):
-        if call.cancel.is_set():
-            raise ToolError("cancelled")
-        if time.monotonic() - started > budget:
-            raise ToolError("stopped after %d seconds (max_seconds): try fewer symbols or a smaller grid"
-                            % int(budget))
-        call.progress(fraction, message)
-        call.log("info", message)
-
-    def progress(message):
-        done[0] += 1
-        check(message, min(0.95, 0.1 + 0.85 * done[0] / float(done[1])))
-
-    try:
-        doc, src = lab.resolve_spec(name, out)
-        if a.get("symbols"):
-            syms = [x.strip().upper() for x in a["symbols"].split(",") if x.strip()]
-            if doc.get("kind") == "options":
-                doc["underlying"] = syms[0]
-            else:
-                doc["universe"] = syms
-        if a.get("seed") is not None:
-            doc["seed"] = int(a["seed"])
-        spec = lab.validate_spec(doc)
-        done[1] = len(lab.grid_points(spec)[2])
-        now = _lab_now(kit, "lab_run", lab)
-        check("loading bars for %d symbols" % len(spec["universe"]), 0.02)
-        data, ctx, fno, notes = _lab_data(kit, "lab_run", lab, spec, now)
-        check("backtesting %d grid points" % done[1], 0.1)
-        res = lab.run_and_decide(doc, data, ctx, out, fno, now, progress)
-        res["notes"] = notes
-        st = lab.save_run(out, doc, res, now)
-    except (lab.LabError, lab.RulesError) as e:
-        raise ToolError(str(e))
-    return _lab_view(lab, res, st), notes + ["Wrote trader/lab/%s/ (spec, results, scorecard, equity, status)." % name,
-                                             LAB_LIMITS]
-
-
 def t_lab_report(kit, a, call):
     lab = api.skill("lab")
     name = _lab_strategy(a)
@@ -1510,6 +1466,594 @@ def t_counterfactual_report(kit, a, call):
                 "Read only."]
 
 
+# ---------------------------------------------------------------- tools v2: the co-trader workflow layer
+
+TRIALS_LEDGER = ("state", "lab-trials.jsonl")
+TRIAL_NOTE = ("Every spec run through the lab is a trial: the deflated Sharpe of each later spec in the same family "
+              "is charged for it, so trying many variants and keeping the best one cannot pass the gates by luck.")
+PROPOSE_NOTE = ("Proposing is not placing: nothing here places an order. Any paper order still needs trader-risk "
+                "PASS and the user's own typed yes for that one ticket.")
+
+
+def _family(doc):
+    """A strategy family: the spec's structure with every number left out (names, fields and indicators used,
+    the stop and target kinds). Variants that only change a number, a symbol or the name share a family."""
+    if not isinstance(doc, dict):
+        return "unknown", "not a spec"
+    if doc.get("kind") == "options":
+        en = doc.get("entry") if isinstance(doc.get("entry"), dict) else {}
+        sig = ["options", str(doc.get("underlying")), str(doc.get("structure")), str(doc.get("expiry", "weekly")),
+               str((doc.get("strikes") or {}).get("by") if isinstance(doc.get("strikes"), dict) else None),
+               sorted(k for k in en if k != "days_to_expiry")]
+        words = "%s %s (%s expiry)" % (doc.get("underlying"), doc.get("structure"), doc.get("expiry", "weekly"))
+    else:
+        names = set()
+
+        def walk(x):
+            if isinstance(x, dict):
+                for k, v in x.items():
+                    if k not in ("shift",):
+                        names.add(str(k))
+                    walk(v)
+            elif isinstance(x, list):
+                for v in x:
+                    walk(v)
+            elif isinstance(x, str) and not x.startswith("$") and not re.match(r"^\d{1,2}:\d{2}$", x):
+                names.add(x)
+        walk(doc.get("entry"))
+        stop = sorted(doc["stop"]) if isinstance(doc.get("stop"), dict) else []
+        target = sorted(doc["target"]) if isinstance(doc.get("target"), dict) else []
+        ex = doc.get("exit") if isinstance(doc.get("exit"), dict) else {}
+        exn = set()
+        if ex.get("when") is not None:
+            walk_before = set(names)
+            walk(ex["when"])
+            exn = names - walk_before
+            names = walk_before
+        sig = ["equity", str(doc.get("timeframe")), sorted(names), stop, target, sorted(exn)]
+        shown = sorted(n for n in names if n not in ("all", "any", "not") and not re.match(r"^[<>=]+$", n))
+        words = "%s entry on %s; stop by %s" % (doc.get("timeframe"), ", ".join(shown) or "nothing",
+                                                ", ".join(stop) or "none")
+    h = hashlib.sha1(json.dumps(sig, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:10]
+    return "%s-%s" % (sig[0], h), words
+
+
+def _ledger(kit):
+    p = kit.p(*TRIALS_LEDGER)
+    rows = []
+    if os.path.exists(p):
+        with open(p, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(r, dict) and r.get("family") and r.get("spec_hash"):
+                    rows.append(r)
+    return rows
+
+
+def _family_trials(kit, family, spec_h=None):
+    """{spec_hash: grid points} of the specs of this family already run through the lab from this server."""
+    out = {}
+    for r in _ledger(kit):
+        if r["family"] == family and r["spec_hash"] != spec_h:
+            out[r["spec_hash"]] = max(out.get(r["spec_hash"], 1), int(r.get("points") or 1))
+    return out
+
+
+def _record_trial(kit, tool, name, family, spec_h, points, now):
+    p = kit.p(*TRIALS_LEDGER)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    row = {"at": now.strftime("%Y-%m-%d %H:%M"), "tool": tool, "name": name, "family": family, "spec_hash": spec_h,
+           "points": int(points)}
+    with open(p, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def _lab_execute(kit, a, call, tool, doc):
+    """Run one spec doc through the lab (time budget, progress, cancel), charge it for the other specs of its
+    family run from here, save it under trader/lab/<name>/ and record it in the trials ledger."""
+    lab = api.skill("lab")
+    out = kit.p("lab")
+    budget = float(a.get("max_seconds") or 180)
+    started = time.monotonic()
+    done = [0, 1]
+
+    def check(message, fraction):
+        if call.cancel.is_set():
+            raise ToolError("cancelled")
+        if time.monotonic() - started > budget:
+            raise ToolError("stopped after %d seconds (max_seconds): try fewer symbols or a smaller grid"
+                            % int(budget))
+        call.progress(fraction, message)
+        call.log("info", message)
+
+    def progress(message):
+        done[0] += 1
+        check(message, min(0.95, 0.1 + 0.85 * done[0] / float(done[1])))
+
+    try:
+        spec = lab.validate_spec(doc)
+        done[1] = len(lab.grid_points(spec)[2])
+        family, words = _family(doc)
+        h = lab.spec_hash(doc)
+        status = lab.read_json(os.path.join(out, spec["name"], "status.json"), {}) or {}
+        by_name = set(x for x in status.get("spec_hashes") or [] if x != h)
+        fam = _family_trials(kit, family, h)
+        # the lab already charges 1 for each earlier version of the same name: add the rest of each grid
+        extra = sum(n - (1 if k in by_name else 0) for k, n in fam.items())
+        now = _lab_now(kit, tool, lab)
+        check("loading bars for %d symbols" % len(spec["universe"]), 0.02)
+        data, ctx, fno, notes = _lab_data(kit, tool, lab, spec, now)
+        check("backtesting %d grid points" % done[1], 0.1)
+        res = lab.run_and_decide(doc, data, ctx, out, fno, now, progress, extra_trials=extra)
+        res["notes"] = notes
+        st = lab.save_run(out, doc, res, now)
+        _record_trial(kit, tool, spec["name"], family, h, done[1], now)
+    except (lab.LabError, lab.RulesError) as e:
+        raise ToolError(str(e))
+    view = _lab_view(lab, res, st)
+    view["trials"] = {"family": family, "family_words": words, "grid_points": done[1],
+                      "other_specs_in_family": len(fam), "family_trials_charged": extra,
+                      "earlier_versions_of_this_name": len(by_name),
+                      "trials_counted": (res.get("dsr") or {}).get("trials")}
+    return view, notes + ["Wrote trader/lab/%s/ (spec, results, scorecard, equity, status) and one line in "
+                          "trader/state/lab-trials.jsonl." % spec["name"], TRIAL_NOTE, LAB_LIMITS]
+
+
+def t_lab_run(kit, a, call):
+    lab = api.skill("lab")
+    name = _lab_strategy(a)
+    try:
+        doc, src = lab.resolve_spec(name, kit.p("lab"))
+    except lab.LabError as e:
+        raise ToolError(str(e))
+    if a.get("symbols"):
+        syms = [x.strip().upper() for x in a["symbols"].split(",") if x.strip()]
+        if doc.get("kind") == "options":
+            doc["underlying"] = syms[0]
+        else:
+            doc["universe"] = syms
+    if a.get("seed") is not None:
+        doc["seed"] = int(a["seed"])
+    return _lab_execute(kit, a, call, "lab_run", doc)
+
+
+MAX_SPEC_TEXT = 20000
+
+
+def _json_arg(a, key, kind, what):
+    raw = a.get(key)
+    if raw is None or raw == "":
+        return None
+    try:
+        val = json.loads(raw)
+    except ValueError as e:
+        raise ToolError("%s is not valid JSON: %s" % (key, e))
+    if not isinstance(val, kind):
+        raise ToolError("%s must be %s" % (key, what))
+    return val
+
+
+def t_lab_run_spec(kit, a, call):
+    lab = api.skill("lab")
+    doc = _json_arg(a, "spec", dict, "one JSON object: a trader-lab spec (strategy_design drafts one)")
+    if doc is None:
+        raise ToolError("spec is required: a trader-lab spec as JSON text (strategy_design drafts one)")
+    doc.setdefault("schema", lab.SCHEMA_SPEC)
+    name = doc.get("name")
+    lib = lab.library()
+    if isinstance(name, str) and name in lib and lab.spec_hash(lib[name]) != lab.spec_hash(doc):
+        raise ToolError("%s is a library spec's name: give your variant its own name (it still counts as a trial "
+                        "of the same family)" % name)
+    try:
+        lab.validate_spec(doc)
+    except lab.LabError as e:
+        raise ToolError("the spec does not validate: %s (strategy_design shows the vocabulary)" % e)
+    if a.get("seed") is not None:
+        doc["seed"] = int(a["seed"])
+    return _lab_execute(kit, a, call, "lab_run_spec", doc)
+
+
+# ---- strategy_design: a structured intent -> a lab spec draft (never run)
+
+DESIGN_KEYS = ("symbols", "window_from", "window_to", "days_to_expiry", "weekdays", "vix_min", "vix_max",
+               "iv_rank_min", "iv_rank_max", "trend", "regime_gate", "capital", "risk_per_trade_pct",
+               "max_trades_per_day", "lots", "target_r", "stop_atr_mult", "profit_target_pct", "stop_loss_mult",
+               "params", "extra_entry", "note")
+WEEKDAY_RE = re.compile(r"^(Mon|Tue|Wed|Thu|Fri)(\s*,\s*(Mon|Tue|Wed|Thu|Fri)){0,4}$")
+
+
+def vocabulary(lab):
+    return {"fields": list(lab.FIELDS), "session_values_5m": list(lab.SESSION_VALUES),
+            "indicators": list(lab.INDICATORS), "compare": list(lab.OPS), "arithmetic": list(lab.ARITH),
+            "conditions": ["[a, op, b]", "{\"all\": [...]}", "{\"any\": [...]}", "{\"not\": c}",
+                           "{\"time_between\": [\"09:15\", \"10:00\"]} (5m only)"],
+            "intraday_only": list(lab.INTRADAY_ONLY), "max_grid_points": lab.MAX_GRID,
+            "examples": [["close", "crosses_above", {"or_high": 15}], [{"rsi": 2}, "<", 10],
+                         ["close", ">", {"sma": 200}], [{"ema": 20}, ">", {"ema": 50}]]}
+
+
+def _uses_param(x, p):
+    if isinstance(x, dict):
+        return any(_uses_param(v, p) for v in x.values())
+    if isinstance(x, list):
+        return any(_uses_param(v, p) for v in x)
+    return x == "$" + p
+
+
+def _set_time_window(entry, a, b):
+    """Replace the entry's time_between (or add one) with [a, b]."""
+    tb = {"time_between": [a, b]}
+    if isinstance(entry, dict) and "all" in entry and isinstance(entry["all"], list):
+        rest = [c for c in entry["all"] if not (isinstance(c, dict) and "time_between" in c)]
+        return {"all": rest + [tb]}
+    if isinstance(entry, dict) and "time_between" in entry:
+        return tb
+    return {"all": [entry, tb]}
+
+
+def _add_condition(entry, cond):
+    if isinstance(entry, dict) and "all" in entry and isinstance(entry["all"], list):
+        return {"all": list(entry["all"]) + [cond]}
+    return {"all": [entry, cond]}
+
+
+def design_spec(lab, template, a):
+    """(spec doc, errors, warnings, changes) from a library template and a structured intent. Pure: reads the
+    library, runs nothing."""
+    lib = lab.library()
+    if template not in lib:
+        raise ToolError("template is one of %s" % ", ".join(sorted(lib)))
+    doc = json.loads(json.dumps(lib[template]))
+    errors, warnings, changes = [], [], []
+    is_opt = doc.get("kind") == "options"
+    tf = doc.get("timeframe")
+    syms = [s.strip().upper() for s in str(a.get("symbols") or "").split(",") if s.strip()]
+    if syms:
+        if is_opt:
+            doc["underlying"] = syms[0]
+            changes.append("underlying %s" % syms[0])
+            if len(syms) > 1:
+                warnings.append("an options spec has one underlying: kept %s, dropped %s" % (syms[0],
+                                                                                           ", ".join(syms[1:])))
+        else:
+            doc["universe"] = syms[:100]
+            changes.append("universe %s" % ", ".join(syms[:100]))
+    if a.get("window_from") or a.get("window_to"):
+        if is_opt or tf != "5m":
+            errors.append("window: a time window needs a 5-minute equity template (%s); %s trades on daily bars"
+                          % (", ".join(n for n, d in sorted(lib.items()) if d.get("timeframe") == "5m"), template))
+        else:
+            w_from = a.get("window_from") or "09:15"
+            w_to = a.get("window_to") or "15:00"
+            doc["window"] = {"from": w_from, "to": w_to}
+            doc["entry"] = _set_time_window(doc.get("entry"), w_from, w_to)
+            changes.append("entries only between %s and %s IST" % (w_from, w_to))
+    opt_only = [k for k in ("days_to_expiry", "weekdays", "vix_min", "vix_max", "iv_rank_min", "iv_rank_max",
+                            "profit_target_pct", "stop_loss_mult", "lots") if a.get(k) is not None]
+    if opt_only and not is_opt:
+        errors.append("%s: only options templates take these (%s). The equity vocabulary has no expiry, VIX or IV "
+                      "condition; regime_gate: true makes the lab check the trades in today's regime cell instead"
+                      % (", ".join(opt_only), ", ".join(n for n, d in sorted(lib.items())
+                                                         if d.get("kind") == "options")))
+    if is_opt:
+        en = dict(doc.get("entry") or {})
+        if a.get("days_to_expiry") is not None:
+            en["days_to_expiry"] = int(a["days_to_expiry"])
+            changes.append("enter %d day(s) before expiry%s" % (en["days_to_expiry"],
+                                                                " (expiry day)" if not en["days_to_expiry"] else ""))
+        if a.get("weekdays"):
+            en["weekdays"] = [d.strip() for d in a["weekdays"].split(",")]
+            changes.append("entry weekdays %s" % ", ".join(en["weekdays"]))
+        for k in ("vix_min", "vix_max", "iv_rank_min", "iv_rank_max"):
+            if a.get(k) is not None:
+                en[k] = a[k]
+                changes.append("%s %s" % (k, a[k]))
+        doc["entry"] = en
+        ex = dict(doc.get("exit") or {})
+        if a.get("profit_target_pct") is not None:
+            ex["profit_target_pct"] = a["profit_target_pct"]
+            changes.append("take profit at %s%% of the credit" % a["profit_target_pct"])
+        if a.get("stop_loss_mult") is not None:
+            ex["stop_loss_mult"] = a["stop_loss_mult"]
+            changes.append("stop at %sx the credit" % a["stop_loss_mult"])
+        doc["exit"] = ex
+        if a.get("lots") is not None:
+            doc["lots"] = int(a["lots"])
+        if a.get("capital") is not None:
+            doc["capital"] = a["capital"]
+        for k in ("risk_per_trade_pct", "max_trades_per_day", "target_r", "stop_atr_mult", "trend"):
+            if a.get(k) is not None and not (k == "trend" and a[k] == "any"):
+                errors.append("%s: an options spec sizes by lots and capital and exits by profit_target_pct or "
+                              "stop_loss_mult" % k)
+        if a.get("extra_entry"):
+            errors.append("extra_entry: options entries take days_to_expiry, weekdays, vix and iv_rank bounds only")
+    else:
+        sizing = dict(doc.get("sizing") or {})
+        for k in ("capital", "risk_per_trade_pct", "max_trades_per_day"):
+            if a.get(k) is not None:
+                sizing[k] = a[k]
+                changes.append("%s %s" % (k, a[k]))
+        doc["sizing"] = sizing
+        if a.get("trend") == "up":
+            doc["entry"] = _add_condition(doc.get("entry"), [{"ema": 20}, ">", {"ema": 50}])
+            changes.append("only when the 20 EMA is above the 50 EMA (an uptrend filter on this timeframe's bars)")
+        if a.get("target_r") is not None:
+            if "target_r" in (doc.get("params") or {}) and _uses_param(doc.get("target"), "target_r"):
+                doc["params"]["target_r"] = a["target_r"]
+            else:
+                doc["target"] = {"r": a["target_r"]}
+            changes.append("target %sR" % a["target_r"])
+        if a.get("stop_atr_mult") is not None:
+            doc["stop"] = {"atr": 14, "mult": a["stop_atr_mult"]}
+            changes.append("stop %s x ATR(14)" % a["stop_atr_mult"])
+        extra = _json_arg(a, "extra_entry", list, "one condition [a, op, b] in the lab vocabulary")
+        if extra is not None:
+            doc["entry"] = _add_condition(doc.get("entry"), extra)
+            changes.append("extra entry condition %s" % json.dumps(extra)[:120])
+    params = _json_arg(a, "params", dict, "a JSON object of declared param: number")
+    if params:
+        base = doc.get("params") or {}
+        for k, v in params.items():
+            if k not in base:
+                errors.append("params.%s: %s declares %s" % (k, template, ", ".join(sorted(base)) or "no params"))
+            elif not isinstance(v, (int, float)) or isinstance(v, bool):
+                errors.append("params.%s: a number" % k)
+            else:
+                base[k] = v
+                changes.append("%s = %s" % (k, v))
+        doc["params"] = base
+    if a.get("regime_gate"):
+        g = dict(doc.get("gates") or {})
+        g["require_regime_edge"] = 1
+        doc["gates"] = g
+        changes.append("gate: the out-of-sample trades in today's regime cell must show an edge too")
+    seed = json.dumps({k: a.get(k) for k in DESIGN_KEYS}, sort_keys=True, default=str)
+    name = a.get("name") or ("a-%s-%s" % (template[:36], hashlib.sha1(seed.encode("utf-8")).hexdigest()[:6]))
+    doc["name"] = name
+    doc["title"] = ("%s (designed)" % (doc.get("title") or template))[:120]
+    if a.get("note"):
+        doc["description"] = ("%s Designed for: %s" % (doc.get("description") or "", a["note"].strip()))[:1500]
+    doc["notes"] = ["Drafted by strategy_design from the %s template: %s." % (template, "; ".join(changes) or
+                                                                              "no changes")]
+    if not errors:
+        try:
+            lab.validate_spec(doc)
+        except lab.LabError as e:
+            errors.append(str(e))
+    if not syms and not is_opt:
+        warnings.append("universe: the template's own %d symbols" % len(doc.get("universe") or []))
+    return doc, errors, warnings, changes
+
+
+def t_strategy_design(kit, a, call):
+    lab = api.skill("lab")
+    template = str(a.get("template") or "")
+    doc, errors, warnings, changes = design_spec(lab, template, a)
+    family, words = _family(doc)
+    points = None
+    if not errors:
+        try:
+            points = len(lab.grid_points(lab.validate_spec(doc))[2])
+        except lab.LabError as e:
+            errors.append(str(e))
+    tried = _family_trials(kit, family, lab.spec_hash(doc))
+    out = {"spec": doc, "valid": not errors, "errors": errors, "warnings": warnings, "changes": changes,
+           "family": family, "family_words": words, "grid_points": points,
+           "family_specs_tried": len(tried), "family_trials_so_far": sum(tried.values()),
+           "vocabulary": vocabulary(lab)}
+    if errors:
+        out["next_step"] = "Fix the errors (or pick another template) and call strategy_design again. Nothing ran."
+    else:
+        out["next_step"] = ("A draft, not a result. To test it, pass this spec as JSON text to lab_run_spec: it is "
+                            "backtested after charges with walk-forward, and it counts as %d more trial(s) in family "
+                            "%s (%d already tried there)." % (points, family, sum(tried.values())))
+    return out, ["Nothing was run or written: a spec is data in the lab's fixed vocabulary, never code.", TRIAL_NOTE]
+
+
+# ---- archive_status
+
+def t_archive_status(kit, a, call):
+    arch = api.skill("archive")
+    root = _lab_archive(kit, "archive_status")
+    s = arch.status(root)
+    s["root"] = "trader/archive" if not kit.offline and root == kit.p("archive") else os.path.basename(root)
+    have = [ds for ds, i in s["datasets"].items() if i.get("files") or i.get("first")]
+    if not have:
+        words = ("No local archive yet: the lab's options backtests and IV ranks need one (python3 "
+                 "trader-archive/archive.py backfill --years 1). Equity backtests fall back to Yahoo bars.")
+    else:
+        words = "Archive: %s." % "; ".join("%s %s to %s%s" % (ds, s["datasets"][ds]["first"], s["datasets"][ds]["last"],
+                                                             (" (%d files)" % s["datasets"][ds]["files"])
+                                                             if s["datasets"][ds]["files"] else "") for ds in have)
+    s["words"] = words
+    return s, ["Read only. A gap in the archive means fewer tested days, not a missing loss: say which days a "
+               "backtest covered."]
+
+
+# ---- compare_strategies and best_for_regime
+
+def _ci_mean(xs):
+    """(mean, lo, hi): a normal-approximation 95% range of a mean; None below 2 values."""
+    if len(xs) < 2:
+        return (xs[0] if xs else None), None, None
+    m = sum(xs) / float(len(xs))
+    var = sum((x - m) ** 2 for x in xs) / float(len(xs) - 1)
+    half = 1.96 * (var ** 0.5) / (len(xs) ** 0.5)
+    return round(m, 4), round(m - half, 4), round(m + half, 4)
+
+
+def _wilson(ct, k, n):
+    w = ct.wilson(k, n)
+    return [round(w[0], 4), round(w[1], 4)] if w else None
+
+
+def _regime_now_cell(kit, tool, ct, lab):
+    now, data = _cotrader_args(kit, tool)
+    src = ct.Sources(kit.workdir, data, None, not kit.offline, kit.p("lab"))
+    regs = lab.lab_regimes(src.context(now))
+    cell, words, close = ct.current_cell(regs, now.date().isoformat())
+    return now, regs, cell, words, close
+
+
+def t_compare_strategies(kit, a, call):
+    lab = api.skill("lab")
+    ct = api.skill("cotrader")
+    names = [n.strip().lower() for n in str(a.get("strategies") or "").split(",") if n.strip()]
+    if not 2 <= len(names) <= 8 or not all(LAB_NAME_RE.match(n) for n in names):
+        raise ToolError("strategies: 2 to 8 lab run names, comma separated (lab_list shows the runs)")
+    out = kit.p("lab")
+    try:
+        rows = lab.compare_rows(out, names)
+    except lab.LabError as e:
+        raise ToolError(str(e))
+    now, regs, cell, words, close = _regime_now_cell(kit, "compare_strategies", ct, lab)
+    for r in rows:
+        res = lab.read_json(os.path.join(out, r["name"], "results.json")) or {}
+        o = res["walk_forward"]["stats"]
+        oos = res.get("oos_trades") or []
+        m, lo, hi = _ci_mean([float(t["r"]) for t in oos])
+        r["oos_win_rate"] = o.get("win_rate")
+        r["oos_win_rate_ci"] = _wilson(ct, o.get("wins", 0), o.get("trades", 0))
+        r["oos_expectancy_r_ci"] = [lo, hi] if lo is not None else None
+        r["oos_trade_list"] = bool(oos)
+        r["trials_counted"] = (res.get("dsr") or {}).get("trials")
+        r["family"] = _family(lab.read_json(os.path.join(out, r["name"], "spec.json")) or {})[0]
+        r["tested"] = [res["data"].get("tested_from"), res["data"].get("to")]
+        if oos and regs:
+            ev = ct.evidence(oos, regs, cell, None, "out of sample")
+            r["regime_now"] = {"cell": cell, "trades": ev["trades_cell"], "wins": ev["wins_cell"],
+                               "win_rate_ci": ev.get("p_cell_ci"), "expectancy_r": ev.get("ev_r_cell_raw")}
+        else:
+            r["regime_now"] = None
+        r["does_not_prove"] = lab.does_not_prove(res)
+    order = {"PROMOTE": 0, "WATCH": 1, "DEMOTE": 2, "REJECT": 3}
+
+    def key(r):
+        ci = r["oos_expectancy_r_ci"]
+        return (order.get(r["verdict"], 4), -(ci[0] if ci else -99))
+    rows.sort(key=key)
+    fams = sorted(set(r["family"] for r in rows))
+    return {"regime_now": {"cell": cell, "words": words, "as_of_close": close}, "rows": rows,
+            "ranked_by": "verdict, then the lower end of the out-of-sample expectancy's 95% range",
+            "families": fams}, \
+        ["Choosing the best of %d compared strategies is one more selection: the top row's numbers flatter it. "
+         "Overlapping ranges mean the data cannot tell them apart." % len(rows), LAB_LIMITS, "Read only."]
+
+
+def t_best_for_regime(kit, a, call):
+    lab = api.skill("lab")
+    ct = api.skill("cotrader")
+    st = dict(ct.SETTINGS)
+    now, regs, cell, words, close = _regime_now_cell(kit, "best_for_regime", ct, lab)
+    demoted = (ct.read_json(ct.demoted_path(kit.workdir), {}) or {}).get("strategies") or {}
+    today = now.date().isoformat()
+    out = []
+    for row in ct.strategies(kit.p("lab")):
+        tier, tier_why = ct.tier_of(row, demoted)
+        trades, basis = ct.history(row, {}, None, st)
+        trades = [t for t in trades if t.get("exit_date", "") < today]
+        ev = ct.evidence(trades, regs, cell, st, basis)
+        out.append({"name": row["name"], "title": row["doc"].get("title"), "kind": row["doc"].get("kind") or "equity",
+                    "timeframe": row["doc"].get("timeframe"), "verdict": row.get("verdict"), "tier": tier,
+                    "tier_why": tier_why, "basis": basis, "trades_in_cell": ev["trades_cell"],
+                    "wins_in_cell": ev["wins_cell"], "win_rate_in_cell": ev.get("p_cell_raw"),
+                    "win_rate_in_cell_ci": ev.get("p_cell_ci"), "p": ev.get("p"), "p_ci": [ev.get("p_lo"),
+                                                                                          ev.get("p_hi")],
+                    "expectancy_r_in_cell": ev.get("ev_r_cell_raw"), "ev_r": ev.get("ev_r"),
+                    "ev_r_ci": [ev.get("ev_lo"), ev.get("ev_hi")], "trades_all": ev["trades_all"],
+                    "fits": ev.get("fits"), "enough": ev["trades_cell"] >= int(st["min_cell_trades"]),
+                    "edge_cells": [ct.cell_words(c) for c in ct.edge_cells(trades, regs, int(st["min_cell_trades"]))],
+                    "why": ev.get("why")})
+    tier_rank = {"PROMOTED": 0, "WATCH": 1, "RESEARCH": 2}
+
+    def key(r):
+        lo = r["ev_r_ci"][0]
+        return (0 if r["fits"] else (1 if r["fits"] is None else 2), tier_rank.get(r["tier"], 3),
+                -(lo if lo is not None else -99))
+    out.sort(key=key)
+    fit = [r for r in out if r["fits"] and r["tier"] in ("PROMOTED", "WATCH")]
+    if not out:
+        headline = "No lab runs yet: there is no evidence for any regime. Run a spec through the lab first."
+    elif not fit:
+        headline = ("Nothing validated shows an edge in %s with at least %d trades: the honest answer is no "
+                    "strategy for this regime." % (ct.cell_words(cell), int(st["min_cell_trades"])))
+    else:
+        headline = "%d validated strateg%s with an edge so far in %s (see n and the ranges)." % (
+            len(fit), "y" if len(fit) == 1 else "ies", ct.cell_words(cell))
+    return {"regime_now": {"cell": cell, "words": words, "as_of_close": close}, "headline": headline,
+            "strategies": out, "min_cell_trades": int(st["min_cell_trades"]),
+            "ranked_by": "fits today's cell, then tier, then the lower end of the expected R's 95% range"}, \
+        ["The regime cell is NIFTY's trend (ADX) and India VIX bucket as of the close before; a cell with few trades "
+         "says little, so the shrunk p leans on the rule's overall rate. Past trades in a regime are not a forecast "
+         "of this one.", COTRADER_LIMITS, "Read only."]
+
+
+# ---- trade_brief
+
+def t_trade_brief(kit, a, call):
+    ct = api.skill("cotrader")
+    out, gaps = {}, []
+    now, data = _cotrader_args(kit, "trade_brief")
+
+    def part(key, fn):
+        try:
+            out[key] = fn()
+        except (ToolError, api.ApiError) + api.skill_errors() as e:
+            out[key] = None
+            gaps.append("%s: unavailable (%s)" % (key, getattr(e, "message", None) or e))
+
+    call.progress(0.05, "reading the market regime")
+
+    def regime():
+        d, _ = t_regime_now(kit, {}, call)
+        return [{"symbol": r.get("symbol"), "words": r.get("words"), "as_of": r.get("as_of"),
+                 "source": r.get("source"), "today": r.get("today")} for r in d.get("regimes") or []]
+    part("regime", regime)
+    call.progress(0.3, "checking today's candidates (nothing is written)")
+
+    def cands():
+        doc = ct.run_today(kit.workdir, "validated", None, now, data, None, not kit.offline, False)
+        rows = [{"id": c["id"], "tier": c["tier"], "symbol": c["symbol"], "strategy": c["strategy"],
+                 "status": c["status"], "p": c["evidence"].get("p"), "p_ci": [c["evidence"].get("p_lo"),
+                                                                          c["evidence"].get("p_hi")],
+                 "n_in_regime": c["evidence"].get("trades_cell"), "n_all": c["evidence"].get("trades_all"),
+                 "ev_r": c["evidence"].get("ev_r"), "ev_r_ci": [c["evidence"].get("ev_lo"), c["evidence"].get("ev_hi")],
+                 "risk": (c.get("risk") or {}).get("verdict"), "why_not": c.get("why_not")}
+                for c in doc.get("candidates") or []]
+        out["no_edge"] = doc.get("no_edge")
+        out["risk_state"] = doc.get("risk_state")
+        out["regime_cell"] = doc.get("regime_now")
+        return rows
+    part("candidates", cands)
+    call.progress(0.7, "reading the paper account")
+
+    def account():
+        v = api.account_view(kit.ctx, live_quotes=False)
+        return {"cash": v.get("cash"), "free_cash": v.get("free_cash"), "positions": v.get("positions"),
+                "working_legs": v.get("working_legs"), "margin_blocked": v.get("margin_blocked"),
+                "today": v.get("today")}
+    part("open_risk", account)
+    call.progress(0.85, "reading the calibration of past odds")
+
+    def calib():
+        rep = ct.calibration_report(kit.workdir, now, data, None, not kit.offline, False)
+        return {"overall": rep.get("overall"), "words": rep.get("words"), "resolved": rep.get("resolved"),
+                "pending": rep.get("pending")}
+    part("calibration", calib)
+    out["unavailable"] = gaps
+    ready = [c for c in out.get("candidates") or [] if c["status"] == "ready"]
+    out["headline"] = ("%d candidate(s) passed your risk check; each still needs your typed yes." % len(ready)
+                       if ready else "No ready candidate: sitting out is the decision today.")
+    return out, ["One read-only look: regime, candidates (not logged, not written), the paper account and the "
+                 "calibration. Quote n and the 95% ranges with every probability.", PROPOSE_NOTE, COTRADER_LIMITS]
+
+
 # ---------------------------------------------------------------- the tool table
 
 RO = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
@@ -1725,8 +2269,9 @@ def build_tools():
                   "chains, with margin, return on margin and tail losses); then walk-forward out of sample, the parameter neighbourhood, Monte Carlo, the "
                   "deflated Sharpe ratio, the probability of backtest overfitting, regimes and 1.5x/2x costs. "
                   "Pre-registered gates give REJECT, WATCH (paper forward test next) or PROMOTE. Writes "
-                  "trader/lab/<name>/. Sends progress and stops at max_seconds. Expect most strategies to be "
-                  "rejected.", t_lab_run,
+                  "trader/lab/<name>/. Sends progress and stops at max_seconds. Each run is a trial: the deflated "
+                  "Sharpe is charged for every other spec of the same family run from this server "
+                  "(trader/state/lab-trials.jsonl). Expect most strategies to be rejected.", t_lab_run,
                   {"strategy": lab_name,
                    "symbols": S("string", "NSE symbols to test on instead of the spec's universe, comma separated "
                                           "(a new variant: it counts as another trial)", maxLength=400,
@@ -1951,6 +2496,100 @@ def build_tools():
                    "limit": S("integer", "how many replay rows to return (default 50)", minimum=1, maximum=500)},
                   data=obj({"groups": ANY_OBJ, "rows": ANY_LIST, "caveats": ANY_LIST}, ["groups", "caveats"],
                            extra=True), network=False))
+    # ---- v2: the co-trader workflow layer
+    T.append(tool("archive_status", "Market data archive status",
+                  "What the local NSE archive (trader-archive) holds: each dataset (equity and F&O bhavcopies, "
+                  "indices, India VIX, ban list, settlement prices, lot sizes, corporate actions) with its files, "
+                  "rows, first and last day and when it was fetched, intraday bars and option-chain snapshots, in "
+                  "plain words. The lab's options backtests and the regime's IV ranks read it. Read only, no "
+                  "network.", t_archive_status, {},
+                  data=obj({"datasets": ANY_OBJ, "bytes": S("integer"), "words": S("string")},
+                           ["datasets", "words"], extra=True), network=False))
+    lib = api.skill("lab").library()
+    design_props = {
+        "template": S("string", "the trader-lab library spec to start from (lab_list describes each)",
+                      enum=sorted(lib)),
+        "name": S("string", "a name for the draft (default: a- plus the template plus a short hash)",
+                  pattern=LAB_NAME_RE.pattern, maxLength=48),
+        "symbols": S("string", "NSE symbols for the universe (equity) or the underlying (options), comma separated",
+                     maxLength=400, pattern=r"^[A-Za-z0-9&\-,\s]{1,400}$"),
+        "window_from": dict(HHMM, description="5-minute equity templates: no entries before this IST time, e.g. "
+                                              "09:15 for the open drive"),
+        "window_to": dict(HHMM, description="5-minute equity templates: no entries after this IST time, e.g. 10:00"),
+        "days_to_expiry": S("integer", "options: enter this many sessions before expiry (0 = expiry day)",
+                            minimum=0, maximum=30),
+        "weekdays": S("string", "options: entry weekdays, e.g. Tue,Thu", pattern=WEEKDAY_RE.pattern, maxLength=40),
+        "vix_min": S("number", "options: enter only when India VIX is at least this", minimum=0, maximum=200),
+        "vix_max": S("number", "options: enter only when India VIX is at most this", minimum=0, maximum=200),
+        "iv_rank_min": S("number", "options: enter only when the IV rank is at least this", minimum=0, maximum=100),
+        "iv_rank_max": S("number", "options: enter only when the IV rank is at most this", minimum=0, maximum=100),
+        "trend": S("string", "equity: up adds a 20 EMA above 50 EMA filter (long only: there is no down)",
+                   enum=["any", "up"]),
+        "regime_gate": S("boolean", "add the lab's regime gate: the trades in today's regime cell must show an edge"),
+        "capital": S("number", "rupees the backtest sizes from", minimum=10000, maximum=1e9),
+        "risk_per_trade_pct": S("number", "equity: % of capital lost at the stop", minimum=0.1, maximum=5),
+        "max_trades_per_day": S("integer", "equity: the day's trade cap", minimum=1, maximum=20),
+        "lots": S("integer", "options: lots per leg", minimum=1, maximum=50),
+        "target_r": S("number", "equity: target in R (multiples of the risk at the stop)", minimum=0.5, maximum=10),
+        "stop_atr_mult": S("number", "equity: stop at this many ATR(14) below the entry", minimum=0.5, maximum=10),
+        "profit_target_pct": S("number", "options: take profit at this % of the credit", minimum=5, maximum=200),
+        "stop_loss_mult": S("number", "options: stop when the loss reaches this many times the credit", minimum=0.5,
+                            maximum=10),
+        "params": S("string", "JSON object of the template's own params to change, e.g. {\"or_minutes\": 30}",
+                    maxLength=600),
+        "extra_entry": S("string", "equity: one more entry condition in the lab vocabulary as JSON, e.g. "
+                                   "[{\"rsi\": 14}, \"<\", 70]", maxLength=1200),
+        "note": S("string", "the idea in the user's words (kept in the spec's description)", maxLength=400),
+    }
+    T.append(tool("strategy_design", "Design a strategy (a lab spec draft)",
+                  "Turn a structured intent (instrument, timeframe or time window such as the 09:15-10:00 open "
+                  "drive or expiry day, regime conditions, risk budget, style = a library template) into a trader-lab "
+                  "spec draft in the lab's fixed, safe vocabulary (fields, session values, indicators, comparisons; "
+                  "no code), with every validation error, the strategy family and how many trials that family "
+                  "already has. Never runs anything: lab_run_spec tests the draft.", t_strategy_design, design_props,
+                  ["template"], data=obj({"spec": ANY_OBJ, "valid": S("boolean"), "errors": ANY_LIST,
+                                          "family": S("string"), "next_step": S("string")},
+                                         ["spec", "valid", "errors", "family", "next_step"], extra=True),
+                  network=False))
+    T.append(tool("lab_run_spec", "Strategy lab: run your own spec",
+                  "Run a spec the user or the assistant wrote (JSON text, e.g. from strategy_design) through the "
+                  "same lab as lab_run: after-charges backtest, walk-forward, deflated Sharpe, overfitting odds, "
+                  "gates and a verdict. Trial-count honesty: every spec run here is logged in "
+                  "trader/state/lab-trials.jsonl and increments the multiple-testing count of its strategy family, "
+                  "so later variants face a higher bar; the result says how many trials were counted. Writes "
+                  "trader/lab/<name>/. Sends progress, stops at max_seconds. Places nothing.", t_lab_run_spec,
+                  {"spec": S("string", "the trader-lab spec as JSON text", minLength=2, maxLength=MAX_SPEC_TEXT),
+                   "seed": S("integer", "Monte Carlo seed (default: the spec's)", minimum=0, maximum=2 ** 31 - 1),
+                   "max_seconds": S("integer", "time budget in seconds (default 180)", minimum=5, maximum=600)},
+                  ["spec"], data=lab_data,
+                  annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False}))
+    T.append(tool("compare_strategies", "Strategy lab: compare runs",
+                  "Two to eight lab runs side by side: verdict, out-of-sample trades, win rate with its Wilson 95% "
+                  "range, expectancy in R after charges with its 95% range, profit factor, drawdown, deflated "
+                  "Sharpe and the trials it was charged for, overfitting odds, 1.5x costs, gates passed, the strategy "
+                  "family, and the trades in today's regime cell; ranked by verdict then the lower end of the "
+                  "expectancy range, with what each does NOT prove. Read only.", t_compare_strategies,
+                  {"strategies": S("string", "lab run names, comma separated", minLength=3, maxLength=400,
+                                   pattern=r"^[a-z0-9\-,\s]{3,400}$")},
+                  ["strategies"], data=obj({"rows": ANY_LIST, "regime_now": ANY_OBJ}, ["rows", "regime_now"],
+                                           extra=True)))
+    T.append(tool("best_for_regime", "Best strategies for today's regime",
+                  "Every lab run's past trades filtered to today's regime cell (NIFTY trending or ranging x the India "
+                  "VIX bucket, as of the close before): trades and wins in the cell with the Wilson 95% range, the "
+                  "shrunk probability and expected R after charges with their 95% ranges, n overall, whether the cell "
+                  "has enough trades to judge, the tier (PROMOTED, WATCH, RESEARCH) and the cells where it had an "
+                  "edge. Ranked conservatively; says plainly when nothing fits. Read only.", t_best_for_regime, {},
+                  data=obj({"regime_now": ANY_OBJ, "headline": S("string"), "strategies": ANY_LIST},
+                           ["regime_now", "headline", "strategies"], extra=True)))
+    T.append(tool("trade_brief", "Co-trader: one-shot trade brief",
+                  "One read-only call for a co-trader brief: the regime now, today's validated candidates with their "
+                  "odds, 95% ranges and n (worked out fresh, not written or logged), the no-edge reasons when there "
+                  "are none, the risk locks, the open paper positions and today's limits used, and the calibration "
+                  "of past odds. Proposing is not placing: a candidate becomes a paper ticket only through "
+                  "paper_order_draft, trader-risk and the user's own typed yes.", t_trade_brief, {},
+                  data=obj({"headline": S("string"), "regime": {}, "candidates": {}, "no_edge": {},
+                            "open_risk": {}, "calibration": {}, "unavailable": ANY_LIST},
+                           ["headline", "unavailable"], extra=True)))
     T.append(tool("autopilot_status", "Auto-pilot: status",
                   "The auto-pilot on PAPER: whether its loop is running (pid, last step), today's phase, the timeline "
                   "of today's actions (pre-open brief, orders placed with trader-risk PASS and the machine yes "
@@ -1998,6 +2637,16 @@ RULES = ("Use the bharat-trader tools for every number; do not guess prices or l
          "stop after charges). Never promise a profit, never call anything a sure thing, and say plainly that "
          "this is education and tooling, not financial advice. Paper trading only: an order needs trader-risk "
          "PASS and the user's own typed yes for that one ticket.")
+
+EVIDENCE = ("Evidence first: before any opinion, show what the tools returned. With every probability or rate give n "
+            "(the number of past trades it rests on) and its 95% interval; quote results after charges and slippage; "
+            "name the market regime it was measured in; and list what the evidence does NOT show (few trades, one "
+            "regime, in-sample, survivorship, model fills). Say so plainly when n is small or the interval spans "
+            "zero, and treat 'no trade' as a valid answer. No promises: never say guaranteed, sure-shot or "
+            "risk-free. Proposing is not placing: every order goes through risk_check and the user's own typed yes "
+            "for that one ticket, on the paper account. Every spec you run with lab_run_spec or lab_run is a trial "
+            "that raises the bar for its family: say how many were counted, and do not keep trying variants until "
+            "one passes. ")
 
 
 def build_prompts():
@@ -2050,6 +2699,67 @@ def build_prompts():
                   "draft a paper ticket only if I ask, and wait for my own typed yes). Separate what the data shows "
                   "from what it cannot show (few samples, one regime, costs, slippage, survivorship). Say what "
                   "result would make you drop the idea. " + RULES)},
+        {"name": "daily_cotrader_brief", "title": "Daily co-trader brief",
+         "description": "One evidence-first brief: regime, candidates with odds and n, open risk, calibration.",
+         "arguments": [{"name": "focus", "description": "symbols or a question for today (optional)",
+                        "required": False}],
+         "text": ("Be my co-trader for today on NSE. Call trade_brief first, then best_for_regime. Open with the "
+                  "regime in plain words (trend, volatility bucket, expiry or event day) and its inputs. For each "
+                  "candidate: tier, the probability with its 95% interval and n in this regime and overall, the "
+                  "expected R after charges with its interval, trader-risk's verdict and why; if there is none, say "
+                  "that sitting out is the decision and give the no-edge reasons and what would change them. Then my "
+                  "open positions and how much of today's loss limit is used, and how well past odds were "
+                  "calibrated (Brier vs the base rate, with the number of resolved predictions). {focus}"
+                  + EVIDENCE + RULES)},
+        {"name": "find_best_trade_now", "title": "Find the best trade for this regime",
+         "description": "Rank lab-tested strategies by their evidence in today's regime cell; no trade is an answer.",
+         "arguments": [{"name": "universe", "description": "symbols or a theme to restrict to (optional)",
+                        "required": False}],
+         "text": ("Find the best trade for the current market regime{universe_text}. Call regime_now, then "
+                  "best_for_regime, then cotrader_candidates (include_research only if I ask) and cotrader_explain "
+                  "for the top one. Rank conservatively by the lower end of the expected R's 95% interval, not the "
+                  "point estimate. Only strategies with at least the minimum trades in this regime cell can be "
+                  "called a fit; say which ones rest on too few. Explain the best candidate's odds honestly, what "
+                  "would invalidate it and what the evidence does NOT show. If nothing fits, say there is no edge "
+                  "today. Do not draft an order unless I ask; then paper_order_draft and wait for my typed yes. "
+                  + EVIDENCE + RULES)},
+        {"name": "design_strategy_for_window", "title": "Design a strategy for a time window",
+         "description": "From an idea for a window (expiry day, the 09:15-10:00 open drive) to a lab-tested spec.",
+         "arguments": [{"name": "window", "description": "the window, e.g. expiry day, or 09:15-10:00",
+                        "required": True},
+                       {"name": "idea", "description": "the idea in plain words (optional)", "required": False},
+                       {"name": "symbol", "description": "an index or stock (optional)", "required": False}],
+         "text": ("Help me design a strategy for this window: {window}.{idea_text}{symbol_text} Call regime_now "
+                  "and lab_list. Pick the closest library template and say why; for a clock window use a 5-minute "
+                  "equity template with window_from and window_to; for expiry day use an options template with "
+                  "days_to_expiry 0 (the equity vocabulary has no expiry condition: say so). Call strategy_design "
+                  "with the structured intent (template, window, regime conditions, risk budget) and show me the "
+                  "spec and every validation error. Pre-register before testing: the one spec you will run, the gate "
+                  "that would make you drop it, and how many trials its family already has. Then lab_run_spec once "
+                  "and read me the verdict, the trades counted, every failed gate and the does-not-prove list. A "
+                  "WATCH is not a result yet: it needs the paper forward test (lab_forward). " + EVIDENCE + RULES)},
+        {"name": "stress_test_my_idea", "title": "Stress-test my idea",
+         "description": "Try hard to break an idea: costs, regimes, neighbours, trial count, out of sample.",
+         "arguments": [{"name": "idea", "description": "the idea or a lab strategy name", "required": True}],
+         "text": ("Stress-test this idea and try to break it: {idea}. If it is a lab run, call lab_report and "
+                  "compare_strategies against its closest library cousin; otherwise draft it with strategy_design "
+                  "and run it once with lab_run_spec. Check, with numbers: does it survive 1.5x and 2x costs; is "
+                  "the parameter neighbourhood positive or is it one lucky point; how many out-of-sample trades and "
+                  "how wide the expectancy's interval is; the deflated Sharpe with the trials counted (including "
+                  "this family's earlier tries); the overfitting odds; which regime cells carry the result "
+                  "(best_for_regime) and which lose. End with the strongest argument against the idea and what "
+                  "result would make you drop it. " + EVIDENCE + RULES)},
+        {"name": "review_my_week", "title": "Review my week (co-trader)",
+         "description": "The week's trades after charges, rule breaks, skipped candidates and calibration.",
+         "arguments": [{"name": "week", "description": "an ISO week like 2026-W44, or this / last (default this)",
+                        "required": False}],
+         "text": ("Review my trading week ({week}) as my co-trader. Call journal_stats (week: {week}) and "
+                  "journal_summary for the closed trades after charges, the win rate with its interval and n, the "
+                  "expectancy with its interval, and the rule breaks with their times; counterfactual_report for "
+                  "what the candidates I skipped and the orders risk blocked would have done (with the counts and "
+                  "caveats); calibration_report for how my co-trader's odds held up; and persona_scorecards. Under "
+                  "20 trades, review the process only: a week is too short to judge an edge. Suggest one process "
+                  "change, not a stock. " + EVIDENCE + RULES)},
     ] + persona_prompts()
 
 
@@ -2141,6 +2851,10 @@ def render_prompt(p, args, kit=None):
         "idea": (args.get("idea") or "").strip(),
         "symbol_text": (" Try it on %s." % args["symbol"].strip().upper()) if args.get("symbol") else "",
         "symbols_arg": (" with symbols %s" % args["symbol"].strip().upper()) if args.get("symbol") else "",
+        "universe_text": (" among %s" % args["universe"].strip()) if args.get("universe") else "",
+        "window": (args.get("window") or "").strip(),
+        "idea_text": (" The idea: %s." % args["idea"].strip()) if args.get("idea") else "",
+        "week": (args.get("week") or "this").strip(),
     }
     return p["text"].format(**fill)
 

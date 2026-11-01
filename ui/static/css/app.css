@@ -709,3 +709,13 @@ canvas.plot:focus-visible { outline: 2px solid var(--focus); }
 
 /* discovery runs on the Lab page: finalist lists inside a table cell */
 ul.plain { list-style: none; margin: 0; padding: 0; }
+
+/* Ask: the optional chat with your own LLM */
+.ask-log { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; margin-bottom: 12px; }
+.ask-msg { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 8px 12px; max-width: 72ch; }
+.ask-msg p { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ask-user { align-self: flex-end; background: var(--accent-soft); }
+.ask-bot { align-self: flex-start; background: var(--panel); }
+.ask-steps summary { cursor: pointer; color: var(--muted); font-size: var(--fs-sm); }
+.ask-steps ul { margin: 6px 0; padding-left: 18px; }
+.ask-form textarea { font-family: inherit; }

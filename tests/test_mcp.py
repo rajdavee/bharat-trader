@@ -29,8 +29,16 @@ TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit
          "strategy_build",
          "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor", "persona_scorecards", "regime_now",
          "cotrader_candidates", "cotrader_explain", "calibration_report",
-         "journal_summary", "journal_stats", "counterfactual_report", "autopilot_status", "autopilot_replay",
-         "autopilot_start", "autopilot_stop"]
+         "journal_summary", "journal_stats", "counterfactual_report",
+         "archive_status", "strategy_design", "lab_run_spec", "compare_strategies", "best_for_regime", "trade_brief",
+         "autopilot_status", "autopilot_replay", "autopilot_start", "autopilot_stop"]
+# a variant of the orb15-vwap library spec on two stocks: what an assistant would pass to lab_run_spec
+ORB_SPEC = {"schema": "bharat-trader/lab-spec/1", "name": "t-orb-open-drive", "kind": "equity", "timeframe": "5m",
+            "product": "MIS", "universe": ["SBIN", "TCS"], "params": {"or_minutes": 15, "target_r": 2},
+            "entry": {"all": [["close", "crosses_above", {"or_high": "$or_minutes"}], ["close", ">", "vwap"],
+                              {"time_between": ["09:30", "10:00"]}]},
+            "stop": {"price": {"or_mid": "$or_minutes"}}, "target": {"r": "$target_r"}, "exit": {"flat_by": "auto"},
+            "grid": {"target_r": [1.5, 2, 3]}, "walk_forward": {"in_sample": 20, "out_of_sample": 10}, "seed": 16}
 # one offline call per tool, on the real saved answers in tests/fixtures (see tests/fixtures/mcp/offline.json)
 CALLS = [
     ("market_status", {}),
@@ -57,6 +65,12 @@ CALLS = [
     ("lab_run", {"strategy": "rsi2-nifty50"}),
     ("lab_report", {"strategy": "rsi2-nifty50"}),
     ("lab_forward", {"strategy": "rsi2-nifty50"}),
+    ("lab_run_spec", {"spec": json.dumps(ORB_SPEC)}),
+    ("compare_strategies", {"strategies": "rsi2-nifty50,t-orb-open-drive"}),
+    ("strategy_design", {"template": "orb15-vwap", "window_from": "09:15", "window_to": "10:00"}),
+    ("archive_status", {}),
+    ("best_for_regime", {}),
+    ("trade_brief", {}),
     ("discover_strategies", {"universe": "lab10", "budget": 20}),
     ("discover_report", {}),
     ("strategy_build", {"template": "iron-condor", "symbol": "NIFTY", "wings": 200, "width": 100, "paths": 1000}),
@@ -856,7 +870,9 @@ class Resources(ServerCase):
 
 
 class Prompts(ServerCase):
-    NAMES = ["morning_briefing", "intraday_plan", "options_income_scan", "weekly_review", "research_strategy"]
+    NAMES = ["morning_briefing", "intraday_plan", "options_income_scan", "weekly_review", "research_strategy",
+             "daily_cotrader_brief", "find_best_trade_now", "design_strategy_for_window", "stress_test_my_idea",
+             "review_my_week"]
     PERSONAS = ["persona_intraday_trader", "persona_journal_coach", "persona_options_seller", "persona_researcher",
                 "persona_risk_officer", "persona_swing_trader"]     # tests/test_agents.py checks their text
 
@@ -865,14 +881,18 @@ class Prompts(ServerCase):
         self.assertEqual([p["name"] for p in ps], self.NAMES + self.PERSONAS)
         args = {"morning_briefing": {}, "intraday_plan": {"symbol": "reliance"},
                 "options_income_scan": {"symbol": "NIFTY", "expiry": "03-Nov-2026"}, "weekly_review": {},
-                "research_strategy": {"idea": "buy 20-day breakouts", "symbol": "TCS"}}
+                "research_strategy": {"idea": "buy 20-day breakouts", "symbol": "TCS"},
+                "daily_cotrader_brief": {}, "find_best_trade_now": {"universe": "banks"},
+                "design_strategy_for_window": {"window": "expiry day", "symbol": "NIFTY"},
+                "stress_test_my_idea": {"idea": "orb15-vwap"}, "review_my_week": {"week": "last"}}
         for name in self.NAMES:
             r = self.result(self.c.request("prompts/get", {"name": name, "arguments": args[name]}))
             text = r["messages"][0]["content"]["text"]
             self.assertEqual(r["messages"][0]["role"], "user")
             self.assertIn("not financial advice", text)
             self.assertIn("never promise", text.lower())
-            self.assertRegex(text, r"\b(market_status|scan_daily|entry_check|options_summary|portfolio_status)\b")
+            self.assertRegex(text, r"\b(market_status|scan_daily|entry_check|options_summary|portfolio_status|"
+                                   r"trade_brief|best_for_regime|strategy_design|lab_report|journal_stats)\b")
         lab = self.result(self.c.request("prompts/get", {"name": "research_strategy", "arguments":
                                                          {"idea": "opening range breakouts", "symbol": "sbin"}}))
         text = lab["messages"][0]["content"]["text"]
@@ -1105,6 +1125,214 @@ class Cotrader(ServerCase):
         self.assertTrue(os.path.exists(os.path.join(self.c.workdir, "trader", "plan.json.bak")))
         r = self.result(self.c.call("paper_order_draft", {"candidate": "2026-01-01-nothing-SBIN"}))
         self.assertTrue(r["isError"])
+
+
+# ---------------------------------------------------------------- the co-trader workflow layer (v2)
+
+def ledger(workdir):
+    p = os.path.join(workdir, "trader", "state", "lab-trials.jsonl")
+    if not os.path.exists(p):
+        return []
+    with open(p, encoding="utf-8") as fh:
+        return [json.loads(x) for x in fh if x.strip()]
+
+
+class Workflow(ServerCase):
+    ARGS = ("--rate-limit", "120")
+
+    def data(self, name, args):
+        r = self.result(self.c.call(name, args))
+        self.assertFalse(r["isError"], r["content"][0]["text"][:400])
+        return r["structuredContent"]["data"]
+
+    def error(self, name, args):
+        r = self.result(self.c.call(name, args))
+        self.assertTrue(r["isError"], (name, args))
+        return r["content"][0]["text"]
+
+    def test_strategy_design_drafts_valid_specs_and_runs_nothing(self):
+        d = self.data("strategy_design", {"template": "orb15-vwap", "symbols": "SBIN,TCS", "window_from": "09:15",
+                                          "window_to": "10:00", "risk_per_trade_pct": 0.5, "trend": "up",
+                                          "regime_gate": True, "note": "the open drive"})
+        self.assertTrue(d["valid"], d["errors"])
+        spec = d["spec"]
+        self.assertEqual(spec["universe"], ["SBIN", "TCS"])
+        self.assertEqual(spec["window"], {"from": "09:15", "to": "10:00"})
+        self.assertIn({"time_between": ["09:15", "10:00"]}, spec["entry"]["all"])
+        self.assertNotIn({"time_between": ["09:30", "11:30"]}, spec["entry"]["all"])   # the template's own window
+        self.assertIn([{"ema": 20}, ">", {"ema": 50}], spec["entry"]["all"])
+        self.assertEqual(spec["sizing"]["risk_per_trade_pct"], 0.5)
+        self.assertEqual(spec["gates"]["require_regime_edge"], 1)
+        self.assertIn("the open drive", spec["description"])
+        self.assertEqual(d["grid_points"], 6)
+        self.assertEqual(d["family_specs_tried"], 0)
+        self.assertIn("lab_run_spec", d["next_step"])
+        self.assertIn("rsi", d["vocabulary"]["indicators"])
+        exp = self.data("strategy_design", {"template": "nifty-expiry-iron-fly", "days_to_expiry": 0, "vix_max": 18,
+                                            "weekdays": "Tue", "profit_target_pct": 50, "lots": 2})
+        self.assertTrue(exp["valid"], exp["errors"])
+        self.assertEqual(exp["spec"]["entry"]["days_to_expiry"], 0)
+        self.assertEqual(exp["spec"]["entry"]["vix_max"], 18)
+        self.assertEqual(exp["spec"]["exit"]["profit_target_pct"], 50)
+        self.assertTrue(exp["family"].startswith("options-"))
+        # a draft is data: nothing ran, nothing was written
+        self.assertFalse(os.path.exists(os.path.join(self.c.workdir, "trader", "lab")))
+        self.assertEqual(ledger(self.c.workdir), [])
+
+    def test_strategy_design_rejects_unsafe_or_unknown_vocabulary(self):
+        bad = [
+            ({"template": "orb15-vwap", "extra_entry": '[{"eval": "os.system"}, ">", 1]'}, "unknown indicator"),
+            ({"template": "orb15-vwap", "extra_entry": '["__import__(\'os\')", ">", 1]'}, "unknown name"),
+            ({"template": "orb15-vwap", "extra_entry": '[{"rsi": 2}, "~=", 1]'}, "op one of"),
+            ({"template": "orb15-vwap", "params": '{"exec": 1}'}, "declares"),
+            ({"template": "rsi2-nifty50", "window_from": "09:15"}, "5-minute equity template"),
+            ({"template": "orb15-vwap", "vix_max": 20}, "no expiry, VIX or IV condition"),
+            ({"template": "orb15-vwap", "days_to_expiry": 0}, "only options templates"),
+            ({"template": "nifty-expiry-iron-fly", "trend": "up"}, "options spec"),
+            ({"template": "nifty-expiry-iron-fly", "extra_entry": '["close", ">", 1]'}, "options entries"),
+        ]
+        for args, want in bad:
+            d = self.data("strategy_design", args)
+            self.assertFalse(d["valid"], args)
+            self.assertTrue(any(want in e for e in d["errors"]), (args, d["errors"]))
+            self.assertIn("Nothing ran", d["next_step"])
+        self.assertIn("not valid JSON", self.error("strategy_design", {"template": "orb15-vwap",
+                                                                       "extra_entry": "close > vwap"}))
+        self.error("strategy_design", {"template": "my-secret-edge"})               # not in the enum
+        self.error("strategy_design", {"template": "orb15-vwap", "trend": "down"})  # long only
+        self.assertFalse(os.path.exists(os.path.join(self.c.workdir, "trader", "lab")))
+
+    def test_lab_run_spec_counts_every_trial_in_the_family(self):
+        others = []
+        r = self.c.request("tools/call", {"name": "lab_run_spec", "arguments": {"spec": json.dumps(ORB_SPEC)},
+                                          "_meta": meta(progressToken="spec-1")}, others=others)
+        a = self.result(r)["structuredContent"]["data"]
+        self.assertTrue([m for m in others if m.get("method") == "notifications/progress"])
+        self.assertIn(a["verdict"], ("REJECT", "WATCH", "PROMOTE"))
+        self.assertEqual(a["trials"]["grid_points"], 3)
+        self.assertEqual(a["trials"]["family_trials_charged"], 0)
+        self.assertEqual(a["trials"]["trials_counted"], 3)
+        self.assertTrue(os.path.exists(os.path.join(self.c.workdir, "trader", "lab", "t-orb-open-drive",
+                                                    "results.json")))
+        # a variant that changes only numbers and the name is the same family: charged for the first one
+        v = dict(ORB_SPEC, name="t-orb-variant", params={"or_minutes": 30, "target_r": 2})
+        b = self.data("lab_run_spec", {"spec": json.dumps(v)})
+        self.assertEqual(b["trials"]["family"], a["trials"]["family"])
+        self.assertEqual(b["trials"]["other_specs_in_family"], 1)
+        self.assertEqual(b["trials"]["family_trials_charged"], 3)
+        self.assertEqual(b["trials"]["trials_counted"], 6)
+        self.assertEqual(b["results"]["dsr"]["trials"], 6)
+        # re-running the first spec unchanged is not a new trial of itself, but now pays for the variant
+        a2 = self.data("lab_run_spec", {"spec": json.dumps(ORB_SPEC)})
+        self.assertEqual(a2["trials"]["family_trials_charged"], 3)
+        self.assertEqual(a2["trials"]["trials_counted"], 6)
+        rows = ledger(self.c.workdir)
+        self.assertEqual([x["name"] for x in rows], ["t-orb-open-drive", "t-orb-variant", "t-orb-open-drive"])
+        self.assertEqual(set(x["tool"] for x in rows), {"lab_run_spec"})
+        # strategy_design sees the family's history before anything else is run
+        d = self.data("strategy_design", {"template": "orb15-vwap", "symbols": "SBIN,TCS"})
+        self.assertEqual(d["family"], a["trials"]["family"])    # the library's own ORB: same structure, same family
+        self.assertEqual(d["family_specs_tried"], 2)
+        self.assertEqual(d["family_trials_so_far"], 6)
+        # a different family (a daily RSI rule) starts from zero
+        c = self.data("lab_run", {"strategy": "rsi2-nifty50"})
+        self.assertNotEqual(c["trials"]["family"], a["trials"]["family"])
+        self.assertEqual(c["trials"]["family_trials_charged"], 0)
+        self.assertEqual(ledger(self.c.workdir)[-1]["tool"], "lab_run")
+
+    def test_lab_run_spec_errors(self):
+        self.assertIn("not valid JSON", self.error("lab_run_spec", {"spec": "{name: x}"}))
+        self.assertIn("JSON object", self.error("lab_run_spec", {"spec": "[1, 2]"}))
+        lib = dict(ORB_SPEC, name="orb15-vwap")
+        self.assertIn("library spec's name", self.error("lab_run_spec", {"spec": json.dumps(lib)}))
+        bad = dict(ORB_SPEC, entry=["close", ">", {"python": "1+1"}])
+        self.assertIn("does not validate", self.error("lab_run_spec", {"spec": json.dumps(bad)}))
+        shorts = dict(ORB_SPEC, side="short")
+        self.assertIn("long only", self.error("lab_run_spec", {"spec": json.dumps(shorts)}))
+        self.assertEqual(ledger(self.c.workdir), [])
+
+    def test_compare_strategies(self):
+        self.data("lab_run_spec", {"spec": json.dumps(ORB_SPEC)})
+        self.data("lab_run", {"strategy": "rsi2-nifty50"})
+        d = self.data("compare_strategies", {"strategies": "rsi2-nifty50, t-orb-open-drive"})
+        self.assertEqual(sorted(r["name"] for r in d["rows"]), ["rsi2-nifty50", "t-orb-open-drive"])
+        for r in d["rows"]:
+            self.assertIsNotNone(r["oos_win_rate_ci"])
+            lo, hi = r["oos_win_rate_ci"]
+            self.assertLessEqual(lo, r["oos_win_rate"])
+            self.assertGreaterEqual(hi, r["oos_win_rate"])
+            self.assertTrue(r["does_not_prove"])
+            self.assertIsInstance(r["trials_counted"], int)
+            self.assertIn("cell", d["regime_now"])
+        self.assertEqual(len(d["families"]), 2)
+        r = self.result(self.c.call("compare_strategies", {"strategies": "rsi2-nifty50"}))
+        self.assertTrue(r["isError"])
+        self.assertIn("run it first", self.error("compare_strategies", {"strategies": "rsi2-nifty50,never-run"}))
+
+    def test_best_for_regime_and_trade_brief(self):
+        d = self.data("best_for_regime", {})
+        self.assertEqual(d["strategies"], [])
+        self.assertIn("No lab runs yet", d["headline"])
+        import test_cotrader as tc
+        tc.run_lab(self.c.workdir, [tc.SMA20_WATCH, tc.SMA20_REJECT], tc.SIGNAL)
+        d = self.data("best_for_regime", {})
+        self.assertEqual(d["regime_now"]["as_of_close"], "2026-09-17")
+        by = {r["name"]: r for r in d["strategies"]}
+        self.assertEqual(sorted(by), ["t-sma20-research", "t-sma20-watch"])
+        w = by["t-sma20-watch"]
+        self.assertEqual(w["tier"], "WATCH")
+        self.assertGreater(w["trades_all"], 0)
+        self.assertEqual(w["enough"], w["trades_in_cell"] >= d["min_cell_trades"])
+        self.assertLessEqual(w["p_ci"][0], w["p"])
+        self.assertGreaterEqual(w["p_ci"][1], w["p"])
+        self.assertIn("past trades", w["why"])
+        self.assertEqual(by["t-sma20-research"]["tier"], "RESEARCH")
+        before = sorted(os.listdir(os.path.join(self.c.workdir, "trader")))
+        b = self.data("trade_brief", {})
+        for k in ("regime", "candidates", "open_risk", "calibration", "headline", "unavailable"):
+            self.assertIn(k, b)
+        self.assertEqual(b["unavailable"], [], b["unavailable"])
+        self.assertTrue(b["regime"])
+        self.assertEqual(sorted(c["symbol"] for c in b["candidates"]), ["AXISBANK", "BHARTIARTL"])
+        for c in b["candidates"]:
+            self.assertIsNotNone(c["n_in_regime"])
+            self.assertEqual(len(c["p_ci"]), 2)
+            self.assertNotIn("order", c)
+        self.assertEqual(b["open_risk"]["positions"][0]["symbol"], "TCS")
+        # read only: no cotrader.json, no prediction log, no plan
+        self.assertEqual(sorted(os.listdir(os.path.join(self.c.workdir, "trader"))), before)
+        self.assertFalse(os.path.exists(os.path.join(self.c.workdir, "trader", "cotrader.json")))
+
+    def test_archive_status(self):
+        d = self.data("archive_status", {})
+        self.assertEqual(d["datasets"]["fo"]["first"], "2026-10-01")
+        self.assertIn("fo 2026-10-01 to 2026-10-30", d["words"])
+
+    def test_guardrails_are_in_the_descriptions(self):
+        by = {t["name"]: t for t in self.result(self.c.request("tools/list"))["tools"]}
+        self.assertIn("Proposing is not placing", by["trade_brief"]["description"])
+        self.assertIn("Trial-count honesty", by["lab_run_spec"]["description"])
+        self.assertIn("increments the multiple-testing count", by["lab_run_spec"]["description"])
+        self.assertIn("Never runs anything", by["strategy_design"]["description"])
+        self.assertFalse(by["lab_run_spec"]["annotations"]["idempotentHint"])      # every run is a trial
+        for n in ("strategy_design", "archive_status", "compare_strategies", "best_for_regime", "trade_brief"):
+            self.assertTrue(by[n]["annotations"]["readOnlyHint"], n)
+
+    def test_cotrader_prompts_demand_evidence(self):
+        for name, args in (("daily_cotrader_brief", {}), ("find_best_trade_now", {}),
+                           ("design_strategy_for_window", {"window": "09:15-10:00 open drive"}),
+                           ("stress_test_my_idea", {"idea": "buy gaps down"}), ("review_my_week", {})):
+            text = self.result(self.c.request("prompts/get", {"name": name, "arguments": args}))[
+                "messages"][0]["content"]["text"]
+            for want in ("Evidence first", "95% interval", "after charges", "regime", "does NOT show",
+                         "No promises", "typed yes", "Proposing is not placing", "trial"):
+                self.assertIn(want, text, (name, want))
+        t = self.result(self.c.request("prompts/get", {"name": "design_strategy_for_window",
+                                                       "arguments": {"window": "expiry day", "symbol": "nifty"}}))
+        text = t["messages"][0]["content"]["text"]
+        for tool in ("strategy_design", "lab_run_spec", "days_to_expiry 0", "NIFTY"):
+            self.assertIn(tool, text)
+        self.assertEqual(self.code(self.c.request("prompts/get", {"name": "design_strategy_for_window"})), -32602)
 
 
 # ---------------------------------------------------------------- the auto-pilot

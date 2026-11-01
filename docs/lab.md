@@ -104,7 +104,10 @@ moments.
     SR*      = √V · ( (1 − γ) Φ⁻¹(1 − 1/N) + γ Φ⁻¹(1 − 1/(N e)) ),  γ = 0.5772…
 
 N = the grid points + `trials_tried` + earlier spec versions run in this lab
-folder. V = the variance of the grid points' Sharpe ratios (with one point,
+folder, plus, for runs from the MCP server (`lab_run`, `lab_run_spec`), the grid
+points of every other spec of the same *family* already run there (the spec's
+structure without its numbers, symbols or name, logged in
+`trader/state/lab-trials.jsonl`; see [mcp.md](mcp.md#the-co-trader-workflow)). V = the variance of the grid points' Sharpe ratios (with one point,
 the null variance 1/(T − 1)). DSR = PSR(SR*). The gate wants 0.95.
 
 **Probability of backtest overfitting** (Bailey, Borwein, López de Prado and

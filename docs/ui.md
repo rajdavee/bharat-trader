@@ -78,6 +78,7 @@ Pages are grouped by the trader's day, so each step's next step is close by
 | Strategy Lab | Each trader-lab run: the verdict and why, out-of-sample trades (the sample size), expectancy after charges, the Monte Carlo range of the final P&L, max drawdown, the equity curve after charges with the out-of-sample windows shaded, the gates, results by regime, the deflated Sharpe ratio, the probability of overfitting, the paper forward test, and what a backtest does not show | `trader/lab/<name>/results.json`, `status.json`, `equity.csv` from `trader-lab/lab.py run` |
 | Co-trader | Candidate cards from trader-cotrader: the evidence tier badge (PROMOTED, WATCH; RESEARCH only with "Show RESEARCH ideas"), the probability that a similar past trade made money after charges with its 95% range and n, the expected R after charges, the time-machine replay and any disagreement, the plan and size, trader-risk's verdict, why and why not, what would invalidate it, what the evidence does not show, similar past trades and Draft to paper (sized and risk-checked, nothing placed); the no-edge card when nothing qualifies; each strategy's status today; the calibration chart (predicted vs observed) with Brier scores by strategy. See [cotrader.md](cotrader.md) | trader-cotrader `run_today`, `calibration_report`; trader-budget and trader-risk for the draft |
 | Auto-pilot | Whether the paper loop runs (pid, last step), start and stop with the typed words `start paper` / `stop paper` (a live config is refused), today's timeline (pre-open brief, orders placed with trader-risk PASS and the machine yes, fills, exits, blocks with reasons, the kill switch, end of day), the open paper positions by strategy, each strategy's capital bucket and its paper forward record after charges next to the lab's verdict, today's report, and a replay of a past day in a sandbox. See [autopilot.md](autopilot.md) | trader-autopilot `status`, `replay`; `autopilot.py start` / `stop` |
+| Ask | Optional, off by default: a chat with your own LLM endpoint (set by `BT_LLM_*` environment variables only). A privacy notice and a per-session consent box come first. The conversation shows each tool call the model made (read-only tools and the paper draft only) and links a drafted ticket to Portfolio and orders for your own typed yes. See [ai-chat.md](ai-chat.md) | `ui/chat.py` relaying to your endpoint; tool calls run `mcp/toolkit.py` |
 | Setup guide | The first-run steps above | trader-budget `build_config`, `describe_config`; the settings validator; trader-broker's adapters |
 | Chart | Candles and volume at 1m, 5m or 1d; EMA 9 and 21; session VWAP; the opening-range band; the plan's entry, stop and target; trader-entry's breakout status | Yahoo bars through trader-scanner's `yahoo_get`, parsed and evaluated by trader-entry; `trader/plan.json` |
 | Scanner | `trader/watchlist.json` with setups, RSI, turnover, and delayed quotes for the 10 most traded hits | trader-scanner; trader-alerts quotes |
@@ -93,7 +94,7 @@ its inputs, the source and the time.
 
 Keyboard: `Ctrl K` or `/` the palette; `g` then a letter jumps to a page:
 `d` Today, `c` chart, `s` scanner, `o` option chain, `b` strategy, `k`
-co-trader, `p` portfolio, `r` risk, `u` auto-pilot, `l` lab, `j` journal, `t`
+co-trader, `q` ask, `p` portfolio, `r` risk, `u` auto-pilot, `l` lab, `j` journal, `t`
 agents, `e` settings, `w` setup guide, `a` about. `t` theme, `x` guided or
 expert, `?` the list, `Esc` closes a panel. Dark and light themes follow your
 system setting until you press the toggle.
@@ -158,6 +159,10 @@ free endpoints again.
 | POST | `/api/autopilot/replay` | `{"date", "to"?}`: replays past sessions in a sandbox (`trader/autopilot/replays/`); your own account is not touched |
 | GET | `/api/journal` | trader-journal's summary, read only: stats with intervals, equity curve, breakdowns, rule breaks, the counterfactual ledger, every closed trade (`?lite=1`: this week only, no bars) |
 | POST | `/api/journal/note` | `{"id", "text", "tags"}`: your note and tags on one journal entry (`trader/journal/notes.json`); touches no order or trade record |
+| GET | `/api/ask` | the Ask panel: on or off and why, the format, model and endpoint host (never the key), this session's consent, the tools the model may call |
+| POST | `/api/ask/consent` | `{"consent": true or false}` for this browser session; off forgets the conversation |
+| POST | `/api/ask` | `{"message"}`: relay to your LLM, run its tool calls (read-only tools and `paper_order_draft`; never a confirm), return `{"reply", "steps", "drafted"}` |
+| POST | `/api/ask/reset` | forget this session's conversation |
 | POST | `/api/doctor/run` | `doctor.py --json`: probe every data source now (about 30 s) and update `trader/doctor.json`; offline it replays `<offline>/doctor/` |
 
 Send to paper never places anything: the proposal goes through Run risk check
@@ -210,7 +215,10 @@ A web page from any site can try to reach a server on your machine. So:
   the one stylesheet the chart library adds for its logo), `connect-src
   'self'`, `frame-ancestors 'none'`; also `nosniff`, `no-referrer` and
   `X-Frame-Options: DENY`;
-- static files are served only from `ui/static/`, by a fixed list of types.
+- static files are served only from `ui/static/`, by a fixed list of types;
+- the Ask routes answer `127.0.0.1` only, whatever `--host` says. They need a
+  session and that session's consent, and the LLM key never reaches the
+  browser ([ai-chat.md](ai-chat.md)).
 
 `tests/test_ui.py` checks each of these.
 

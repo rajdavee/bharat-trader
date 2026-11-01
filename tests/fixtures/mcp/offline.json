@@ -24,6 +24,11 @@
     "regime_now": {"offline": "../trader-lab", "also": "../trader-regime", "now": "2026-10-30 16:00"},
     "cotrader_candidates": {"offline": "../trader-lab", "now": "2026-09-18 16:00"},
     "calibration_report": {"offline": "../trader-lab", "now": "2026-10-30 16:00"},
+    "archive_status": {"offline": "../trader-lab", "now": "2026-11-01 10:00"},
+    "lab_run_spec": {"offline": "../trader-lab", "now": "2026-10-23 16:00"},
+    "compare_strategies": {"offline": "../trader-lab", "now": "2026-10-30 16:00"},
+    "best_for_regime": {"offline": "../trader-lab", "now": "2026-09-18 16:00"},
+    "trade_brief": {"offline": "../trader-lab", "now": "2026-09-18 16:00"},
     "autopilot_replay": {"offline": "../trader-lab"}
   }
 }
