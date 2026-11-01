@@ -1066,8 +1066,10 @@ def run_today(workdir=".", view="validated", only=None, now=None, data=None, arc
                          % (row["name"], len(plans) - len(fresh), sig_day))
         srow["triggers"] = len(fresh)
         if not fresh:
-            srow["status"] = ("no live trigger: options triggers wait for trader-lab's options forward test"
-                              if srow["kind"] == "options" else
+            srow["status"] = (("no live trigger: RESEARCH options show stats only (trader-lab drafts baskets for "
+                               "WATCH and PROMOTE)" if tier == "RESEARCH" else
+                               "no live trigger: the lab's options forward test drafted no basket today (%s)"
+                               % (sig_day or "no chains")) if srow["kind"] == "options" else
                               "no live trigger on the latest bars (%s)" % (sig_day or "no bars"))
             continue
         for p in fresh:
