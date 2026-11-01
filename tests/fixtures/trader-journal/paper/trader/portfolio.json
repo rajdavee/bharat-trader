@@ -1,0 +1,238 @@
+{
+  "cash": 197512.13,
+  "positions": {},
+  "schema": "bharat-trader/portfolio/2",
+  "margin_blocked": 0.0,
+  "fno_positions": [],
+  "strategies": {
+    "S-20261102-1": {
+      "id": "S-20261102-1",
+      "opened_at": "2026-11-02T10:01:00+05:30",
+      "underlying": "NIFTY",
+      "status": "closed",
+      "name": "iron-condor",
+      "realised": -272.71,
+      "charges": 262.96,
+      "margin": 0.0,
+      "basket_ids": [
+        "24c2c32c6b4cc415",
+        "a74a4f1a074d6e9f",
+        "672a5328a384cb8f"
+      ],
+      "margin_source": "nothing open: released",
+      "closed_at": "2026-11-02T12:01:00+05:30"
+    }
+  },
+  "ledger": [
+    {
+      "at": "2026-11-02T10:01:00+05:30",
+      "kind": "premium_paid",
+      "amount": -1865.5,
+      "what": "BUY 65 NIFTY 22700 PE 03-Nov-2026 at 28.70",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-22700-PE"
+    },
+    {
+      "at": "2026-11-02T10:01:00+05:30",
+      "kind": "charges",
+      "amount": -24.44,
+      "what": "charges on BUY 65 NIFTY 22700 PE 03-Nov-2026",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-22700-PE"
+    },
+    {
+      "at": "2026-11-02T10:01:00+05:30",
+      "kind": "premium_paid",
+      "amount": -1563.25,
+      "what": "BUY 65 NIFTY 23300 CE 03-Nov-2026 at 24.05",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-23300-CE"
+    },
+    {
+      "at": "2026-11-02T10:01:00+05:30",
+      "kind": "charges",
+      "amount": -24.31,
+      "what": "charges on BUY 65 NIFTY 23300 CE 03-Nov-2026",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-23300-CE"
+    },
+    {
+      "at": "2026-11-02T10:01:00+05:30",
+      "kind": "premium_received",
+      "amount": 2879.5,
+      "what": "SELL 65 NIFTY 22800 PE 03-Nov-2026 at 44.30",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-22800-PE"
+    },
+    {
+      "at": "2026-11-02T10:01:00+05:30",
+      "kind": "charges",
+      "amount": -29.12,
+      "what": "charges on SELL 65 NIFTY 22800 PE 03-Nov-2026",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-22800-PE"
+    },
+    {
+      "at": "2026-11-02T10:01:00+05:30",
+      "kind": "margin_block",
+      "amount": 36223.08,
+      "what": "S-20261102-1 margin ₹0.00 -> ₹36,223.08 (trader-broker estimate: NSE SPAN file 30-Oct-2026: NIFTY priceScan 2143.94 / spot 23053.10, volScan 0.04; price scan 9.3%, vol scan 4 points, ELM 2%)",
+      "strategy_id": "S-20261102-1"
+    },
+    {
+      "at": "2026-11-02T10:01:00+05:30",
+      "kind": "premium_received",
+      "amount": 2915.25,
+      "what": "SELL 65 NIFTY 23200 CE 03-Nov-2026 at 44.85",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-23200-CE"
+    },
+    {
+      "at": "2026-11-02T10:01:00+05:30",
+      "kind": "charges",
+      "amount": -29.2,
+      "what": "charges on SELL 65 NIFTY 23200 CE 03-Nov-2026",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-23200-CE"
+    },
+    {
+      "at": "2026-11-02T10:01:00+05:30",
+      "kind": "margin_block",
+      "amount": 29289.29,
+      "what": "S-20261102-1 margin ₹36,223.08 -> ₹65,512.37 (trader-broker estimate: NSE SPAN file 30-Oct-2026: NIFTY priceScan 2143.94 / spot 23053.10, volScan 0.04; price scan 9.3%, vol scan 4 points, ELM 2%)",
+      "strategy_id": "S-20261102-1"
+    },
+    {
+      "at": "2026-11-02T10:01:00+05:30",
+      "kind": "margin_release",
+      "amount": -1529.11,
+      "what": "S-20261102-1 margin ₹65,512.37 -> ₹63,983.26 (trader-strategy's estimate in trader/strategy.json, less the premium paid)",
+      "strategy_id": "S-20261102-1"
+    },
+    {
+      "at": "2026-11-02T11:01:00+05:30",
+      "kind": "premium_paid",
+      "amount": -2915.25,
+      "what": "BUY 65 NIFTY 23200 CE 03-Nov-2026 at 44.85",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-23200-CE"
+    },
+    {
+      "at": "2026-11-02T11:01:00+05:30",
+      "kind": "charges",
+      "amount": -24.92,
+      "what": "charges on BUY 65 NIFTY 23200 CE 03-Nov-2026",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-23200-CE"
+    },
+    {
+      "at": "2026-11-02T11:01:00+05:30",
+      "kind": "margin_release",
+      "amount": -27756.9,
+      "what": "S-20261102-1 margin ₹63,983.26 -> ₹36,226.36 (trader-broker estimate: NSE SPAN file 30-Oct-2026: NIFTY priceScan 2143.94 / spot 23053.10, volScan 0.04; price scan 9.3%, vol scan 4 points, ELM 2%)",
+      "strategy_id": "S-20261102-1"
+    },
+    {
+      "at": "2026-11-02T11:01:00+05:30",
+      "kind": "premium_received",
+      "amount": 2161.25,
+      "what": "SELL 65 NIFTY 23250 CE 03-Nov-2026 at 33.25",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-23250-CE"
+    },
+    {
+      "at": "2026-11-02T11:01:00+05:30",
+      "kind": "charges",
+      "amount": -27.75,
+      "what": "charges on SELL 65 NIFTY 23250 CE 03-Nov-2026",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-23250-CE"
+    },
+    {
+      "at": "2026-11-02T11:01:00+05:30",
+      "kind": "margin_block",
+      "amount": 29626.51,
+      "what": "S-20261102-1 margin ₹36,226.36 -> ₹65,852.87 (trader-broker estimate: NSE SPAN file 30-Oct-2026: NIFTY priceScan 2143.94 / spot 23053.10, volScan 0.04; price scan 9.3%, vol scan 4 points, ELM 2%)",
+      "strategy_id": "S-20261102-1"
+    },
+    {
+      "at": "2026-11-02T12:01:00+05:30",
+      "kind": "premium_paid",
+      "amount": -2882.75,
+      "what": "BUY 65 NIFTY 22800 PE 03-Nov-2026 at 44.35",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-22800-PE"
+    },
+    {
+      "at": "2026-11-02T12:01:00+05:30",
+      "kind": "charges",
+      "amount": -24.89,
+      "what": "charges on BUY 65 NIFTY 22800 PE 03-Nov-2026",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-22800-PE"
+    },
+    {
+      "at": "2026-11-02T12:01:00+05:30",
+      "kind": "margin_release",
+      "amount": -32674.64,
+      "what": "S-20261102-1 margin ₹65,852.87 -> ₹33,178.23 (trader-broker estimate: NSE SPAN file 30-Oct-2026: NIFTY priceScan 2143.94 / spot 23053.10, volScan 0.04; price scan 9.3%, vol scan 4 points, ELM 2%)",
+      "strategy_id": "S-20261102-1"
+    },
+    {
+      "at": "2026-11-02T12:01:00+05:30",
+      "kind": "premium_paid",
+      "amount": -2161.25,
+      "what": "BUY 65 NIFTY 23250 CE 03-Nov-2026 at 33.25",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-23250-CE"
+    },
+    {
+      "at": "2026-11-02T12:01:00+05:30",
+      "kind": "charges",
+      "amount": -24.57,
+      "what": "charges on BUY 65 NIFTY 23250 CE 03-Nov-2026",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-23250-CE"
+    },
+    {
+      "at": "2026-11-02T12:01:00+05:30",
+      "kind": "margin_release",
+      "amount": -33178.23,
+      "what": "S-20261102-1 margin ₹33,178.23 -> ₹0.00 (only bought options: the premium is paid up front, nothing is blocked)",
+      "strategy_id": "S-20261102-1"
+    },
+    {
+      "at": "2026-11-02T12:01:00+05:30",
+      "kind": "premium_received",
+      "amount": 1862.25,
+      "what": "SELL 65 NIFTY 22700 PE 03-Nov-2026 at 28.65",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-22700-PE"
+    },
+    {
+      "at": "2026-11-02T12:01:00+05:30",
+      "kind": "charges",
+      "amount": -27.17,
+      "what": "charges on SELL 65 NIFTY 22700 PE 03-Nov-2026",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-22700-PE"
+    },
+    {
+      "at": "2026-11-02T12:01:00+05:30",
+      "kind": "premium_received",
+      "amount": 1560.0,
+      "what": "SELL 65 NIFTY 23300 CE 03-Nov-2026 at 24.00",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-23300-CE"
+    },
+    {
+      "at": "2026-11-02T12:01:00+05:30",
+      "kind": "charges",
+      "amount": -26.59,
+      "what": "charges on SELL 65 NIFTY 23300 CE 03-Nov-2026",
+      "strategy_id": "S-20261102-1",
+      "contract": "NIFTY-2026-11-03-23300-CE"
+    }
+  ],
+  "migrated_from": "1"
+}

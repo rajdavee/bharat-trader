@@ -23,7 +23,7 @@ researcher ──verdicts──▶ intraday-trader ─┐
 | swing-trader | daily lab rules held in delivery (CNC), filings as reasons to skip | paper | WATCH or PROMOTE only; no entry 5 sessions before results; at most 5 open |
 | researcher | hypotheses with a kill condition, lab specs, after-charges scorecards | never | gates written before the run; no verdict talk under 30 out-of-sample trades |
 | risk-officer | trader-risk on every ticket, the scenario grid, behavioural breakers, the kill switch | never | may veto a PASS, never pass a BLOCK; the kill switch only with the user's agreement |
-| journal-coach | weekly review from the paper logs | never | one process change a week; under 20 trades, process only |
+| journal-coach | weekly review from trader-journal (`journal.py review`, `journal_stats`, `counterfactual_report`) | never | one process change a week; under 20 trades, process only |
 
 The traders trade only rules the Strategy Lab has evidence for (see
 [lab.md](lab.md)). A REJECT is reported as loudly as a WATCH. No persona
