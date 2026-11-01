@@ -2611,6 +2611,52 @@ def autopilot_view(ctx):
     return s
 
 
+FORWARD_NOTE = ("A paper forward record of a few weeks proves little either way: the ranges say how little. Inside the "
+                "backtest's predicted range is not proof of an edge, below it is not proof of none. A decay alert "
+                "recommends DEMOTE; it is applied only when you run lab.py forward-report --demote NAME (or turn on "
+                "the auto-pilot's decay_demote).")
+
+
+def forward_view(ctx):
+    """The forward-test dashboard: trader-lab's forward report, the chain-capture job's health and the
+    notification settings (never the webhook URL)."""
+    lab = skill("lab")
+    now = _naive_now(ctx)
+    try:
+        rep = lab.forward_report(ctx.path("lab"), ctx.workdir, now, cfg=ctx.config())
+    except lab.LabError as e:
+        raise ApiError(422, str(e))
+    cap = None
+    try:
+        cap = skill("autopilot").capture_health(ctx.workdir, now)
+    except skill("autopilot").AutopilotError as e:
+        cap = {"problems": [str(e)], "enabled": False}
+    note = skill("alerts").notify_api().status(ctx.workdir)
+    note.pop("recent", None)
+    rep.update({"capture": cap, "notify": note, "note": FORWARD_NOTE,
+                "how": "In a terminal: python3 trader-lab/lab.py forward-report (or --json); the auto-pilot runs it "
+                       "at the end of each day and keeps the chain capture running (autopilot.py capture)."})
+    return rep
+
+
+def r_forward(ctx, q, body):
+    """The forward-test dashboard: each strategy's paper record against its backtest's predicted range."""
+    return forward_view(ctx)
+
+
+def r_notify_test(ctx, q, body):
+    """Send one test notification through the configured channels (off by default: then it says so)."""
+    n = skill("alerts").notify_api()
+    channel = (body or {}).get("channel")
+    if channel not in (None, "desktop", "webhook"):
+        raise ApiError(400, "channel is desktop or webhook")
+    try:
+        r = n.test(ctx.workdir, now=_naive_now(ctx), channel=channel)
+    except n.NotifyError as e:
+        raise ApiError(422, str(e))
+    return {"sent": r["sent"], "why": r["why"], "channels": r["channels"], "payload": r["payload"]}
+
+
 def r_autopilot(ctx, q, body):
     """The auto-pilot: running or not, today's timeline, open paper positions, each strategy's forward record."""
     return autopilot_view(ctx)
@@ -2984,6 +3030,10 @@ ROUTES = [
      "ranges and n, risk verdicts, no-edge reasons; the calibration of logged probabilities", False),
     ("GET", "/api/autopilot", r_autopilot, "the auto-pilot on paper: running or not, today's timeline, open paper "
      "positions by strategy, each strategy's forward record and verdict, past replays", False),
+    ("GET", "/api/forward", r_forward, "forward tests: each strategy's paper record against its backtest's predicted "
+     "range, decay alerts, calibration, days to PROMOTE, the chain-capture job's health", False),
+    ("POST", "/api/notify/test", r_notify_test, "send one test notification through the configured channels "
+     "(off by default)", True),
     ("POST", "/api/autopilot/start", r_autopilot_start, "start the auto-pilot on PAPER (typed: start paper); a live "
      "config is refused", True),
     ("POST", "/api/autopilot/stop", r_autopilot_stop, "stop the auto-pilot after its step (typed: stop paper)", True),

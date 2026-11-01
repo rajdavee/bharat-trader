@@ -1427,6 +1427,37 @@ def t_autopilot_stop(kit, a, call):
     except api.ApiError as e:
         raise ToolError(e.message)
     return {"stopped": view["stopped"], "running": view["running"], "via": via}, [AUTOPILOT_LIMITS]
+
+
+# ---------------------------------------------------------------- forward tests and notifications
+
+FORWARD_LIMITS = ("A paper forward record of a few weeks proves little either way: quote n, the 95% ranges and the "
+                  "backtest's predicted range, never a promise. A decay alert is a recommendation: the DEMOTE is applied "
+                  "only by the user, in a terminal (lab.py forward-report --demote NAME), never from here.")
+
+
+def t_forward_report(kit, a, call):
+    try:
+        view = api.forward_view(kit.ctx)
+    except api.ApiError as e:
+        raise ToolError(e.message)
+    if a.get("strategy"):
+        view["strategies"] = [r for r in view["strategies"] if r["strategy"] == a["strategy"]]
+    for r in view["strategies"]:
+        r["running"] = (r.get("running") or [])[-30:]
+        r["control_chart"]["path"] = (r["control_chart"].get("path") or [])[-30:]
+    view.pop("disclaimer", None)
+    return view, [FORWARD_LIMITS, "Read only."]
+
+
+def t_notify_test(kit, a, call):
+    """One test notification (local desktop and/or the user's own webhook) as the config allows it."""
+    try:
+        r = api.r_notify_test(kit.ctx, {}, {})
+    except api.ApiError as e:
+        raise ToolError(e.message)
+    return r, ["Notifications are off by default; this sends only when the user turned them on in trader/config.json. "
+               "The webhook gets only a short summary, never positions, keys or approval phrases."]
 # ---------------------------------------------------------------- tools: the trade journal
 
 # ---------------------------------------------------------------- the live co-pilot (read only here)
@@ -2849,6 +2880,27 @@ def build_tools():
                               minLength=1, maxLength=50)},
                   data=obj({"stopped": S("string"), "via": S("string")}, ["stopped"], extra=True),
                   annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+                  network=False))
+    T.append(tool("forward_report", "Forward tests: paper record vs backtest",
+                  "The forward-test dashboard, read only: for each trader-lab strategy, its paper forward record "
+                  "(trades, mean R after charges with its 95% range, win rate with its Wilson range) against the "
+                  "range its backtest's out-of-sample trades predicted for a record that long; inside, below or "
+                  "above; a lower CUSUM control chart; decay alerts with a DEMOTE recommendation (applied only by the "
+                  "user, in a terminal); the co-trader's Brier score; the promote / demote timeline; trades and "
+                  "sessions until PROMOTE; and the intraday option-chain capture job's health (heartbeat, rounds, "
+                  "gaps, the eh-14 holdout deadline).", t_forward_report,
+                  {"strategy": S("string", "only this trader-lab strategy name (default: every forward test)",
+                                 pattern=r"^[a-z0-9][a-z0-9\-]{1,47}$")},
+                  data=obj({"strategies": ANY_LIST, "decay_alerts": ANY_LIST, "capture": {}, "thresholds": ANY_OBJ,
+                            "words": S("string")}, ["strategies", "decay_alerts", "words"], extra=True), network=False))
+    T.append(tool("notify_test", "Notifications: send a test",
+                  "Send one test notification through the local notifier as trader/config.json allows it (off by "
+                  "default: then it says so and sends nothing): a desktop pop-up on this machine and/or a JSON POST "
+                  "of a short summary to the user's own webhook (BT_NOTIFY_WEBHOOK; the URL is never shown). It "
+                  "places, changes or approves nothing.", t_notify_test, {},
+                  data=obj({"sent": S("boolean"), "why": S("string"), "channels": ANY_OBJ, "payload": ANY_OBJ},
+                           ["sent", "why"]),
+                  annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False},
                   network=False))
     T.append(tool("copilot_status", "Co-pilot: status (read only)",
                   "The LIVE co-pilot, read only: which trader-lab strategies may make live proposals and the reason "

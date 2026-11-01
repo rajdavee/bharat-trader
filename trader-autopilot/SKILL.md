@@ -62,6 +62,8 @@ python3 "<skill dir>/autopilot.py" status [--json]
 python3 "<skill dir>/autopilot.py" report [--date 2026-09-21] [--json]
 python3 "<skill dir>/autopilot.py" replay --date 2026-09-21 [--to 2026-09-25] [--data DIR]
 python3 "<skill dir>/autopilot.py" report --replay 2026-09-21 --date 2026-09-21
+python3 "<skill dir>/autopilot.py" capture [--json]          # the intraday option-chain capture job's health
+python3 "<skill dir>/autopilot.py" capture --tick           # one supervision step (for a scheduler without the loop)
 ```
 
 `--workdir DIR` is the folder holding `trader/`. Bars come from `--data DIR`
@@ -92,6 +94,9 @@ apply to every order through trader-risk):
 | `tiers` | PROMOTED and/or WATCH. RESEARCH is refused: unproven ideas are never traded |
 | `doctor`, `regime_symbols`, `archive_update` | the pre-open steps (doctor and archive update run live only) |
 | `calibration_demote`, `forward_update` | the end-of-day steps (both on by default) |
+| `forward_report` | the forward-test dashboard at the end of the day (on): each forward record against its backtest's range; a decay alert is notified and recommended |
+| `decay_demote` | apply the DEMOTE a decay alert recommends (off: you decide, `lab.py forward-report --demote NAME`) |
+| `chain_capture` | the intraday option-chain capture job: `enabled` (true), `symbols` (NIFTY, BANKNIFTY), `every_min` (5), `expiries` (2), `stale_min` (20), `max_restarts` (3), `restart_gap_min` (10), `archive` |
 
 ## One day
 
@@ -134,6 +139,28 @@ cancelled, every auto-pilot position flattened on paper (a basket at that
 day's close). **Circuit breakers**, the daily limits and the order rate are
 trader-risk's own: a blocked candidate is recorded with the reasons.
 
+## The intraday option-chain capture
+
+On the live clock (never in a replay or with `--offline`) the loop keeps
+trader-archive's `capture-chains` running in market hours for
+`chain_capture.symbols`: started detached at the pre-open with `--sessions 1`,
+its heartbeat (`archive/chain/capture.json`) checked every step, restarted
+after a crash or a stale heartbeat (only a capture it started; at most
+`max_restarts` a day, `restart_gap_min` apart), then it gives up for the day
+and says so. `capture` shows the heartbeat, today's rounds, the strikes in the
+latest snapshot, the gaps and the restarts. The pre-registered hypothesis
+eh-14-trend-day-buying needs the chain captured live from 16 Nov 2026 as its
+holdout. docs/forward-tests.md has launchd, systemd and Task Scheduler
+examples for `capture --tick`.
+
+## Notifications
+
+With `"notify"` turned on in `trader/config.json` (off by default; see
+trader-alerts and docs/notifications.md) the loop tells you about paper fills
+and exits, risk locks and the kill switch, decay alerts and capture failures:
+a desktop pop-up and, optionally, a short summary to your own webhook. A
+replay never notifies.
+
 ## Resuming, the lock, stopping
 
 State is saved after every action in `trader/autopilot/state.json`, with the
@@ -162,6 +189,7 @@ account is never touched. It is the test harness and a good demo.
 | `trader/autopilot/state.json`, `lock.json`, `orders/`, `work/` | the loop's state and its working files |
 | `trader/autopilot/days/<date>/timeline.jsonl`, `report.md`, `report.json` | the day's actions and its report |
 | `trader/autopilot/records/<strategy>.json` | each strategy's paper forward record (exact charges) |
+| `trader/autopilot/capture.json`, `capture.log` | the capture job's own state and the capture's output |
 
 ## How to talk about it
 
