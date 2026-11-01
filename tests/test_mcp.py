@@ -519,7 +519,7 @@ class Tools(ServerCase):
         self.assertEqual([(l["side"], l["option_type"], l["strike"]) for l in d["legs"]],
                          [("BUY", "PE", 22700), ("SELL", "PE", 22800), ("SELL", "CE", 23200), ("BUY", "CE", 23300)])
         self.assertEqual(d["margin"]["label"], "Margin required (estimate, +/-15%)")
-        self.assertEqual(d["margin"]["required"], 67408.76)
+        self.assertEqual(d["margin"]["required"], 66434.1)
         self.assertEqual(d["margin"]["max_loss"], 4129.12)
         self.assertEqual(d["expiry"]["breakevens"], [22763.53, 23236.47])
         self.assertIsNotNone(d["probability"]["simulated"])

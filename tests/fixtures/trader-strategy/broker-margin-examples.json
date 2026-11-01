@@ -1,0 +1,45 @@
+{
+  "about": "Published broker margin figures for hedged NIFTY option spreads, copied by hand from the pages below on 2026-11-01 (no personal data). spot_close is NIFTY 50's close the session before the article, from history-^NSEI-1d.json in this folder; NSE charges exposure on the underlying's last close. days is calendar days from the article to the expiry.",
+  "examples": [
+    {
+      "id": "hdfcsec-2026-01-09",
+      "source": "HDFC Securities (Nandish Shah) via Business Standard, 09-Jan-2026: https://www.business-standard.com/markets/news/f-o-trade-analyst-suggests-bear-spread-on-nifty-for-jan-9-check-levels-126010900086_1.html",
+      "underlying": "NIFTY", "lot_size": 65, "spot_close": 25876.85, "close_date": "2026-01-08", "days": 11,
+      "legs": [{"side": "BUY", "type": "PE", "strike": 25800, "premium": 106.0},
+               {"side": "SELL", "type": "PE", "strike": 25600, "premium": 55.0}],
+      "published": {"margin": 34000, "max_loss": 3315, "max_profit": 9685, "words": "Approx margin required ₹34,000"}
+    },
+    {
+      "id": "hdfcsec-2026-03-13",
+      "source": "HDFC Securities (Nandish Shah) via Business Standard, 13-Mar-2026: https://www.business-standard.com/markets/news/f-o-trade-analyst-suggests-bear-spread-on-nifty-for-march-30-check-levels-126031300089_1.html",
+      "underlying": "NIFTY", "lot_size": 65, "spot_close": 23639.15, "close_date": "2026-03-12", "days": 17,
+      "legs": [{"side": "BUY", "type": "PE", "strike": 23600, "premium": 402.0},
+               {"side": "SELL", "type": "PE", "strike": 23400, "premium": 345.0}],
+      "published": {"margin": 31000, "max_loss": 3705, "max_profit": 9295, "words": "Approx margin required: ₹31,000"}
+    },
+    {
+      "id": "hdfcsec-2026-04-24",
+      "source": "HDFC Securities (Nandish Shah) via Business Standard, 24-Apr-2026: https://www.business-standard.com/markets/news/analyst-suggests-bear-bull-spreads-on-nifty-au-sfb-check-strategy-126042400100_1.html",
+      "underlying": "NIFTY", "lot_size": 65, "spot_close": 24173.05, "close_date": "2026-04-23", "days": 4,
+      "legs": [{"side": "BUY", "type": "PE", "strike": 24100, "premium": 157.0},
+               {"side": "SELL", "type": "PE", "strike": 24000, "premium": 117.0}],
+      "published": {"margin": 31000, "max_loss": 2600, "max_profit": 3900, "words": "Approx margin required ₹31,000"}
+    },
+    {
+      "id": "zerodha-2020-06",
+      "source": "Zerodha Z-Connect, 'New margin framework for F&O trades' (June 2020): https://zerodha.com/z-connect/general/new-margin-framework-for-fo-trades",
+      "underlying": "NIFTY", "lot_size": 75, "spot_close": null, "days": null,
+      "legs": [{"side": "SELL", "type": "CE", "strike": 9600, "premium": null},
+               {"side": "BUY", "type": "CE", "strike": 9700, "premium": null}],
+      "published": {"span": 7437, "exposure": 14370, "margin": 21808,
+                    "words": "SPAN Rs. 7,437, Exposure Rs. 14,370, Total Rs. 21,808 (bear call spread, 1 lot of 75)"},
+      "note": "Only the split is used: exposure = 2% of the notional of the ONE short leg (14,370 / 75 / 0.02 = NIFTY 9,580), and SPAN about the spread's width x qty (100 x 75 = 7,500): SPAN less the net option value, hedge counted. Old lot size and pre-2024 rates."
+    }
+  ],
+  "rules": [
+    {"rule": "ELM is charged on every short option, hedged or not; no offset for long options", "source": "NSE equity derivatives margins page: https://www.nseindia.com/static/products-services/equity-derivatives-margins ('As no extreme loss margin is levied on long positions there cannot be any offset provided')"},
+    {"rule": "Index ELM 2% of notional; 3% when a short index option is over 10% out of the money; 5% over 9 months; stocks 3.5%, 5.25% over 30% out of the money; notional on the underlying's last close", "source": "same NSE page"},
+    {"rule": "Total SPAN = SPAN risk less the net option value; index price scan at least 9.3% (17.7% over 9 months), stocks at least 14.2%; no calendar benefit on expiry day for the expiring index contracts", "source": "NSE Clearing SPAN page: https://www.nseindia.com/static/products-services/equity-derivatives-nse-clearing-span"},
+    {"rule": "Additional 2% ELM on short index options on their expiry day, from 20-Nov-2024", "source": "SEBI circular SEBI/HO/MRD/TPD-1/P/CIR/2024/132 of 01-Oct-2024; a broker confirms it applies 'irrespective of whether the position is hedged' (Zerodha, tradingqna.com/t/margin-requirements-for-hedged-trades-up-by-80/176129)"}
+  ]
+}

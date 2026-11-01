@@ -157,8 +157,9 @@ function marginCard(d) {
     ['Range', `${inr(m.low)} – ${inr(m.high)}`],
     ['Max loss at expiry (not the margin)', m.max_loss_unlimited ? 'unlimited' : inr(m.max_loss)],
     ['Return on margin', m.return_on_margin === null ? '–' : num(m.return_on_margin) + '% (max profit / margin required)'],
-    ['SPAN-style detail', `scan risk ${inr(sp.scan_risk)} + exposure ${inr(sp.exposure)}` +
-      (sp.expiry_day_elm ? ` + expiry-day ${inr(sp.expiry_day_elm)}` : '') + ` + premium paid ${inr(sp.premium_paid)} = ${inr(sp.total)} (±${sp.error_pct}%)`],
+    ['SPAN-style detail', `SPAN ${inr(sp.span)} (scan risk ${inr(sp.scan_risk)} less net option value ${inr(sp.net_option_value)}) + exposure ${inr(sp.exposure)}` +
+      (sp.expiry_day_elm ? ` + expiry-day ${inr(sp.expiry_day_elm)}` : '') + ` + net premium paid ${inr(sp.premium_paid)} = ${inr(sp.total)} (±${sp.error_pct}%)`],
+    ['Margin model', m.margin_model || '–'],
     ['Assumptions', `price scan ${num(sp.assumptions.price_scan)} (${num(sp.assumptions.scan_pct, 1)}%), vol scan ${num(sp.assumptions.vol_scan_points, 0)} pts, ELM ${num(sp.assumptions.elm_pct, 1)}%`],
     ['Broker basket', m.broker_basket === null ? 'not connected' : inr(m.broker_basket)],
   ]), h('p', { class: 'small muted' }, m.explain), h('p', { class: 'small muted' }, m.broker_note));

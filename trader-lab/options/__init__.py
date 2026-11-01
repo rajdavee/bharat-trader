@@ -697,14 +697,16 @@ def leg_charges(cfg, leg, entry_day, exit_day, exit_px, settled, mult=1.0):
 
 
 def margin_for(legs, kind, entry_day, expiry, held_to_expiry_day):
-    """trader-strategy's SPAN-style estimate at entry, and on the expiry day itself (2% more ELM on short
-    index options) when the position is still open then: the larger is the margin it blocks."""
+    """trader-strategy's SPAN + ELM estimate at entry, and on the expiry day itself (2% more ELM on short
+    index options, hedged or not) when the position is still open then: the larger is the margin it blocks,
+    because that much must be in the account on expiry morning. margin_model names the method's version."""
     S = _S()
     pos = S.Position(legs, {}, entry_day)
     at = datetime.datetime.combine(_d(entry_day), datetime.time(15, 30))
     m = S.span_style(pos, kind, None, at)
-    out = {"entry": m["total"], "expiry_day": None, "scan_risk": m["scan_risk"], "exposure": m["exposure"],
-           "premium_paid": m["premium_paid"], "error_pct": m["error_pct"]}
+    out = {"entry": m["total"], "expiry_day": None, "scan_risk": m["scan_risk"], "span": m.get("span"),
+           "exposure": m["exposure"], "premium_paid": m["premium_paid"], "error_pct": m["error_pct"],
+           "margin_model": getattr(S, "MARGIN_MODEL", None)}
     if held_to_expiry_day and entry_day != expiry:
         e = S.span_style(pos, kind, None, datetime.datetime.combine(_d(expiry), datetime.time(9, 15)))
         out["expiry_day"] = e["total"]
@@ -1157,7 +1159,8 @@ def run(doc, chains, context=None, extra_trials=0, progress=None):
                  "neighbourhood_median_expectancy_r": round(near_exp, 4)},
         "costs_sensitivity": {"whole_sample": cost_full, "out_of_sample": cost_oos},
         "monte_carlo": mc, "dsr": dsr, "pbo": pbo, "regimes": regimes, "gates": gates, "gates_set": spec["gates"],
-        "options": {"whole_sample": om_full, "out_of_sample": om_oos, "open": me["res"]["open"]},
+        "options": {"whole_sample": om_full, "out_of_sample": om_oos, "open": me["res"]["open"],
+                    "margin_model": getattr(_S(), "MARGIN_MODEL", None)},
         "trades": full_trades, "oos_trades": oos_trades,
         "equity": _equity_mtm(me["res"]["mtm"], days, cap, set(oos_days), full_trades),
     }
@@ -1269,9 +1272,11 @@ def scorecard_lines(res):
                           ("expiries with a short strike breached", "breach_pct", pct)):
         out.append("| %s | %s | %s |" % (label, fmt(w[k]), fmt(o[k])))
     out.append("")
-    out.append("R for an options trade is its net result over the margin it blocked (the SPAN-style estimate, "
+    out.append("R for an options trade is its net result over the margin it blocked (the SPAN + ELM estimate, "
                "the larger of the entry day's and the expiry day's): the expectancy is the average return on "
                "margin a trade. Exits: %s." % (", ".join("%s %d" % kv for kv in sorted(w["exits"].items())) or "none"))
+    out.append("")
+    out.append("Margin model: %s (docs/options.md, Margin)." % (res["options"].get("margin_model") or "not recorded"))
     if w["model_priced_marks"]:
         out.append("")
         out.append("%d leg marks used Black-76 at the day's smile IV because the strike did not trade that day "
@@ -1295,8 +1300,8 @@ def does_not_prove(res):
         "Fills are a model: the settle price less %g%% of the premium and %d tick a leg. Real spreads on far "
         "strikes and on expiry day are often wider, and a large order moves them." % (
             res["costs"]["slippage_pct"], res["costs"]["slippage_ticks"]),
-        "Margin is a SPAN-style estimate (NSE's 2026 scan on today's parameters), not the margin a broker "
-        "blocked on those days; return on margin moves with it.",
+        "Margin is a SPAN + ELM estimate (%s: NSE's 2026 scan and today's ELM rules), not the margin a broker "
+        "blocked on those days; return on margin moves with it." % ((res.get("options") or {}).get("margin_model") or "SPAN-style"),
         "Short options carry tail risk that a couple of years may not show: one gap like June 2024's election "
         "day can exceed many months of premium.",
         "Charges are a typical discount broker's with the STT rates in force on each trade date. Income tax is "

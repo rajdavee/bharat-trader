@@ -103,59 +103,90 @@ to take or give.
 The headline is **margin required** (`margin.required`): what a broker would
 block for the position, estimated. The **max loss at expiry** is shown on its
 own and is never the margin; **return on margin** = max profit / margin
-required.
+required. Every output names the method's version in `margin_model`
+(now `nse-span-elm-v2 (2026-11)`); lab results and edge-hunt scorecards
+record it too, so a later change of method is visible next to the numbers.
 
 **Bought options only:** the premium, paid up front (since 1 Feb 2025). No
 SPAN or exposure is blocked on a long option. Exact.
 
-**Anything with a short option or a future:** a SPAN-style estimate.
+**Anything with a short option or a future:** NSE Clearing's published method,
+estimated (one block of code shared by trader-strategy, trader-risk and
+trader-broker; tests/test_repo.py keeps the copies identical).
 
-1. Scanning risk: the worst loss over 16 scenarios on the whole position,
+1. **SPAN risk.** The worst loss over 16 scenarios on the whole position,
    valued with Black-76 at each leg's IV: price moves of 0, +/-1/3, +/-2/3 and
    +/-1 x the price scan, each with IV up and down by the vol scan, plus +/-3 x
-   the scan at 30% weight. Because the position is valued as a whole, bought
-   wings cut it: a NIFTY iron condor's scan risk is about ₹4,100 against
-   about ₹1,22,000 for the same shorts naked.
-2. Exposure (ELM): 2% of notional on every short index option and index
-   future, 3.5% for stocks (NSE's ael file, normal rows), hedged or not. The
-   hedge benefit comes through SPAN only; exposure is charged on each short
-   leg. On expiry day, 2% more on short index options expiring that day
-   (SEBI, from 20 Nov 2024).
-3. Premium paid on bought options. Brokers differ on whether premium
-   received may offset the margin; the estimate does not offset it.
-
-For 1 lot (65) of NIFTY on the 30-Oct-2026 close: iron condor 22,700/22,800
-PE - 23,200/23,300 CE about ₹67,400 (scan ₹4,126 + exposure ₹59,858 +
-premium ₹3,426) against a max loss of ₹4,129; the same strangle naked about
-₹1,81,600; a 100-point bull put spread about ₹38,500 against a max loss of
-₹4,123. Published broker figures for the same structures at lot 75 (about
-₹40,000 to ₹60,000 for a NIFTY credit spread, ₹80,000 to ₹1,20,000 for an iron
-condor; plindia.com, alphahunttrading.com, 2025) scale to these at lot 65,
-and say the same thing: exposure on the short legs dominates a hedged
-position's margin.
+   the scan at 30% weight. Bought wings cut it because the position is valued
+   as a whole. Across expiries a calendar-spread charge is added (1.77% of spot
+   a unit of matched delta for an index, NIFTY's ₹409 in the file). On an
+   index expiry day the expiring contracts are margined on their own: no
+   calendar benefit (NSE Clearing). The short-option minimum is 0 in the file.
+2. **Less the net option value.** "Total SPAN Margin requirement is equal to
+   SPAN Risk Requirement less the net option value" (NSE Clearing SPAN page):
+   long premium minus short premium at today's value, not below 0. A credit
+   spread therefore needs about its width x quantity of SPAN; a debit spread
+   needs none, only its debit.
+3. **Exposure (ELM)** on the underlying's last close times the units of
+   **every short option, hedged or not**: "As no extreme loss margin is levied
+   on long positions there cannot be any offset provided" (NSE equity
+   derivatives margins page). Index 2%, 3% for a short index option over 10%
+   out of the money, 5% after 9 months; stocks 3.5%, 5.25% over 30% out of the
+   money; futures 2% / 3.5%, a futures calendar spread on a third of the far
+   leg. On expiry day 2% more on short index options expiring that day, hedged
+   or not (SEBI circular of 01-Oct-2024, from 20-Nov-2024).
+4. **The net premium paid** on a debit, paid up front. A credit received is not
+   used to cut the margin (brokers differ).
 
 | | price scan | vol scan | error stated |
 | --- | --- | --- | --- |
-| index | 9.3% of the forward (NIFTY in NSE's SPAN file, 30 Oct 2026: 2,143.94 / 23,053.10) | 4 points | +/-15% |
-| stock | 20% (a middle of 12% to 25%; not read from a file) | 10 points | +/-35% |
+| index | 9.3% of spot (NIFTY and BANKNIFTY in NSE's SPAN file, 30 Oct 2026: 2,143.94 / 23,053.10; NSE's stated minimum), 17.7% after 9 months | 4 points | +/-15% |
+| stock | 20% (the 75th percentile of the file's 247 underlyings; median 16.7%, NSE's minimum 14.2%) | 10 points | +/-35% |
 
-Checked against scanning risk computed from the SPAN file's own risk arrays
-for 1 lot of NIFTY on 30 Oct 2026: short 23000 CE 03-Nov ₹1,30,859 (ours
-₹1,32,234, +1.1%); short 23000 straddle 03-Nov ₹1,24,079 (+1.1%); iron
-condor 22700/22800 PE - 23300/23400 CE ₹4,367 (+8.4%); the 01-Dec straddle's
-total came within 10%. The tests keep these within bounds.
+**How close it is.** Against NSE's own risk arrays (the SPAN file of 30 Oct
+2026, trimmed in `tests/fixtures/trader-strategy/span-nifty-20261030.json`),
+for 1 lot (65) of NIFTY, reference = file scan risk less net option value + 2%
+ELM a short leg + net debit:
 
-Known gaps: exposure on hedged positions follows the per-short-leg rule
-above (practice, confirmed only against published broker figures, not an NSE
-circular); no calendar-spread charge or short-option minimum from the SPAN
-file, no "additional ELM" for stocks under surveillance, exposure on hedged
-spreads is the naive per-leg rule, and intraday the exchange's file moves.
-`--scan-pct`, `--vol-scan` and `--elm-pct` override the assumptions. The
-broker's own basket margin (`margin.broker_basket`) is shown next to this
-estimate, with the difference, once `ticket.py margin-check` has saved the
-day's figure (or fetched once when your broker's token is in the shell; Kite,
-Upstox, Dhan and Angel One, read only). It never changes the estimate. See
-[brokers.md](brokers.md). Check it in your broker's app before any real order.
+| structure | file reference | ours | |
+| --- | --- | --- | --- |
+| iron condor 22700/22800 - 23300/23400, 03-Nov | ₹66,125 | ₹66,434 | +0.5% |
+| iron condor 22500/22800 - 23300/23600, 03-Nov | ₹78,646 | ₹79,426 | +1.0% |
+| iron fly 22800/23050/23300, 03-Nov | ₹75,807 | ₹76,178 | +0.5% |
+| bull put 23000/22900, 03-Nov | ₹36,370 | ₹36,465 | +0.3% |
+| bear put debit 23100/22900, 03-Nov | ₹35,618 | ₹35,661 | +0.1% |
+| iron condor 21900/22250 - 23850/24200, 01-Dec | ₹80,150 | ₹82,038 | +2.4% |
+| short 23000 straddle, 03-Nov | ₹1,99,240 | ₹2,00,460 | +0.6% |
+| short 23000 straddle, 01-Dec | ₹2,07,483 | ₹2,22,924 | +7.4% |
+
+Every hedged structure tested came within 3%, every naked one at or above the
+exchange's figure (within 8%). Against published broker figures for NIFTY
+spreads at lot 65 (HDFC Securities, Jan, Mar and Apr 2026: "approx margin
+required" ₹34,000, ₹31,000, ₹31,000), SPAN + exposure came within 1.5%; with
+the debit added, within 11%. Zerodha's 2020 example (bear call spread: SPAN
+₹7,437, exposure ₹14,370) has the same split: exposure on the one short leg,
+SPAN about the width. Sources are in
+`tests/fixtures/trader-strategy/broker-margin-examples.json`.
+
+**What this means for a hedged condor.** Exposure on the short legs dominates
+a hedged position's margin, and the rules do not give a hedge any ELM benefit.
+A 1-lot NIFTY condor with 350-point wings needs about ₹82,000 on a normal day
+against a max loss near ₹16,000, and about ₹1,42,000 on its expiry day (2% more
+on each short leg). That is what NSE's rules ask for, not an artefact of the
+estimate. The lab's return on margin uses the larger of the two when a trade
+is still open on expiry day, because that much must be in the account then.
+
+Known gaps: the stock scan is not the stock's own (pass `--scan-pct` from
+NSE's file for one stock); no "additional ELM" for stocks under surveillance
+(NSE's ael file); deltas for the calendar charge are Black-76, not SPAN's
+composite delta; intraday the exchange's file moves; brokers can add their own
+margin on top. `--scan-pct`, `--vol-scan` and `--elm-pct` override the
+assumptions. The broker's own basket margin (`margin.broker_basket`) is shown
+next to this estimate, with the difference, once `ticket.py margin-check` has
+saved the day's figure (or fetched once when your broker's token is in the
+shell; Kite, Upstox, Dhan and Angel One, read only). It never changes the
+estimate. See [brokers.md](brokers.md). Check it in your broker's app before
+any real order.
 
 ### Probability of profit, two ways
 
