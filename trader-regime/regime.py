@@ -775,7 +775,7 @@ def rule_expiries(underlying, day, closed=None, months=3):
     """The expiry dates by the dated weekday rule, as known on `day`: {"weekly", "monthly", "source"} or None
     when no rule covers the day (then only the archive's F&O bhavcopy knows)."""
     d0 = _day(day)
-    out_w, out_m, src = set(), set(), None
+    out_w, out_m, src, why = set(), set(), None, {}
     y, m = d0.year, d0.month
     for k in range(months):
         mm, yy = (m - 1 + k) % 12 + 1, y + (m - 1 + k) // 12
@@ -787,6 +787,7 @@ def rule_expiries(underlying, day, closed=None, months=3):
             if row and cur.weekday() == row["weekday"]:
                 if underlying.upper() in row["weekly"]:
                     out_w.add(_shift_back(cur, closed))
+                    why[_shift_back(cur, closed)] = row["source"]
                 src = row["source"]
             cur += datetime.timedelta(days=1)
         lastrow = _rule_row(last)
@@ -796,11 +797,12 @@ def rule_expiries(underlying, day, closed=None, months=3):
                 x -= datetime.timedelta(days=1)
             if _rule_row(x):
                 out_m.add(_shift_back(x, closed))
+                why[_shift_back(x, closed)] = _rule_row(x)["source"]
     if src is None and not out_m:
         return None
-    out_w |= out_m if underlying.upper() in ("NIFTY",) else set()
     keep = lambda s: sorted(x.isoformat() for x in s if x >= d0)
-    return {"weekly": keep(out_w), "monthly": keep(out_m), "source": "rule: " + (src or "")}
+    up = sorted(x for x in why if x >= d0)
+    return {"weekly": keep(out_w), "monthly": keep(out_m), "source": "rule: " + (why[up[0]] if up else src)}
 
 
 def archive_expiries(underlying, day, root, api=None):
@@ -898,7 +900,7 @@ def calendar_flags(symbol, day, kind="index", root=None, closed=None, events=(),
     if nxt and (nxt - d0).days > 1:
         gaps = [(d0 + datetime.timedelta(days=j)).isoformat() for j in range(1, (nxt - d0).days)]
         hol = [NSE_HOLIDAYS.get(g) or (closed or {}).get(g) for g in gaps
-               if g in NSE_HOLIDAYS or (closed and g in closed)]
+               if _day(g).weekday() < 5 and (g in NSE_HOLIDAYS or (closed and g in closed))]
         hol = [h for h in hol if h]
         if hol:
             out["holiday_before_next_session"] = "; ".join(hol)
