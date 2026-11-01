@@ -417,6 +417,7 @@ def load_fno_stocks(cfg=None, cache_path=None, fetch=False, today=None):
     if cached is not None:
         return cached, "F&O list cached %s (%d stocks)" % (fetched, len(cached))
     return None, "no F&O list (trader/fno_stocks.json): treating every stock as an F&O stock (earlier close)"
+
 # ---------------------------------------------------------------- end of dated market rules
 
 
@@ -1067,18 +1068,9 @@ def label_trades(trades, regimes, date_key="signal_date"):
         if prev is None:
             out.append((t, "unknown|unknown|" + (expiry_flag(same) if same else "expiry unknown"), None))
             continue
-        flag = expiry_flag(same) if same else expiry_flag_from_prev(prev, d)
+        flag = expiry_flag(same) if same else expiry_flag({"calendar": {"expiry": expiry_info(prev["symbol"], d)}})
         out.append((t, "%s|%s|%s" % (prev["trend"]["class"], prev["vol"]["bucket"], flag), prev))
     return out
-
-
-def expiry_flag_from_prev(prev, d):
-    e = (prev.get("calendar") or {}).get("expiry") or {}
-    if not e.get("known"):
-        return "expiry unknown"
-    if prev["calendar"].get("next_session") == d and e.get("next_session"):
-        return "expiry day"
-    return "no expiry"
 
 
 def _ci95(rs):
@@ -1778,7 +1770,7 @@ def cmd_history(a):
     cfg = load_config(a.config or os.path.join(a.workdir, "regime-config.json"))
     now = parse_now(a.now)
     src = _sources(a)
-    start = _day(a.start).isoformat() if a.start else None
+    start = _day(a.start).isoformat() if a.start else "0000-00-00"
     end = _day(a.end).isoformat() if a.end else None
     summary = []
     for s in _symbols(a):
