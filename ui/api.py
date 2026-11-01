@@ -2178,7 +2178,10 @@ def r_cotrader_run(ctx, q, body):
         raise ApiError(400, "tier is validated or research")
     ct = skill("cotrader")
     with ctx.cmd_lock:
-        ct.run_today(ctx.workdir, tier, None, _naive_now(ctx), None, None, not ctx.offline, True)
+        try:
+            ct.run_today(ctx.workdir, tier, None, _naive_now(ctx), None, None, not ctx.offline, True)
+        except ct.errors() as e:
+            raise ApiError(422, str(e))
     return cotrader_view(ctx)
 
 

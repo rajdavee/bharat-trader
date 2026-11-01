@@ -1217,6 +1217,12 @@ def t_cotrader_candidates(kit, a, call):
 
 def t_cotrader_explain(kit, a, call):
     ct = api.skill("cotrader")
+    if not a.get("id"):
+        doc = kit.ctx.read("cotrader.json") or {}
+        rows = [{"id": c["id"], "tier": c["tier"], "status": c["status"], "symbol": c["symbol"],
+                 "strategy": c["strategy"]} for c in doc.get("candidates") or []]
+        return {"as_of": doc.get("as_of"), "candidates": rows, "no_edge": doc.get("no_edge")}, \
+            ["The candidates of the last run (%s): call again with id for one in full." % (doc.get("as_of") or "none yet")]
     c, doc = ct.find_candidate(kit.workdir, a["id"])
     if c is None:
         raise ToolError("no candidate %s in trader/cotrader.json: call cotrader_candidates first" % a["id"])
@@ -1628,10 +1634,11 @@ def build_tools():
                   "One candidate from the last co-trader run in full: why this trade, what would invalidate it, the "
                   "evidence in numbers (sample sizes, Wilson and posterior 95% ranges, expected R after charges), "
                   "the time-machine second opinion and disagreements, what the evidence does NOT show, the nearest "
-                  "similar past trades and the risk verdict, plus the plain-words text. Read only.",
+                  "similar past trades and the risk verdict, plus the plain-words text. Without an id: the last "
+                  "run's candidate IDs. Read only.",
                   t_cotrader_explain,
                   {"id": S("string", "the candidate ID, e.g. 2026-11-02-rsi2-nifty50-SBIN", pattern=COTRADER_ID_RE,
-                           maxLength=90)}, ["id"], data=ANY_OBJ, network=False))
+                           maxLength=90)}, data=ANY_OBJ, network=False))
     T.append(tool("calibration_report", "Co-trader: calibration report",
                   "How well the co-trader's past probabilities matched what happened: each logged prediction's "
                   "outcome (paper fills, then the lab's forward record, then the bars after the signal), the Brier "
