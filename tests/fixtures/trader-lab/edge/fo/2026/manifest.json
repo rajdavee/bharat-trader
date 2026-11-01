@@ -1,0 +1,175 @@
+{
+ "dataset": "fo",
+ "files": {
+  "2026-09-30": {
+   "bytes": 11853,
+   "file": "2026-09-30.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 398,
+   "sha256": "860d7d6b30a2b53cdd3630e0ed56c9a992d65bcd25dff0c5cf55da6d66bcb88f"
+  },
+  "2026-10-01": {
+   "bytes": 11867,
+   "file": "2026-10-01.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 401,
+   "sha256": "5af118a9208a61ce1114860ae40ea553a90f384f63c368dc447556ac1bea7f4c"
+  },
+  "2026-10-05": {
+   "bytes": 12873,
+   "file": "2026-10-05.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 426,
+   "sha256": "1268507c194337b96164da90232ba6088849ed8d22745fa4e86a636687a492c5"
+  },
+  "2026-10-06": {
+   "bytes": 12999,
+   "file": "2026-10-06.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 436,
+   "sha256": "2d994a2a7254792358b92885355af39eb6d6053c05ff41aa46a2b92365423a9f"
+  },
+  "2026-10-07": {
+   "bytes": 11893,
+   "file": "2026-10-07.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 398,
+   "sha256": "721edf98fa6a9a1dfbb66d667bc8acac2925bf75f6e473dffd165c5fb5c1398e"
+  },
+  "2026-10-08": {
+   "bytes": 12030,
+   "file": "2026-10-08.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 402,
+   "sha256": "585e7d1dfe094e84a5d248c98678cb9dd83ee1592fc686e566790a14dc5d2540"
+  },
+  "2026-10-09": {
+   "bytes": 12130,
+   "file": "2026-10-09.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 408,
+   "sha256": "1d2fff5a7e02b4ae7d2e2bdbe5a412fb3823939533f9971f8322de64abf80ecf"
+  },
+  "2026-10-12": {
+   "bytes": 11729,
+   "file": "2026-10-12.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 398,
+   "sha256": "b5ec73626e3be4aae41c81fcafc9f3aef73490645ca844ad9d84673a9d1e200c"
+  },
+  "2026-10-13": {
+   "bytes": 12378,
+   "file": "2026-10-13.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 404,
+   "sha256": "c3591e30475fb46599a63548fccfad49a120d00a77d55cfbb5706d1ea71d5ef5"
+  },
+  "2026-10-14": {
+   "bytes": 11373,
+   "file": "2026-10-14.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 382,
+   "sha256": "d8d6112b9ccd20f2425f60dac1acfb499c9d1eb3222a4bf81420b307ff2d5914"
+  },
+  "2026-10-15": {
+   "bytes": 11820,
+   "file": "2026-10-15.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 381,
+   "sha256": "08707e65041f307c9af177a90e62564de17baeaac0878aa5717d13d4fdec04fc"
+  },
+  "2026-10-16": {
+   "bytes": 12082,
+   "file": "2026-10-16.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 388,
+   "sha256": "c0638a5cbe112c0f91841bb9ee3e9d98c911029f8bae5495c30ab58f6f4f8530"
+  },
+  "2026-10-19": {
+   "bytes": 11957,
+   "file": "2026-10-19.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 378,
+   "sha256": "35ab4dd5038f706776866d107a6ad18368d38497bd4874134f90c3ecffde148f"
+  },
+  "2026-10-21": {
+   "bytes": 12224,
+   "file": "2026-10-21.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 382,
+   "sha256": "89204eebdc7c7dec7a9e068d6676e43060bb846e378265d0e0b2a2ca122eae92"
+  },
+  "2026-10-22": {
+   "bytes": 12077,
+   "file": "2026-10-22.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 380,
+   "sha256": "e0c3e7a76ca118e1cdfdb10cd430b63b76520fe9d51b943340354f4922c12020"
+  },
+  "2026-10-23": {
+   "bytes": 11974,
+   "file": "2026-10-23.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 378,
+   "sha256": "521c6b761df82af1bd07bd6f70ace5e3736f32fa2f183376eac1a660d43a665d"
+  },
+  "2026-10-26": {
+   "bytes": 13126,
+   "file": "2026-10-26.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 408,
+   "sha256": "828bd542c5445a66ae616a097e0dd92e85ea1c19ddcda6cc7ad229c9732fa058"
+  },
+  "2026-10-27": {
+   "bytes": 12611,
+   "file": "2026-10-27.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 406,
+   "sha256": "591ba0ce1b6799187596d0aba17064dca51607b5a9c331a1a9986ccc6d862ba5"
+  },
+  "2026-10-28": {
+   "bytes": 7592,
+   "file": "2026-10-28.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 229,
+   "sha256": "7d87abe19dffe08da3b1a67ebc44d4ab3fdc87932767cf148f79184d2f1612a7"
+  },
+  "2026-10-29": {
+   "bytes": 7800,
+   "file": "2026-10-29.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 234,
+   "sha256": "acf37cda870da68da2901d965e12004c5a39a0761db9520aaf1e322367112b09"
+  },
+  "2026-10-30": {
+   "bytes": 11881,
+   "file": "2026-10-30.csv.gz",
+   "format": "udiff",
+   "note": "trimmed fixture",
+   "rows": 404,
+   "sha256": "de1a2bb15efc54aeab152a8f81f70ebdc18a671eb229ab5ae55926000c393005"
+  }
+ },
+ "missing": {},
+ "schema": "bharat-trader/archive/1"
+}

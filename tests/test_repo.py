@@ -19,7 +19,7 @@ STDLIB = set(getattr(sys, "stdlib_module_names", ())) | {
     "dataclasses", "datetime", "decimal", "email", "enum", "functools", "getpass", "glob", "gzip", "hashlib",
     "fractions", "heapq", "hmac", "html", "http", "importlib", "io", "ipaddress", "itertools", "json", "logging", "math", "os",
     "operator", "pathlib", "pickle", "queue", "random", "re", "secrets", "shlex", "shutil", "socket", "ssl", "statistics", "string", "struct",
-    "sys", "tempfile", "textwrap", "threading", "time", "typing", "unicodedata", "urllib", "uuid", "webbrowser",
+    "sys", "tempfile", "textwrap", "threading", "time", "types", "typing", "unicodedata", "urllib", "uuid", "webbrowser",
     "warnings", "weakref", "zipfile", "zlib"}
 
 SKILLS = ["trader-scanner", "trader-news", "trader-entry", "trader-exit", "trader-timemachine",

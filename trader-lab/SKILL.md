@@ -308,8 +308,15 @@ python3 "<skill dir>/lab.py" hunt run EH-ID --data DIR             # a plain dat
   universe and a NIFTY total-return proxy as benchmarks; a capacity note),
   **events** (turn of the month, pre-holiday, expiry week, overnight,
   results-date drift), **pairs** (correlation and Engle-Granger on train
-  only, z-score bands, futures legs). Quality is not built (no dated
-  fundamentals); VRP, event straddles and option buying wait for #73.
+  only, z-score bands, futures legs), **options** (this skill's `options/`
+  package: the VIX-timed NIFTY iron condor with its untimed baseline and
+  sizing by margin and a 1% tail loss; the results-day iron fly and the
+  pre-results straddle on F&O stocks, with implied against realised moves
+  from `results_dates`; trend-day option buying, model-priced by Black-76 for
+  train and validation, the live captured chain for the holdout, which the
+  executor waits for instead of opening early; realised vol by
+  close-to-close, Parkinson and Garman-Klass and a HAR-RV forecast fitted on
+  train only). Quality is not built (no dated fundamentals).
 - Data: trader-archive's read API (`load_continuous` with its roll log,
   `members`, `results_dates`, `load_daily_many`, `load_index`, `load_vix`).
   Without point-in-time membership or results dates for the span a run is

@@ -19,6 +19,10 @@ trader-strategy's script (the leg templates, strike picking, Black-76 and the SP
               losses, losing streaks, time in drawdown and the share of positions whose short strike
               was breached
 
+Options edge v2 (#73), loaded by path from here: vol.py (realised vol, HAR-RV, IV - RV), events.py (implied vs
+realised moves around results, the event calendar) and engines.py (the edge-hunt executor's option
+families; trader-lab/engines/jobs.py's OptionsJob calls them).
+
 EOD only: no intraday stops, no adjustments, strikes that never traded are priced by a model.
 Education and tooling, not financial advice. Nothing here places an order.
 """
@@ -487,8 +491,9 @@ class Chains(object):
         return b["spot"], "the underlying price in the bhavcopy"
 
 
-def trim_board(chain, keep_dte=MAX_DTE_LOADED, band=STRIKE_BAND):
-    """trader-archive's load_fo_chain_eod() -> the compact board Chains keeps."""
+def trim_board(chain, keep_dte=MAX_DTE_LOADED, band=STRIKE_BAND, monthly_only=False):
+    """trader-archive's load_fo_chain_eod() -> the compact board Chains keeps (monthly_only: only the expiries
+    that have a future, NSE's monthly contracts)."""
     day, spot = chain["date"], chain.get("spot")
     futures, monthly = {}, set()
     for f in chain.get("futures") or []:
@@ -499,6 +504,8 @@ def trim_board(chain, keep_dte=MAX_DTE_LOADED, band=STRIKE_BAND):
     for o in chain.get("options") or []:
         e, k, t = o.get("expiry"), o.get("strike"), o.get("option_type")
         if not e or k is None or t not in ("CE", "PE"):
+            continue
+        if monthly_only and e not in monthly:
             continue
         dte = _dte(day, e)
         if dte < 0 or dte > keep_dte:
@@ -511,14 +518,16 @@ def trim_board(chain, keep_dte=MAX_DTE_LOADED, band=STRIKE_BAND):
     return {"spot": spot, "futures": futures, "opts": opts, "expiries": sorted(exps), "monthly": monthly}
 
 
-def load_chains(underlying, root, archive, start=None, end=None, progress=None):
-    """Chains for one underlying from a trader-archive folder (offline). archive: trader-archive's module."""
+def load_chains(underlying, root, archive, start=None, end=None, progress=None, band=STRIKE_BAND,
+                keep_dte=MAX_DTE_LOADED, monthly_only=False):
+    """Chains for one underlying from a trader-archive folder (offline). archive: trader-archive's module.
+    band, keep_dte, monthly_only: what trim_board keeps (a long history needs less of each board)."""
     days = archive.trading_days(start, end, root=root)
     boards = {}
     for i, d in enumerate(days):
         ch = archive.load_fo_chain_eod(underlying, d, root=root)
         if ch and ch.get("options"):
-            boards[d] = trim_board(ch)
+            boards[d] = trim_board(ch, keep_dte, band, monthly_only)
         if progress and i % 100 == 99:
             progress("loaded %d of %d EOD chains" % (i + 1, len(days)))
     if not boards:
@@ -1374,3 +1383,49 @@ def forward(doc, chains, out, res, status, today=None, now=None, write=True):
     return {"name": name, "kind": "options", "today": today, "verdict": v, "why": why, "settled": len(new),
             "forward": fs, "plans": [], "baskets": baskets, "written": written, "notes": notes, "params": params,
             "open": bt["open"]}
+
+
+# ---------------------------------------------------------------- options edge v2: vol, events, engines
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ENGINE_FAMILIES = ("vrp-selling", "event-vol", "option-buying")
+
+
+def _submodule(name):
+    """vol.py, events.py or engines.py from this folder, loaded by path (this package is itself loaded by
+    path, so a relative import would not work), with O pointing back here."""
+    import importlib.util
+    import sys
+    me = sys.modules.get(__name__)
+    if me is None or getattr(me, "__dict__", None) is not globals():
+        import types
+        me = types.SimpleNamespace(**globals())
+    key = "%s_%s" % (__name__, name)
+    mod = sys.modules.get(key)
+    if mod is None:
+        spec = importlib.util.spec_from_file_location(key, os.path.join(HERE, name + ".py"))
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[key] = mod
+        spec.loader.exec_module(mod)
+    mod.O = me
+    return mod
+
+
+def vol_api():
+    """Realised-vol estimators, the HAR-RV forecast and the IV - RV spread (vol.py)."""
+    return _submodule("vol")
+
+
+def events_api():
+    """Implied vs realised moves around results, and the event-day calendar (events.py)."""
+    return _submodule("events")
+
+
+def engines_api():
+    """The engines the edge-hunt executor calls by family name (engines.py; its docstring is the contract)."""
+    return _submodule("engines")
+
+
+def engine(family):
+    """engines_api().engine(family): fn(hyp, params, window, data, cost_mult=1.0) -> result."""
+    return engines_api().engine(family)
