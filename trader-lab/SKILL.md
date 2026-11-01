@@ -13,7 +13,13 @@ description: >-
   Sharpe ratio, the probability of backtest overfitting, India VIX and NIFTY
   trend regimes, and 1.5x and 2x costs. Pre-registered gates give REJECT,
   WATCH (paper forward test) or PROMOTE, and auto-DEMOTE when the forward
-  record decays. Use when the user says "backtest this", "does ORB work",
+  record decays. Options too: short strangles, iron condors, iron flies,
+  credit spreads and calendars on years of NSE end-of-day option chains from
+  the local archive (strikes by delta or distance, IV rank and VIX filters,
+  profit target, stop, cash settlement with STT on exercise), scored on
+  return on margin, tail losses and breaches. Use when the user says
+  "backtest this", "does ORB work", "backtest a short strangle", "iron condor
+  backtest", "is option selling profitable", "expiry day iron fly",
   "find me a profitable strategy", "test my strategy", "is this strategy
   overfitted", "VWAP strategy backtest", "RSI 2 on NIFTY 50 stocks", "walk
   forward", "paper test this strategy", "which intraday strategy works in
@@ -30,7 +36,7 @@ at the future, ignore charges, and report the best of many tries. The lab is
 built to stop each of those. Expect most strategies to be rejected. That is
 the lab working, not failing.
 
-All amounts are rupees, all times IST, the market is the NSE cash segment,
+All amounts are rupees, all times IST. Equity specs trade the NSE cash segment,
 long only (the pack sizes and checks buys). `<skill dir>` is this skill's
 folder.
 
@@ -43,6 +49,8 @@ python3 "<skill dir>/lab.py" run orb15-vwap --data DIR     # offline bars: DIR/S
 python3 "<skill dir>/lab.py" report orb15-vwap             # the plain-words scorecard
 python3 "<skill dir>/lab.py" compare orb15-vwap gap-fade rsi2-nifty50
 python3 "<skill dir>/lab.py" forward orb15-vwap            # paper forward test: today's signals -> draft plans
+python3 "<skill dir>/lab.py" run nifty-weekly-strangle-16d --archive trader/archive   # an options spec, EOD chains
+python3 "<skill dir>/lab.py" forward nifty-weekly-strangle-16d                       # -> a draft paper basket
 ```
 
 Bars come from the local trader-archive first when `trader/archive` exists
@@ -65,6 +73,7 @@ moves the lab folder (default `trader/lab`).
 | `trader/lab/<name>/status.json` | the verdict, its history and every spec version run |
 | `trader/lab/<name>/forward.json` | the rolling paper forward record |
 | `trader/lab/<name>/forward/<date>/plan-<SYM>.json` | draft plans for trader-budget (`forward`) |
+| `trader/lab/<name>/forward/<date>/orders-<expiry>.json`, `strategy-<expiry>.json` | an options spec's draft paper basket (`forward`) |
 | `trader/lab/data/` | Yahoo bars cached as CSV, refreshed once a day |
 
 ## The built-in library
@@ -77,9 +86,14 @@ moves the lab folder (default `trader/lab`).
 | `pdh-breakout` | 5m MIS | first close above yesterday's high, above VWAP, 09:30-13:00; stop 1.5 ATR; 2R |
 | `rsi2-nifty50` | 1d CNC | above the 200-day average, RSI(2) under 10; out on a close above the 5-day average or after 10 days |
 | `breakout20-swing` | 1d CNC | a close above the 20-day high; stop 2 ATR; out on a close under the 10-day low or after 30 days |
+| `nifty-weekly-strangle-16d` | options | NIFTY weekly short strangle at 16 delta, 6 days out; take half the credit, stop at 2x |
+| `nifty-weekly-condor-16d` | options | the same shorts with 100-point wings (defined risk) |
+| `nifty-expiry-iron-fly` | options | expiry day: sell the ATM straddle at the open, 200-point wings, hold to the 15:30 settlement |
+| `banknifty-monthly-put-spread` | options | BANKNIFTY monthly bull put spread, 25 delta short, 500 points wide, 30 days out |
+| `nifty-ivr-strangle` | options | the weekly strangle only when NIFTY's 30-day IV ranks 50 or more over 126 sessions |
 
-Each one names its universe (ten liquid NIFTY 50 stocks), its parameters,
-the grid around them and its gates. Copy one, change it, run it.
+Each one names its universe (ten liquid NIFTY 50 stocks) or underlying, its
+parameters, the grid around them and its gates. Copy one, change it, run it.
 
 ## A spec
 
@@ -173,13 +187,59 @@ alert with trader-alerts.
 
 ## Options strategies
 
-Not in this version. A spec with `"kind": "options"` goes to `OPTIONS_HOOK`,
-which trader-strategy will register (docs/lab.md describes the contract);
-until then it is refused.
+A spec with `"kind": "options"` runs on the local trader-archive's end-of-day
+F&O bhavcopies (`archive.py backfill --years 2 --datasets fo,index,vix,lots`;
+`--archive DIR`), never on Yahoo. The code is in this skill's `options/`
+helper folder; the legs, strike picking, Black-76 and the SPAN-style margin
+come from trader-strategy (its folder must sit next to this one), the market
+regime split from trader-regime.
+
+```json
+{"name": "nifty-weekly-condor-16d", "kind": "options", "underlying": "NIFTY",
+ "structure": "iron-condor", "expiry": "weekly",
+ "params": {"delta": 0.16, "wing": 100, "target": 50, "stop": 2},
+ "strikes": {"by": "delta", "value": "$delta"}, "wings": {"points": "$wing"},
+ "entry": {"days_to_expiry": 6, "weekdays": ["Tue", "Wed"], "iv_rank_min": 30, "vix_max": 25},
+ "exit": {"profit_target_pct": "$target", "stop_loss_mult": "$stop", "days_before_expiry": 0},
+ "lots": 1, "capital": 500000, "costs": {"slippage_pct": 2, "slippage_ticks": 1},
+ "grid": {"delta": [0.12, 0.16, 0.2], "wing": [100, 200]}}
+```
+
+- `structure`: short-strangle, short-straddle, iron-condor, iron-fly,
+  bull-put-spread, bear-call-spread, calendar (`"type": "CE"|"PE"`),
+  long-straddle, long-strangle. `expiry`: weekly (every listed expiry) or
+  monthly (the expiries with a future).
+- `strikes`: `{"by": "delta", "value": 0.16}` (on the entry day's chain, IV
+  solved from the settle prices), `"pct_otm"`, `"points"` from ATM, or `"atm"`.
+- `entry.days_to_expiry`: the cycle starts on the first session at or under
+  that many calendar days before its expiry (an allowed weekday); the IV rank
+  and India VIX filters are read there, once a cycle. `fill`: close (the day's
+  settle prices) or open (the day's opening prices, strikes centred on the
+  index's open: the expiry-day fly).
+- `exit`: `profit_target_pct` of the premium, `stop_loss_mult` of it (both
+  checked at each close), `days_before_expiry`; otherwise cash settlement at
+  the final settlement price, with STT on exercise for in-the-money longs.
+- R for an options trade is net over the margin it blocked, so the gates read
+  return on margin. The scorecard adds return on margin, worst week, the 5%
+  and 1% tail loss, losing streaks, time in drawdown and the share of
+  expiries with a short strike breached.
+
+`forward` on an options spec settles its paper positions since the backtest
+and, for a WATCH or PROMOTE spec whose entry fires on the latest session,
+writes a draft basket: trader-strategy's `strategy.json` body and an
+`orders.json` proposal (paper, a LIMIT a leg at the close). Copy them to
+`trader/strategy.json` and `trader/orders.json`, run trader-risk's
+`check.py` (the legs are ONE basket) and confirm the basket ticket yourself
+with trader-broker. Nothing is placed by the lab.
+
+Limits (docs/lab.md): end-of-day only, no intraday stops or adjustments,
+untraded strikes priced by Black-76 at the day's smile IV (flagged),
+survivorship of strikes, margin an estimate.
 
 From an AI assistant, the MCP server (`mcp/server.py`) offers the same as
 `lab_list`, `lab_run`, `lab_report` and `lab_forward`; `lab_forward` with
-`draft: SYMBOL` hands a plan to `paper_order_draft` and nothing else.
+`draft: SYMBOL` hands a plan to `paper_order_draft` and nothing else; for an
+options spec `draft: NIFTY` writes the basket and runs trader-risk on it.
 
 ## How to talk about results
 
