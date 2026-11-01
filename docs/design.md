@@ -112,10 +112,10 @@ and 390 px wide (`python3 ui/screenshots.py`).
    do not fit: at 1440 px "Agents" is cut and "Settings" is unreachable; at
    1280 px Strategy, Agents and Settings are hidden with no scroll cue (the
    scrollbar is hidden).
-2. **Phone layout overflows sideways.** At 390 px the header row is wider than
-   the screen (the data badge is cut, the symbol box shrinks to four letters),
-   index tiles and the option-chain toolbar push the page into horizontal
-   scroll.
+2. **The phone layout hides most pages.** At 390 px the header wraps to three
+   rows, only five of nine page links are visible in a sideways-scrolling strip
+   with no cue, and the Settings and Option chain pages scroll sideways (31 px
+   and 2 px wider than the screen).
 3. **The demo banner is a wall of text** (two to five lines of amber text
    above every page) and repeats the footer's disclaimer.
 4. **The home page has no hierarchy.** Seven equal cards: the watchlist count
