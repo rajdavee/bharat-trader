@@ -579,6 +579,9 @@ class Pilot(object):
     def strategy_positions(self, name, *status):
         return [p for p in self.positions(*status) if p["strategy"] == name]
 
+    def enabled(self):
+        return [n for n, b in self.ap["strategies"].items() if b.get("enabled") is not False]
+
     def bucket(self, name):
         return self.ap["strategies"].get(name)
 
@@ -675,7 +678,10 @@ class Pilot(object):
                 notes["archive"] = "updated" if not rc else "update failed: %s" % out.getvalue().strip()[-200:]
         else:
             notes["archive"] = "not configured" if not self.ap.get("archive_update") else "replay/offline: skipped"
-        brief = self.ask_cotrader(day, now, brief=True)
+        if self.enabled():
+            brief = self.ask_cotrader(day, now, brief=True)
+        else:
+            brief = "no strategy enabled in the autopilot config: nothing to trade"
         notes["cotrader"] = brief
         self.state["phases"]["pre_open"] = now.strftime("%H:%M")
         self.state["pre_open"] = notes
@@ -732,6 +738,10 @@ class Pilot(object):
         last = st.get("last_poll")
         if last and (now - datetime.datetime.strptime(last, "%Y-%m-%d %H:%M:%S")).total_seconds() < \
                 self.ap["cadence_min"] * 60 - 1:
+            return
+        if not self.enabled():
+            st["last_poll"] = now.strftime("%Y-%m-%d %H:%M:%S")
+            self.save()
             return
         doc = self.ask_cotrader(day, now)
         for i, c in enumerate(doc["candidates"]):
