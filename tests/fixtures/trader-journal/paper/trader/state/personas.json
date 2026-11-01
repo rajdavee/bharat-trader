@@ -1,0 +1,529 @@
+{
+ "note": "Proposals tagged with the persona that drafted them, for the persona scorecard. Read only by the scorecard; nothing here is ever sent to a broker.",
+ "drafts": [
+  {
+   "at": "2026-10-26T10:00:00+05:30",
+   "persona": "intraday-trader",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "RELIANCE",
+     "exchange": "NSE",
+     "product": "MIS",
+     "side": "BUY",
+     "qty": 75,
+     "order_type": "LIMIT",
+     "price": 1193.9,
+     "stop_loss": {
+      "order_type": "SL-M",
+      "trigger_price": 1189.1
+     },
+     "target": {
+      "order_type": "LIMIT",
+      "price": 1203.5
+     },
+     "validity": "DAY",
+     "why": "fixture",
+     "plan": {
+      "entry": 1193.9,
+      "stop": 1189.1,
+      "target": 1203.5,
+      "setup": "lab:orb15-vwap",
+      "persona": "intraday-trader"
+     }
+    }
+   ]
+  },
+  {
+   "at": "2026-10-26T11:00:00+05:30",
+   "persona": "intraday-trader",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "HDFCBANK",
+     "exchange": "NSE",
+     "product": "MIS",
+     "side": "BUY",
+     "qty": 130,
+     "order_type": "LIMIT",
+     "price": 691.7,
+     "stop_loss": {
+      "order_type": "SL-M",
+      "trigger_price": 688.95
+     },
+     "target": {
+      "order_type": "LIMIT",
+      "price": 697.2
+     },
+     "validity": "DAY",
+     "why": "fixture",
+     "plan": {
+      "entry": 691.7,
+      "stop": 688.95,
+      "target": 697.2,
+      "setup": "lab:orb15-vwap",
+      "persona": "intraday-trader"
+     }
+    }
+   ]
+  },
+  {
+   "at": "2026-10-26T13:00:00+05:30",
+   "persona": "intraday-trader",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "SBIN",
+     "exchange": "NSE",
+     "product": "MIS",
+     "side": "BUY",
+     "qty": 94,
+     "order_type": "LIMIT",
+     "price": 953.85,
+     "stop_loss": {
+      "order_type": "SL-M",
+      "trigger_price": 950.05
+     },
+     "target": {
+      "order_type": "LIMIT",
+      "price": 961.45
+     },
+     "validity": "DAY",
+     "why": "fixture",
+     "plan": {
+      "entry": 953.85,
+      "stop": 950.05,
+      "target": 961.45,
+      "setup": "lab:orb15-vwap",
+      "persona": "intraday-trader"
+     }
+    }
+   ]
+  },
+  {
+   "at": "2026-10-27T10:00:00+05:30",
+   "persona": "intraday-trader",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "RELIANCE",
+     "exchange": "NSE",
+     "product": "MIS",
+     "side": "BUY",
+     "qty": 75,
+     "order_type": "LIMIT",
+     "price": 1194.3,
+     "stop_loss": {
+      "order_type": "SL-M",
+      "trigger_price": 1189.5
+     },
+     "target": {
+      "order_type": "LIMIT",
+      "price": 1203.9
+     },
+     "validity": "DAY",
+     "why": "fixture",
+     "plan": {
+      "entry": 1194.3,
+      "stop": 1189.5,
+      "target": 1203.9,
+      "setup": "lab:orb15-vwap",
+      "persona": "intraday-trader"
+     }
+    }
+   ]
+  },
+  {
+   "at": "2026-10-27T10:50:00+05:30",
+   "persona": "intraday-trader",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "RELIANCE",
+     "exchange": "NSE",
+     "product": "MIS",
+     "side": "BUY",
+     "qty": 75,
+     "order_type": "LIMIT",
+     "price": 1192.7,
+     "stop_loss": {
+      "order_type": "SL-M",
+      "trigger_price": 1187.95
+     },
+     "target": {
+      "order_type": "LIMIT",
+      "price": 1202.2
+     },
+     "validity": "DAY",
+     "why": "fixture",
+     "plan": {
+      "entry": 1192.7,
+      "stop": 1187.95,
+      "target": 1202.2,
+      "setup": "lab:vwap-reclaim",
+      "persona": "intraday-trader"
+     }
+    }
+   ]
+  },
+  {
+   "at": "2026-10-28T09:45:00+05:30",
+   "persona": "intraday-trader",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "RELIANCE",
+     "exchange": "NSE",
+     "product": "MIS",
+     "side": "BUY",
+     "qty": 75,
+     "order_type": "LIMIT",
+     "price": 1199.3,
+     "stop_loss": {
+      "order_type": "SL-M",
+      "trigger_price": 1194.5
+     },
+     "target": {
+      "order_type": "LIMIT",
+      "price": 1208.9
+     },
+     "validity": "DAY",
+     "why": "fixture",
+     "plan": {
+      "entry": 1199.3,
+      "stop": 1194.5,
+      "target": 1208.9,
+      "setup": "lab:orb15-vwap",
+      "persona": "intraday-trader"
+     }
+    }
+   ]
+  },
+  {
+   "at": "2026-10-28T10:15:00+05:30",
+   "persona": "intraday-trader",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "HDFCBANK",
+     "exchange": "NSE",
+     "product": "MIS",
+     "side": "BUY",
+     "qty": 132,
+     "order_type": "LIMIT",
+     "price": 678.05,
+     "stop_loss": {
+      "order_type": "SL-M",
+      "trigger_price": 675.35
+     },
+     "target": {
+      "order_type": "LIMIT",
+      "price": 683.45
+     },
+     "validity": "DAY",
+     "why": "fixture",
+     "plan": {
+      "entry": 678.05,
+      "stop": 675.35,
+      "target": 683.45,
+      "setup": "lab:orb15-vwap",
+      "persona": "intraday-trader"
+     }
+    }
+   ]
+  },
+  {
+   "at": "2026-10-28T10:45:00+05:30",
+   "persona": "intraday-trader",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "TCS",
+     "exchange": "NSE",
+     "product": "MIS",
+     "side": "BUY",
+     "qty": 37,
+     "order_type": "LIMIT",
+     "price": 2420.1,
+     "stop_loss": {
+      "order_type": "SL-M",
+      "trigger_price": 2410.4
+     },
+     "target": {
+      "order_type": "LIMIT",
+      "price": 2439.5
+     },
+     "validity": "DAY",
+     "why": "fixture",
+     "plan": {
+      "entry": 2420.1,
+      "stop": 2410.4,
+      "target": 2439.5,
+      "setup": "lab:orb15-vwap",
+      "persona": "intraday-trader"
+     }
+    }
+   ]
+  },
+  {
+   "at": "2026-10-28T13:30:00+05:30",
+   "persona": "intraday-trader",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "RELIANCE",
+     "exchange": "NSE",
+     "product": "MIS",
+     "side": "BUY",
+     "qty": 77,
+     "order_type": "LIMIT",
+     "price": 1166.0,
+     "stop_loss": {
+      "order_type": "SL-M",
+      "trigger_price": 1161.35
+     },
+     "target": {
+      "order_type": "LIMIT",
+      "price": 1175.3
+     },
+     "validity": "DAY",
+     "why": "fixture",
+     "plan": {
+      "entry": 1166.0,
+      "stop": 1161.35,
+      "target": 1175.3,
+      "setup": "lab:orb15-vwap",
+      "persona": "intraday-trader"
+     }
+    }
+   ]
+  },
+  {
+   "at": "2026-10-29T09:20:00+05:30",
+   "persona": "swing-trader",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "TCS",
+     "exchange": "NSE",
+     "product": "MIS",
+     "side": "BUY",
+     "qty": 36,
+     "order_type": "LIMIT",
+     "price": 2499.7,
+     "stop_loss": {
+      "order_type": "SL-M",
+      "trigger_price": 2489.7
+     },
+     "target": {
+      "order_type": "LIMIT",
+      "price": 2519.7
+     },
+     "validity": "DAY",
+     "why": "fixture",
+     "plan": {
+      "entry": 2499.7,
+      "stop": 2489.7,
+      "target": 2519.7,
+      "setup": "gap-fade",
+      "persona": "swing-trader"
+     }
+    }
+   ]
+  },
+  {
+   "at": "2026-10-29T09:45:00+05:30",
+   "persona": "swing-trader",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "TCS",
+     "exchange": "NSE",
+     "product": "MIS",
+     "side": "BUY",
+     "qty": 36,
+     "order_type": "LIMIT",
+     "price": 2482.0,
+     "stop_loss": {
+      "order_type": "SL-M",
+      "trigger_price": 2472.05
+     },
+     "target": {
+      "order_type": "LIMIT",
+      "price": 2501.9
+     },
+     "validity": "DAY",
+     "why": "fixture",
+     "plan": {
+      "entry": 2482.0,
+      "stop": 2472.05,
+      "target": 2501.9,
+      "setup": "gap-fade",
+      "persona": "swing-trader"
+     }
+    }
+   ]
+  },
+  {
+   "at": "2026-10-30T10:15:00+05:30",
+   "persona": "intraday-trader",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "LT",
+     "exchange": "NSE",
+     "product": "MIS",
+     "side": "BUY",
+     "qty": 23,
+     "order_type": "LIMIT",
+     "price": 3827.4,
+     "stop_loss": {
+      "order_type": "SL-M",
+      "trigger_price": 3812.1
+     },
+     "target": {
+      "order_type": "LIMIT",
+      "price": 3858.0
+     },
+     "validity": "DAY",
+     "why": "fixture",
+     "plan": {
+      "entry": 3827.4,
+      "stop": 3812.1,
+      "target": 3858.0,
+      "setup": "lab:orb15-vwap",
+      "persona": "intraday-trader"
+     }
+    }
+   ]
+  },
+  {
+   "at": "2026-10-30T11:30:00+05:30",
+   "persona": "",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "AXISBANK",
+     "exchange": "NSE",
+     "product": "MIS",
+     "side": "BUY",
+     "qty": 73,
+     "order_type": "LIMIT",
+     "price": 1223.3,
+     "stop_loss": {
+      "order_type": "SL-M",
+      "trigger_price": 1218.4
+     },
+     "target": {
+      "order_type": "LIMIT",
+      "price": 1233.1
+     },
+     "validity": "DAY",
+     "why": "fixture",
+     "plan": {
+      "entry": 1223.3,
+      "stop": 1218.4,
+      "target": 1233.1,
+      "setup": "",
+      "persona": ""
+     }
+    }
+   ]
+  },
+  {
+   "at": "2026-11-02T10:00:00+05:30",
+   "persona": "options-seller",
+   "source": "fixture plan",
+   "orders": [
+    {
+     "symbol": "NIFTY",
+     "exchange": "NFO",
+     "segment": "OPT",
+     "instrument": "OPTIDX",
+     "expiry": "2026-11-03",
+     "strike": 22700.0,
+     "option_type": "PE",
+     "tradingsymbol": null,
+     "instrument_token": null,
+     "side": "BUY",
+     "lots": 1,
+     "lot_size": 65,
+     "qty": 65,
+     "product": "NRML",
+     "order_type": "LIMIT",
+     "price": 28.7,
+     "validity": "DAY",
+     "leg": 1,
+     "tag": "bt-strategy",
+     "why": "iron-condor leg 1 of 4: BUY 1 22,700 PE 03-Nov-2026 at 28.68 (mid)"
+    },
+    {
+     "symbol": "NIFTY",
+     "exchange": "NFO",
+     "segment": "OPT",
+     "instrument": "OPTIDX",
+     "expiry": "2026-11-03",
+     "strike": 22800.0,
+     "option_type": "PE",
+     "tradingsymbol": null,
+     "instrument_token": null,
+     "side": "SELL",
+     "lots": 1,
+     "lot_size": 65,
+     "qty": 65,
+     "product": "NRML",
+     "order_type": "LIMIT",
+     "price": 44.3,
+     "validity": "DAY",
+     "leg": 2,
+     "tag": "bt-strategy",
+     "why": "iron-condor leg 2 of 4: SELL 1 22,800 PE 03-Nov-2026 at 44.33 (mid)"
+    },
+    {
+     "symbol": "NIFTY",
+     "exchange": "NFO",
+     "segment": "OPT",
+     "instrument": "OPTIDX",
+     "expiry": "2026-11-03",
+     "strike": 23200.0,
+     "option_type": "CE",
+     "tradingsymbol": null,
+     "instrument_token": null,
+     "side": "SELL",
+     "lots": 1,
+     "lot_size": 65,
+     "qty": 65,
+     "product": "NRML",
+     "order_type": "LIMIT",
+     "price": 44.85,
+     "validity": "DAY",
+     "leg": 3,
+     "tag": "bt-strategy",
+     "why": "iron-condor leg 3 of 4: SELL 1 23,200 CE 03-Nov-2026 at 44.85 (mid)"
+    },
+    {
+     "symbol": "NIFTY",
+     "exchange": "NFO",
+     "segment": "OPT",
+     "instrument": "OPTIDX",
+     "expiry": "2026-11-03",
+     "strike": 23300.0,
+     "option_type": "CE",
+     "tradingsymbol": null,
+     "instrument_token": null,
+     "side": "BUY",
+     "lots": 1,
+     "lot_size": 65,
+     "qty": 65,
+     "product": "NRML",
+     "order_type": "LIMIT",
+     "price": 24.05,
+     "validity": "DAY",
+     "leg": 4,
+     "tag": "bt-strategy",
+     "why": "iron-condor leg 4 of 4: BUY 1 23,300 CE 03-Nov-2026 at 24.03 (mid)"
+    }
+   ]
+  }
+ ]
+}

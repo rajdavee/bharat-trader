@@ -1,0 +1,7 @@
+{
+ "orders": [],
+ "trades": [
+  {"trade_id": "70110021", "broker_order_id": "261030000412883", "symbol": "ICICIBANK", "exchange": "NSE", "side": "BUY", "qty": 70, "price": 1392.2, "product": "MIS", "time": "2026-10-30 09:45:06"},
+  {"trade_id": "70188310", "broker_order_id": "261030000613097", "symbol": "ICICIBANK", "exchange": "NSE", "side": "SELL", "qty": 70, "price": 1401.5, "product": "MIS", "time": "2026-10-30 12:15:02"}
+ ]
+}

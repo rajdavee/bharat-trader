@@ -1,0 +1,3 @@
+exchange,producttype,tradingsymbol,instrumenttype,symbolgroup,strikeprice,optiontype,expirydate,marketlot,precision,multiplier,tradevalue,transactiontype,fillprice,fillsize,orderid,fillid,filltime
+NSE,INTRADAY,ITC-EQ,,EQ,-1,,,1,2,-1,101900.00,BUY,254.75,400,261028000123456,9301122,10:00:07
+NSE,INTRADAY,ITC-EQ,,EQ,-1,,,1,2,-1,102560.00,SELL,256.40,400,261028000198765,9417730,12:00:09
