@@ -30,7 +30,8 @@ TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit
          "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor", "persona_scorecards", "regime_now",
          "cotrader_candidates", "cotrader_explain", "calibration_report",
          "journal_summary", "journal_stats", "counterfactual_report",
-         "archive_status", "strategy_design", "lab_run_spec", "compare_strategies", "best_for_regime", "trade_brief"]
+         "archive_status", "strategy_design", "lab_run_spec", "compare_strategies", "best_for_regime", "trade_brief",
+         "autopilot_status", "autopilot_replay", "autopilot_start", "autopilot_stop"]
 # a variant of the orb15-vwap library spec on two stocks: what an assistant would pass to lab_run_spec
 ORB_SPEC = {"schema": "bharat-trader/lab-spec/1", "name": "t-orb-open-drive", "kind": "equity", "timeframe": "5m",
             "product": "MIS", "universe": ["SBIN", "TCS"], "params": {"or_minutes": 15, "target_r": 2},
@@ -83,6 +84,10 @@ CALLS = [
     ("cotrader_candidates", {}),
     ("cotrader_explain", {}),
     ("calibration_report", {}),
+    ("autopilot_status", {}),
+    ("autopilot_replay", {"date": "2026-09-21"}),
+    ("autopilot_stop", {"typed": "stop paper"}),
+    ("autopilot_start", {"typed": "start paper"}),
     ("journal_summary", {}),
     ("journal_stats", {"by": "persona"}),
     ("counterfactual_report", {}),
@@ -1328,6 +1333,46 @@ class Workflow(ServerCase):
         for tool in ("strategy_design", "lab_run_spec", "days_to_expiry 0", "NIFTY"):
             self.assertIn(tool, text)
         self.assertEqual(self.code(self.c.request("prompts/get", {"name": "design_strategy_for_window"})), -32602)
+
+
+# ---------------------------------------------------------------- the auto-pilot
+
+class Autopilot(ServerCase):
+    def data(self, name, args):
+        r = self.result(self.c.call(name, args))
+        self.assertFalse(r["isError"], r["content"][0]["text"][:400])
+        return r["structuredContent"]["data"]
+
+    def err(self, name, args):
+        r = self.result(self.c.call(name, args))
+        self.assertTrue(r["isError"], name)
+        return r["content"][0]["text"]
+
+    def test_status_replay_and_the_typed_words(self):
+        s = self.data("autopilot_status", {})
+        self.assertFalse(s["running"])
+        self.assertEqual(s["positions"], [])
+        self.assertIn("never write it yourself", self.err("autopilot_start", {}).lower())
+        self.assertIn("start paper", self.err("autopilot_start", {"typed": "yes"}))
+        self.assertIn("stop paper", self.err("autopilot_stop", {"typed": "stop"}))
+        r = self.data("autopilot_replay", {"date": "2026-09-21"})
+        self.assertEqual(r["sandbox"], "trader/autopilot/replays/2026-09-21")
+        self.assertEqual(r["reports"][0]["date"], "2026-09-21")
+        self.assertIn("not a session", self.err("autopilot_replay", {"date": "2026-09-19"}).lower().replace(
+            "is not an nse session", "not a session"))
+        s = self.data("autopilot_status", {})
+        self.assertEqual(s["replays"][0]["name"], "2026-09-21")
+
+    def test_a_live_config_is_refused_before_asking(self):
+        path = os.path.join(self.c.workdir, "trader", "config.json")
+        with open(path, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        cfg.update(paper=False, broker="upstox", live_enabled={"upstox": True})
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh)
+        self.assertIn("PAPER", self.err("autopilot_start", {"typed": "start paper"}))
+        self.assertFalse(os.path.exists(os.path.join(self.c.workdir, "trader", "autopilot", "lock.json")))
+        self.assertIn("PAPER", self.err("autopilot_replay", {"date": "2026-09-21"}))
 
 
 # ---------------------------------------------------------------- streamable HTTP

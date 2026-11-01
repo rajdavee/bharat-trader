@@ -38,7 +38,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 47 tools and 16 prompts from
+4. Restart the client. It should list 51 tools and 16 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -136,6 +136,10 @@ message.
 | `compare_strategies` | **Strategy lab: compare runs.** Two to eight lab runs side by side: verdict, out-of-sample trades, win rate with its Wilson 95% range, expectancy in R after charges with its 95% range, profit factor, drawdown, deflated Sharpe and the trials it was charged for, overfitting odds, 1.5x costs, gates passed, the strategy family, and the trades in today's regime cell; ranked by verdict then the lower end of the expectancy range, with what each does NOT prove. Read only. | `strategies` | read-only; network |
 | `best_for_regime` | **Best strategies for today's regime.** Every lab run's past trades filtered to today's regime cell (NIFTY trending or ranging x the India VIX bucket, as of the close before): trades and wins in the cell with the Wilson 95% range, the shrunk probability and expected R after charges with their 95% ranges, n overall, whether the cell has enough trades to judge, the tier (PROMOTED, WATCH, RESEARCH) and the cells where it had an edge. Ranked conservatively; says plainly when nothing fits. Read only. | none | read-only; network |
 | `trade_brief` | **Co-trader: one-shot trade brief.** One read-only call for a co-trader brief: the regime now, today's validated candidates with their odds, 95% ranges and n (worked out fresh, not written or logged), the no-edge reasons when there are none, the risk locks, the open paper positions and today's limits used, and the calibration of past odds. Proposing is not placing: a candidate becomes a paper ticket only through paper_order_draft, trader-risk and the user's own typed yes. | none | read-only; network |
+| `autopilot_status` | **Auto-pilot: status.** The auto-pilot on PAPER: whether its loop is running (pid, last step), today's phase, the timeline of today's actions (pre-open brief, orders placed with trader-risk PASS and the machine yes labelled autopilot, fills, exits, blocks with reasons, kill switch, end of day), the open paper positions by strategy, each strategy's capital bucket, its paper forward record after charges next to trader-lab's verdict, today's report and past replays. Read only. | none | read-only |
+| `autopilot_replay` | **Auto-pilot: replay a past day.** Replay one or more past NSE sessions with the auto-pilot on a simulated clock, in a sandbox (trader/autopilot/replays/): the enabled strategies' lab runs are re-run as of the close before the first day (no look-ahead), a fresh paper account starts from your capital, and every step runs from the pre-open to the end-of-day report, with exact charges. Read only for your account: it never touches your paper account, orders or lab runs. | `date`, `to`? | read-only |
+| `autopilot_start` | **Auto-pilot: start on paper.** Start the auto-pilot loop on the PAPER account, with the user's typed confirmation (the words start paper). A config that is not paper is refused before anything. When the client supports elicitation the server asks the user directly; otherwise typed must be the user's own words. Never type them yourself. There is no live auto-pilot. | `typed`? | writes trader/ |
+| `autopilot_stop` | **Auto-pilot: stop.** Ask the running auto-pilot loop to finish its current step and stop, with the user's typed confirmation (the words stop paper). Open paper positions stay as they are. | `typed`? | writes trader/ |
 <!-- tools:end -->
 
 `?` marks an optional argument. Every tool also carries MCP annotations:

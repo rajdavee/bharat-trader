@@ -50,6 +50,7 @@ def _load_api():
         "regime": ("trader-regime", "regime"),
         "discover": ("trader-discover", "discover"),
         "cotrader": ("trader-cotrader", "cotrader"),
+        "autopilot": ("trader-autopilot", "autopilot"),
         "journal": ("trader-journal", "journal"),
         "archive": ("trader-archive", "archive"),
     })
@@ -1293,6 +1294,101 @@ def t_calibration_report(kit, a, call):
                  "prove little either way."]
 
 
+# ---------------------------------------------------------------- the auto-pilot (paper only)
+
+AUTOPILOT_LIMITS = ("The auto-pilot is PAPER only: it refuses a live config and has no way to place a live order. "
+                    "A few days of paper results prove little either way; quote the after-charges numbers, the number "
+                    "of trades and the lab's verdict, never a promise.")
+DATE_RE = r"^\d{4}-\d{2}-\d{2}$"
+
+
+def _slim_report(rep, keep=60):
+    out = dict(rep or {})
+    out["timeline"] = (out.get("timeline") or [])[-keep:]
+    out.pop("disclaimer", None)
+    return out
+
+
+def t_autopilot_status(kit, a, call):
+    view = api.autopilot_view(kit.ctx)
+    view["timeline"] = view.get("timeline", [])[-60:]
+    if view.get("report"):
+        view["report"] = _slim_report(view["report"])
+    view.pop("disclaimer", None)
+    return view, [AUTOPILOT_LIMITS, "Read only."]
+
+
+def t_autopilot_replay(kit, a, call):
+    ap_ = api.skill("autopilot")
+    day, to = a.get("date"), a.get("to")
+    data = kit.offline.path("autopilot_replay", "trader-lab") if kit.offline else None
+    call.progress(0.1, "re-running the lab as of the close before %s, then the day on a simulated clock" % day)
+    try:
+        reps = ap_.replay(kit.workdir, day, to or None, data, None, True)
+    except ap_.errors() as e:
+        raise ToolError(str(e))
+    name = day + (("_" + to) if to and to != day else "")
+    return {"sandbox": "trader/autopilot/replays/%s" % name, "reports": [_slim_report(r) for r in reps if r]}, \
+        [AUTOPILOT_LIMITS, "A sandbox: your own paper account, orders and lab runs were not touched."]
+
+
+START_SCHEMA = {"type": "object", "properties": {"typed": {
+    "type": "string", "title": "Your confirmation", "minLength": 1, "maxLength": 50,
+    "description": "Type the words: start paper (anything else starts nothing)"}}, "required": ["typed"]}
+STOP_SCHEMA = {"type": "object", "properties": {"typed": {
+    "type": "string", "title": "Your confirmation", "minLength": 1, "maxLength": 50,
+    "description": "Type the words: stop paper"}}, "required": ["typed"]}
+
+
+def _autopilot_typed(kit, a, call, key, message, schema):
+    answer = call.elicit(key, message, schema, {"tool": key})
+    if answer is not None:
+        if not isinstance(answer, dict) or answer.get("action") != "accept":
+            return None, "elicitation"
+        return (answer.get("content") or {}).get("typed"), "elicitation"
+    text = a.get("typed")
+    if not text:
+        raise ToolError("not done: this client cannot ask the user directly, so typed must be the user's own words, "
+                        "typed by them. Never write it yourself.")
+    return text, "argument"
+
+
+def t_autopilot_start(kit, a, call):
+    ap_ = api.skill("autopilot")
+    cfg = kit.ctx.config()
+    try:
+        ap_.paper_guard(cfg)            # a live config stops here, before the user is even asked
+        ap_.settings_of(cfg)
+    except ap_.AutopilotError as e:
+        raise ToolError(str(e))
+    text, via = _autopilot_typed(kit, a, call, "autopilot_start",
+                                 "Start the auto-pilot on the PAPER account (no real money)? It trades the strategies "
+                                 "in your autopilot config inside your limits, each order checked by trader-risk. Type "
+                                 "%s to start. %s" % (ap_.START_WORDS, DISCLAIMER), START_SCHEMA)
+    if text is None:
+        return {"started": False, "via": via, "message": "The user did not accept. Nothing was started."}, []
+    try:
+        view = api.r_autopilot_start(kit.ctx, {}, {"typed": text})
+    except api.ApiError as e:
+        raise ToolError(e.message)
+    view["timeline"] = view.get("timeline", [])[-30:]
+    view.pop("report", None)
+    view.pop("disclaimer", None)
+    return dict(view, via=via), [AUTOPILOT_LIMITS]
+
+
+def t_autopilot_stop(kit, a, call):
+    ap_ = api.skill("autopilot")
+    text, via = _autopilot_typed(kit, a, call, "autopilot_stop", "Stop the auto-pilot after its current step? Type "
+                                 "%s. Open paper positions stay open (stops and targets are managed when it starts "
+                                 "again)." % ap_.STOP_WORDS, STOP_SCHEMA)
+    if text is None:
+        return {"stopped": "The user did not accept. Nothing was changed.", "via": via}, []
+    try:
+        view = api.r_autopilot_stop(kit.ctx, {}, {"typed": text})
+    except api.ApiError as e:
+        raise ToolError(e.message)
+    return {"stopped": view["stopped"], "running": view["running"], "via": via}, [AUTOPILOT_LIMITS]
 # ---------------------------------------------------------------- tools: the trade journal
 
 JOURNAL_NOTE = ("A journal describes the user's own past trades: quote each rate with its range and the number of trades, "
@@ -1958,11 +2054,6 @@ def t_trade_brief(kit, a, call):
                  "calibration. Quote n and the 95% ranges with every probability.", PROPOSE_NOTE, COTRADER_LIMITS]
 
 
-# Hook for trader-autopilot (#45): when that skill lands, its paper-only autopilot_status / autopilot_start /
-# autopilot_stop tools are added to build_tools() next to these, with the same rules (paper only, the kill switch
-# wins, every order through trader-risk). Until then no autopilot tool exists here.
-
-
 # ---------------------------------------------------------------- the tool table
 
 RO = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
@@ -2499,6 +2590,43 @@ def build_tools():
                   data=obj({"headline": S("string"), "regime": {}, "candidates": {}, "no_edge": {},
                             "open_risk": {}, "calibration": {}, "unavailable": ANY_LIST},
                            ["headline", "unavailable"], extra=True)))
+    T.append(tool("autopilot_status", "Auto-pilot: status",
+                  "The auto-pilot on PAPER: whether its loop is running (pid, last step), today's phase, the timeline "
+                  "of today's actions (pre-open brief, orders placed with trader-risk PASS and the machine yes "
+                  "labelled autopilot, fills, exits, blocks with reasons, kill switch, end of day), the open paper "
+                  "positions by strategy, each strategy's capital bucket, its paper forward record after charges "
+                  "next to trader-lab's verdict, today's report and past replays. Read only.", t_autopilot_status, {},
+                  data=obj({"running": S("boolean"), "positions": ANY_LIST, "timeline": ANY_LIST, "records": ANY_OBJ,
+                            "strategies": ANY_OBJ}, ["running", "positions", "timeline"], extra=True), network=False))
+    T.append(tool("autopilot_replay", "Auto-pilot: replay a past day",
+                  "Replay one or more past NSE sessions with the auto-pilot on a simulated clock, in a sandbox "
+                  "(trader/autopilot/replays/): the enabled strategies' lab runs are re-run as of the close before the "
+                  "first day (no look-ahead), a fresh paper account starts from your capital, and every step runs "
+                  "from the pre-open to the end-of-day report, with exact charges. Read only for your account: it "
+                  "never touches your paper account, orders or lab runs.", t_autopilot_replay,
+                  {"date": S("string", "the first session, YYYY-MM-DD", pattern=DATE_RE),
+                   "to": S("string", "the last session (default: date), at most a month later", pattern=DATE_RE)},
+                  ["date"], data=obj({"sandbox": S("string"), "reports": ANY_LIST}, ["sandbox", "reports"]),
+                  annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+                  network=False))
+    T.append(tool("autopilot_start", "Auto-pilot: start on paper",
+                  "Start the auto-pilot loop on the PAPER account, with the user's typed confirmation (the words "
+                  "start paper). A config that is not paper is refused before anything. When the client supports "
+                  "elicitation the server asks the user directly; otherwise typed must be the user's own words. "
+                  "Never type them yourself. There is no live auto-pilot.", t_autopilot_start,
+                  {"typed": S("string", "the user's own words, start paper (only when the client cannot ask)",
+                              minLength=1, maxLength=50)},
+                  data=obj({"running": S("boolean"), "via": S("string")}, extra=True),
+                  annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False},
+                  network=False))
+    T.append(tool("autopilot_stop", "Auto-pilot: stop",
+                  "Ask the running auto-pilot loop to finish its current step and stop, with the user's typed "
+                  "confirmation (the words stop paper). Open paper positions stay as they are.", t_autopilot_stop,
+                  {"typed": S("string", "the user's own words, stop paper (only when the client cannot ask)",
+                              minLength=1, maxLength=50)},
+                  data=obj({"stopped": S("string"), "via": S("string")}, ["stopped"], extra=True),
+                  annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+                  network=False))
     return T
 
 

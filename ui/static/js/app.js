@@ -23,12 +23,12 @@ import * as welcome from './pages/welcome.js';
 import * as cotrader from './pages/cotrader.js';
 import * as journal from './pages/journal.js';
 import * as ask from './pages/ask.js';
-import * as soon from './pages/soon.js';
+import * as autopilot from './pages/autopilot.js';
 
 const MODULES = {
   today, chart, scanner, portfolio, risk, settings, options, strategy, agents, about, lab, welcome, cotrader, journal,
   ask,
-  autopilot: soon,
+  autopilot,
 };
 const ALIASES = { '': 'today', dashboard: 'today', onboarding: 'welcome' };
 

@@ -7,6 +7,46 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **`trader-autopilot`** (#45): the co-trader loop, run by itself on the
+  PAPER account. `autopilot.py start [--once] [--dry-run] | stop | status |
+  report [--date] | replay --date D [--to D2]`. A resumable stdlib loop on the
+  NSE clock (IST, holidays, the closing auction): pre-open (trader-doctor,
+  trader-regime, an optional trader-archive update, the co-trader brief);
+  the entry window (the co-trader every `cadence_min` minutes; PROMOTED and
+  WATCH candidates only, never RESEARCH; sized by trader-budget inside each
+  strategy's capital bucket; trader-risk on that exact order; a machine yes
+  recorded word for word with `"actor": "autopilot"`; orders a second apart);
+  manage on every 5-minute bar (LIMIT fills by the bars, skipped when opening
+  through the stop or target, stops with gaps, targets, trailing stops, the
+  strategy's own exit rule and maximum holding, the MIS flat-by, delivery
+  positions carried overnight, the spec's slippage); F&O baskets on
+  end-of-day settle prices from the archive (risk as one position with the
+  spec's stop as its risk rule, one machine yes for every leg, close-all as
+  one basket, expiry settlement); end of day (unfilled entries cancelled, the
+  trader-journal sync (`journal.sync`, its public function) when it is
+  installed, calibration scoring with demotion, each strategy's paper trades
+  in `trader/autopilot/records/` and in its trader-lab forward record, the
+  lab's forward test re-run for promote/demote, and the day's report as
+  Markdown and JSON). Per-strategy capital, max positions and daily loss, plus
+  global limits, in an `autopilot` block of `trader/config.json`. The kill
+  switch stops entries and flattens on paper. State saved after every action
+  (intent before each broker call: no double order or fill after a crash), a
+  lock file for one loop per folder, graceful stop. `replay` runs past
+  sessions in a sandbox with a simulated clock, the lab re-run as of the close
+  before (no look-ahead). Paper only in code: a live config is refused before
+  anything and checked every step; only paper broker commands are run, never
+  `place`. Method and safety model in `docs/autopilot.md`.
+- trader-broker: `confirm --actor autopilot` records a machine yes labelled
+  as such and is refused on a live config; `place` refuses any yes the user
+  did not type.
+- UI: the **Auto-pilot** page (status, start/stop with the typed words
+  `start paper` / `stop paper`, today's timeline, open paper positions by
+  strategy, each strategy's forward record next to the lab's verdict, the
+  day's report, replay a past day) and `/api/autopilot`,
+  `/api/autopilot/start`, `/stop`, `/replay`.
+- MCP: `autopilot_status`, `autopilot_replay` (a sandbox, read-only for your
+  account), `autopilot_start` and `autopilot_stop` (paper only, the user's
+  typed confirmation by elicitation or argument).
 - **AI assistant integration v2** (#47): an evidence-first co-trader workflow
   layer for any MCP-compatible assistant (47 tools, 16 prompts).
   - New tools:
@@ -41,8 +81,7 @@ All notable changes are documented here. The format follows
     regime and what the evidence does NOT show. Each also rules out
     promises and says that proposing is not placing: every order needs risk
     and the user's typed yes.
-  - Paper auto-pilot tools (#45) are a documented hook until that skill
-    lands.
+  - Paper auto-pilot tools (#45): see the `trader-autopilot` entry.
 - UI: the optional **Ask** page (`ui/chat.py`). It is off by default and
   relays to the user's own LLM endpoint, configured by environment variables
   only (`BT_LLM_BASE_URL`, `BT_LLM_API_KEY`, `BT_LLM_MODEL`, `BT_LLM_FORMAT`
