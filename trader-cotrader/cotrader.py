@@ -585,9 +585,10 @@ def open_positions(portfolio):
 # ---------------------------------------------------------------- ranking (pure)
 
 def rank(cands, returns, held, settings=None):
-    """Order candidates by score = EV - width_penalty x width - corr_penalty x max(rho, 0) x max(EV, 0), greedily:
-    rho is the highest correlation with an open position or a candidate already ranked above. Ties (to 4
-    decimals) go to the higher liquidity. Each candidate gets "score", "rho" and "rho_with"."""
+    """Order candidates by evidence tier (PROMOTED, WATCH, RESEARCH), then by score = EV - width_penalty x width -
+    corr_penalty x max(rho, 0) x max(EV, 0), greedily: rho is the highest correlation with an open position or a
+    candidate already ranked above (the same stock counts as 1). Ties (to 4 decimals) go to the higher liquidity.
+    The score is a ranking index in R, not an expected result. Each candidate gets "score", "rho", "rho_with"."""
     st = dict(SETTINGS, **(settings or {}))
     left = list(cands)
     done = []
@@ -608,7 +609,8 @@ def rank(cands, returns, held, settings=None):
                 if rho_s is not None and rho_s > rho:
                     rho, rho_with = rho_s, "%s (%s)" % (s, what)
             score = ev - float(st["width_penalty"]) * width - float(st["corr_penalty"]) * max(rho, 0.0) * max(ev, 0.0)
-            key = (round(score, 4), c.get("liquidity") or 0.0)
+            tier = -TIERS.index(c["tier"]) if c.get("tier") in TIERS else -len(TIERS)
+            key = (tier, round(score, 4), c.get("liquidity") or 0.0)
             if best is None or key > best[0]:
                 best = (key, c, score, rho, rho_with, width)
         _, c, score, rho, rho_with, width = best

@@ -46,6 +46,7 @@ def _load_api():
         "lab": ("trader-lab", "lab"),
         "regime": ("trader-regime", "regime"),
         "discover": ("trader-discover", "discover"),
+        "cotrader": ("trader-cotrader", "cotrader"),
     })
     return mod
 
@@ -595,6 +596,19 @@ def t_paper_orders_show(kit, a, call):
 
 
 def t_paper_order_draft(kit, a, call):
+    if a.get("candidate"):
+        cid = a["candidate"]
+        ct = api.skill("cotrader")
+        try:
+            path = ct.plan_path(kit.workdir, cid)
+        except ct.CotraderError as e:
+            raise ToolError(str(e))
+        if not os.path.exists(path):
+            raise ToolError("no co-trader plan %s: call cotrader_candidates first" % cid)
+        kit.backup("plan.json")
+        with open(path, encoding="utf-8") as fh:
+            plan = json.load(fh)
+        ct.write_json(kit.p("plan.json"), plan)
     if not os.path.exists(kit.p("plan.json")):
         raise ToolError("no trader/plan.json yet: make one with exit_plan (save: true)")
     kit.backup("orders.json")
@@ -1147,6 +1161,84 @@ def t_regime_now(kit, a, call):
     return data, notes
 
 
+# ---------------------------------------------------------------- tools: co-trader
+
+COTRADER_ID_RE = r"^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]{1,47}-[A-Z0-9][A-Z0-9&-]{0,19}$"
+COTRADER_LIMITS = ("A candidate's probability is the share of similar past trades (same rule, same kind of market) that "
+                   "made money after charges, with its sample size and 95% range; never a promise about this trade. "
+                   "Say the tier: RESEARCH ideas are unproven, for study or paper only. No candidate is a valid, "
+                   "often the best, answer: say so plainly.")
+
+
+def _cotrader_args(kit, tool):
+    lab = api.skill("lab")
+    n = kit.now_text(tool)
+    now = lab.ist_now(str(n)) if n else lab.ist_now()
+    data = kit.offline.path(tool, "trader-lab") if kit.offline else None
+    return now, data
+
+
+def _slim_candidate(c):
+    out = dict(c)
+    out.pop("order", None)
+    return out
+
+
+def t_cotrader_candidates(kit, a, call):
+    ct = api.skill("cotrader")
+    now, data = _cotrader_args(kit, "cotrader_candidates")
+    tier = "research" if a.get("include_research") else "validated"
+    if a.get("refresh", True):
+        call.progress(0.1, "reading the lab's strategies and the latest bars")
+        try:
+            doc = ct.run_today(kit.workdir, tier, a.get("strategy"), now, data, None, not kit.offline, True)
+        except ct.errors() as e:
+            raise ToolError(str(e))
+        notes = ["Wrote trader/cotrader.json, a plan per candidate (trader/cotrader/plans/) and %d new prediction(s) "
+                 "in trader/cotrader/log.jsonl for calibration. No order was drafted or placed." % doc.get("logged", 0)]
+    else:
+        doc = kit.ctx.read("cotrader.json")
+        if not doc:
+            raise ToolError("no trader/cotrader.json yet: call cotrader_candidates with refresh: true")
+        notes = ["The saved run of %s IST (not refreshed)." % doc.get("as_of")]
+    doc = dict(doc)
+    doc["candidates"] = [_slim_candidate(c) for c in doc.get("candidates") or []]
+    doc.pop("settings", None)
+    doc.pop("disclaimer", None)
+    if doc.get("candidates"):
+        step = ("Show each candidate with its tier, the probability with its 95% range and n, the expected R after "
+                "charges, the regime, the risk verdict and the 'does not show' list. To paper trade one, call "
+                "paper_order_draft with candidate: ID, show the ticket, and wait for the user's own typed yes.")
+    else:
+        step = "No candidate: tell the user plainly that sitting out is the decision today, with the reasons."
+    doc["next_step"] = step
+    return doc, notes + [COTRADER_LIMITS]
+
+
+def t_cotrader_explain(kit, a, call):
+    ct = api.skill("cotrader")
+    c, doc = ct.find_candidate(kit.workdir, a["id"])
+    if c is None:
+        raise ToolError("no candidate %s in trader/cotrader.json: call cotrader_candidates first" % a["id"])
+    out = _slim_candidate(c)
+    out["text"] = ct.render_explain(c)
+    return out, [COTRADER_LIMITS, "Read only."]
+
+
+def t_calibration_report(kit, a, call):
+    ct = api.skill("cotrader")
+    now, data = _cotrader_args(kit, "calibration_report")
+    try:
+        rep = ct.calibration_report(kit.workdir, now, data, None, not kit.offline, False)
+    except ct.errors() as e:
+        raise ToolError(str(e))
+    rep.pop("disclaimer", None)
+    rep["records"] = rep.get("records", [])[-100:]
+    return rep, ["Read only: demotion happens in a terminal (cotrader.py calibration), never from here. A Brier "
+                 "score lower than the base-rate reference is better than a constant guess; a few dozen outcomes "
+                 "prove little either way."]
+
+
 # ---------------------------------------------------------------- the tool table
 
 RO = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
@@ -1253,12 +1345,16 @@ def build_tools():
                   "fingerprint.", t_paper_orders_show, {},
                   data=obj({"tickets": ANY_LIST}, ["tickets"], extra=True), network=False))
     T.append(tool("paper_order_draft", "Draft paper orders",
-                  "Size trader/plan.json into order tickets (trader/orders.json, the old one kept as .bak) and record "
-                  "trader-risk's verdicts. Returns each ticket with its fingerprint. Places nothing.",
+                  "Size trader/plan.json (or, with candidate: ID, that co-trader candidate's plan) into order tickets "
+                  "(trader/orders.json, the old one kept as .bak) and record trader-risk's verdicts. Returns each "
+                  "ticket with its fingerprint. Places nothing.",
                   t_paper_order_draft,
                   {"capital": S("number", "override the capital in rupees", exclusiveMinimum=0),
                    "limit": PRICE, "market": S("boolean", "a MARKET entry instead of a LIMIT"),
-                   "persona": PERSONA},
+                   "persona": PERSONA,
+                   "candidate": S("string", "a co-trader candidate ID (cotrader_candidates): its plan becomes "
+                                            "trader/plan.json first (the old one kept as .bak)",
+                                  pattern=COTRADER_ID_RE, maxLength=90)},
                   data=obj({"tickets": ANY_LIST, "risk": ANY_OBJ, "next_step": S("string")},
                            ["tickets", "risk", "next_step"], extra=True),
                   annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True},
@@ -1511,6 +1607,39 @@ def build_tools():
                                 maxLength=200, pattern=r"^[A-Za-z0-9&\-,\s]{1,200}$"),
                    "iv": S("boolean", "a stock's IV rank from the archived F&O bhavcopy (slower)")},
                   data=obj({"regimes": ANY_LIST, "errors": ANY_LIST}, ["regimes"], extra=True)))
+    T.append(tool("cotrader_candidates", "Co-trader: today's candidates",
+                  "Today's trade candidates from strategies trader-lab validated (tier PROMOTED: gates plus a paper "
+                  "forward record; WATCH: gates passed, paper only), or the plain decision to sit out with the "
+                  "reasons and what would change them. Each candidate: the plan (entry, stop, target, size by "
+                  "trader-budget, charges), trader-risk's PASS or BLOCK with reasons, the share of past trades in "
+                  "today's market regime that made money after charges with its 95% range and n (shrunk toward the "
+                  "rule's overall rate), the expected R after charges, a time-machine replay as a second opinion "
+                  "and any disagreement, why, what would invalidate it, what the evidence does NOT show and similar "
+                  "past trades. include_research adds RESEARCH ideas (unproven, for study/paper only). Writes "
+                  "trader/cotrader.json and logs each prediction once for calibration; drafts and places nothing "
+                  "(paper_order_draft with candidate: ID drafts one).", t_cotrader_candidates,
+                  {"include_research": S("boolean", "also the RESEARCH tier: unproven, for study/paper only"),
+                   "strategy": S("string", "only this lab strategy", pattern=LAB_NAME_RE.pattern, maxLength=48),
+                   "refresh": S("boolean", "run it now (default true); false returns the saved trader/cotrader.json")},
+                  data=obj({"candidates": ANY_LIST, "no_edge": {}, "strategies": ANY_LIST, "regime_now": ANY_OBJ,
+                            "next_step": S("string")}, ["candidates", "strategies", "next_step"], extra=True),
+                  annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True}))
+    T.append(tool("cotrader_explain", "Co-trader: explain a candidate",
+                  "One candidate from the last co-trader run in full: why this trade, what would invalidate it, the "
+                  "evidence in numbers (sample sizes, Wilson and posterior 95% ranges, expected R after charges), "
+                  "the time-machine second opinion and disagreements, what the evidence does NOT show, the nearest "
+                  "similar past trades and the risk verdict, plus the plain-words text. Read only.",
+                  t_cotrader_explain,
+                  {"id": S("string", "the candidate ID, e.g. 2026-11-02-rsi2-nifty50-SBIN", pattern=COTRADER_ID_RE,
+                           maxLength=90)}, ["id"], data=ANY_OBJ, network=False))
+    T.append(tool("calibration_report", "Co-trader: calibration report",
+                  "How well the co-trader's past probabilities matched what happened: each logged prediction's "
+                  "outcome (paper fills, then the lab's forward record, then the bars after the signal), the Brier "
+                  "score with its base-rate reference, log loss and reliability bins with Wilson ranges, overall, "
+                  "per strategy and per tier, and which strategies are overconfident enough to demote. Read only: "
+                  "it never demotes.", t_calibration_report, {},
+                  data=obj({"overall": ANY_OBJ, "by_strategy": ANY_OBJ, "by_tier": ANY_OBJ, "words": S("string")},
+                           ["overall", "by_strategy", "by_tier", "words"], extra=True)))
     return T
 
 
