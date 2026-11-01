@@ -1125,9 +1125,10 @@ def report_text(res):
     for k in ("train", "validation", "holdout"):
         L.append("| %s | %d | %s to %s |" % (k, sp[k][2], sp[k][0], sp[k][1]))
     L.append("")
-    L.append("%d warm-up sessions first; %d sessions of embargo after train and after validation; trades still open "
-             "at a window's end are dropped (purged). The trials never saw the holdout: it is opened once per finalist "
-             "and logged in holdout.jsonl." % (d["warmup_sessions"], sp["embargo_sessions"]))
+    L.append("%d warm-up session%s first; %d session%s of embargo after train and after validation; trades still "
+             "open at a window's end are dropped (purged). The trials never saw the holdout: it is opened once per "
+             "finalist and logged in holdout.jsonl." % (d["warmup_sessions"], "" if d["warmup_sessions"] == 1 else "s",
+                                                        sp["embargo_sessions"], "" if sp["embargo_sessions"] == 1 else "s"))
     L += ["", "## The whole search", ""]
     for g in res["run_level"]:
         L.append("- %s %s: %s (needs %s)" % ("PASS" if g["pass"] else "FAIL", g["gate"], g["got"], g["needs"]))
@@ -1137,7 +1138,7 @@ def report_text(res):
         L.append("- Rejected by stage: %s" % ", ".join("%s %d" % kv for kv in sorted(c["rejected_by_stage"].items())))
     L.append("")
     if res["candidates"]:
-        L += ["", "## Validation survivors", ""]
+        L += ["## Validation survivors", ""]
         for card in res["candidates"]:
             st = "WATCH (finalist)" if card["id"] in res["finalists"] else "REJECTED"
             L.append("### %s: %s" % (st, _describe(card)))
@@ -1353,7 +1354,9 @@ def _show(plan, res, msg, a, notes):
         return 0
     if res:
         print(res["report"])
-        print("Wrote %s/{plan.json, trials.jsonl, holdout.jsonl, results.json, report.md}" % run_dir(a.out, plan["name"]))
+        d = run_dir(a.out, plan["name"])
+        print("Wrote %s/{%s}" % (d, ", ".join(f for f in ("plan.json", "trials.jsonl", "holdout.jsonl", "results.json",
+                                                          "report.md") if os.path.exists(os.path.join(d, f)))))
     else:
         print("Run %s: %s." % (plan["name"], msg))
     for n in notes:
