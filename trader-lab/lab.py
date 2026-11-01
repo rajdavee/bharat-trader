@@ -839,8 +839,20 @@ def options_api():
         mod = importlib.util.module_from_spec(spec)
         sys.modules[name] = mod
         spec.loader.exec_module(mod)
-    mod.bind(sys.modules[__name__], strategy_api(), archive_api())
+    mod.bind(_this_module(), strategy_api(), archive_api())
     return mod
+
+
+def _this_module():
+    """This script as a module object (it may be loaded by path under any name, or not registered at all)."""
+    me = sys.modules.get(__name__)
+    if me is not None and getattr(me, "__dict__", None) is globals():
+        return me
+    for m in list(sys.modules.values()):
+        if getattr(m, "__dict__", None) is globals():
+            return m
+    import types
+    return types.SimpleNamespace(**globals())
 
 
 def archive_bars(sym, timeframe, root):
