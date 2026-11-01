@@ -7,6 +7,7 @@ const P = {
   options: 'M4 6h16M4 12h16M4 18h16M12 4v16',
   strategy: 'M3 17l5-5l4 4l9-9M15 7h6v6',
   cotrader: 'M8 11a3 3 0 1 0 0-6a3 3 0 1 0 0 6M16 11a3 3 0 1 0 0-6a3 3 0 1 0 0 6M2 20c0-3 3-5 6-5s6 2 6 5M14 15.5c.6-.3 1.3-.5 2-.5c3 0 6 2 6 5',
+  ask: 'M4 5h16v11H9l-5 4zM8 9h8M8 12h5',
   portfolio: 'M3 8h18v11H3zM8 8V5h8v3M3 13h18',
   risk: 'M12 3l8 3v6c0 4.5-3.4 8-8 9c-4.6-1-8-4.5-8-9V6zM9 12l2 2l4-4',
   autopilot: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M12 12l4-4M12 7v1M7 12h1M16 12h1',

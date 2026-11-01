@@ -17,7 +17,10 @@ Security, because a web page from anywhere can try to talk to localhost:
     this server's own; no CORS headers at all;
   - every POST needs the session cookie AND its CSRF token in X-CSRF-Token, and a JSON body;
   - a strict Content-Security-Policy: scripts, styles and data from this server only,
-    nothing inline, nothing external, no framing.
+    nothing inline, nothing external, no framing;
+  - the optional Ask panel (ui/chat.py) is off unless BT_LLM_BASE_URL and BT_LLM_MODEL are set in
+    this server's environment, answers 127.0.0.1 only, needs each session's consent, and the browser
+    never sees the key: the server relays to your LLM endpoint itself.
 
 --offline DIR serves saved answers (DIR/yahoo-<SYMBOL>.json, DIR/chart-<SYMBOL>-<interval>.json,
 DIR/nse-marketStatus.json) and pins the clock to DIR/offline.json's "now". If DIR has a trader/
@@ -236,8 +239,10 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ handlers
     def _api(self, method, path, q, body):
+        sid = self._cookie_sid()
+        client = {"session": sid if self.server.sessions.token(sid) else None, "peer": self.client_address[0]}
         try:
-            status, out = api.dispatch(self.server.ctx, method, path, q, body)
+            status, out = api.dispatch(self.server.ctx, method, path, q, body, client)
         except Exception as e:  # a bug, not the user's fault: say so without a stack trace
             sys.stderr.write("ui error on %s %s: %r\n" % (method, path, e))
             status, out = 500, {"error": "internal error: %s" % e.__class__.__name__}
