@@ -53,7 +53,7 @@ Pages are grouped by the trader's day, so each step's next step is close by
 | --- | --- |
 | Today | the cockpit, the home page |
 | Discover | Chart, Scanner, Option chain |
-| Plan | Strategy builder, Co-trader |
+| Plan | Strategy builder, Co-trader, Ask |
 | Trade | Portfolio and orders, Risk, Auto-pilot |
 | Review | Strategy Lab, Journal, Tax, Agents |
 | Setup | Settings, Setup guide, About |
@@ -244,18 +244,25 @@ whole paper flow (risk check, typed yes, fill) can be tried.
 ## Screenshots
 
 From `python3 ui/serve.py --offline tests/fixtures/ui` (saved data of 29 and
-30 October 2026):
+30 October 2026; the Co-trader page after `cotrader.py today --tier research`
+on the repository's lab fixtures):
 
 | | |
 | --- | --- |
 | ![Today in the dark theme](images/today-dark.webp) | ![Today on a phone, 390 px wide](images/today-phone.webp) |
 | Today, dark | Today on a phone |
-| ![Strategy Lab scorecards](images/lab.webp) | ![Setup guide on a fresh folder](images/setup.webp) |
-| Strategy Lab | Setup guide |
+| ![Co-trader: no ready candidate, the regime, and the no-trade decision with its reasons](images/cotrader.webp) | ![Auto-pilot: paper only, start with the typed words start paper](images/autopilot.webp) |
+| Co-trader | Auto-pilot |
+| ![Strategy Lab scorecards](images/lab.webp) | ![Journal with ranges and the sample-size warning](images/journal.webp) |
+| Strategy Lab | Journal |
+| ![Tax estimate for your CA](images/tax.webp) | ![Ask, off until you set your own LLM endpoint](images/ask.webp) |
+| Tax | Ask |
 | ![Chart with the plan's entry, stop and target](images/chart.webp) | ![Option chain](images/options.webp) |
 | Chart | Option chain |
 | ![Risk panel](images/risk.webp) | ![Strategy builder](images/strategy.webp) |
 | Risk | Strategy builder |
+| ![Setup guide on a fresh folder](images/setup.webp) | |
+| Setup guide | |
 
 Remake them after a UI change with the headless browser you already have
 (Chrome, Chromium or Edge; set `BT_BROWSER` if it is not found):

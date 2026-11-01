@@ -28,6 +28,12 @@ config.json ▶│   budget   │ ───────────────�
 
   on a schedule:  news · analyst (quarterly results) · insider (bulk/block deals, SEBI PIT)
   research:       lab (backtest, walk-forward, gates) ──▶ lab/<name>/forward/<date>/plan-*.json ──▶ budget
+  data:           archive (bhavcopies, VIX, intraday) ──▶ lab, timemachine, regime, cotrader, autopilot
+  co-trader:      regime ─┐
+                  lab ────┼─▶ cotrader (candidates, or sit out) ──▶ cotrader/plans/<ID>.json ──▶ budget
+                  discover┘        │ log.jsonl ──▶ calibration ──▶ lab status (DEMOTE)
+                  autopilot (paper only): cotrader ▶ budget ▶ risk ▶ broker (machine yes) ▶ lab forward record
+  review:         journal (trades, rule breaks, counterfactuals) · tax (financial-year estimate)
 ```
 
 ## Files in `trader/`
@@ -46,6 +52,14 @@ config.json ▶│   budget   │ ───────────────�
 | `options.json` | options (`--write`) | strategy builder, UI (schema in `trader-options/SKILL.md`) |
 | `lab/<name>/` | lab (`run`, `forward`): spec, results, scorecard, equity, status, forward record, draft plans | you, UI; the draft plans go to budget (`size.py --plan`) |
 | `strategy.json` | strategy (`--write`, UI) | you, UI, MCP (schema in `trader-strategy/SKILL.md`) |
+| `archive/` | archive (`backfill`, `update`, `intraday`, `snapshot-chain`) | lab, timemachine, regime, cotrader, autopilot, journal (or `$BT_ARCHIVE`) |
+| `regime/<SYMBOL>.json` | regime (`history`) | lab, cotrader, journal, UI, MCP |
+| `discover/<run>/` | discover: the declared search, every trial, the holdout log, the report | you, MCP; finalists go to `lab/<name>/` |
+| `cotrader.json`, `cotrader/` | cotrader: today's candidates, a plan per candidate, the prediction log, demotions | UI, MCP, autopilot, journal (counterfactuals) |
+| `autopilot/` | autopilot: state, lock, timeline, daily reports, per-strategy records, replays | UI, MCP; its trades also go to `lab/<name>/forward.json` |
+| `journal.json`, `journal/` | journal (`sync`, `review`, `note`) | UI, MCP, tax |
+| `tax/` | tax (`export`), and your holdings, carry-forward and profile files | you, your CA |
+| `state/lab-trials.jsonl` | the MCP server's `lab_run` and `lab_run_spec` | the lab's deflated Sharpe (the family's trial count) |
 
 Two front ends sit on top and reuse the skills rather than reimplementing
 them: the local web UI (`ui/serve.py`, [ui.md](ui.md)) and the MCP server
@@ -68,7 +82,9 @@ Orders are broker-neutral so adapters can map them to any Indian broker:
 
 Brokers no longer offer bracket orders for equity, so the stop and target are
 linked legs placed after the entry fills; when one fills the other is
-cancelled.
+cancelled. Where the broker has a native linked order (Kite GTT OCO, Upstox
+multi-leg GTT, Dhan Super Order), a live ticket can send the stop and target
+as one such order under the same gates (see [brokers](brokers.md)).
 
 ## Safety chain
 
@@ -76,12 +92,17 @@ cancelled.
 2. `trader-risk` checks the exact order against your limits: PASS or BLOCK.
 3. `trader-broker` shows a plain-language ticket only for a PASS, and records
    your typed yes word for word.
-4. Paper is the default broker. A live broker (Upstox, Zerodha Kite, Dhan:
-   `trader-broker/adapters/`) reads any time; it sends an order only from
+4. Paper is the default broker. A live broker (Upstox, Zerodha Kite, Dhan,
+   Angel One: `trader-broker/adapters/`) reads any time; it sends an order only from
    `ticket.py place`, after six gates: the config broker, `"paper": false`,
    `live_enabled` for that broker, trader-risk PASS for that exact order
    today, your recorded yes, and today's static-IP preflight. See
    [brokers](brokers.md).
+5. `trader-autopilot` runs steps 1 to 3 on its own, on paper only: it
+   refuses a live config before every step, its yes is recorded with
+   `"actor": "autopilot"`, and `ticket.py place` refuses any yes the user
+   did not type. The co-trader's RESEARCH ideas are blocked by trader-risk
+   whenever the config is live. See [autopilot](autopilot.md).
 
 ## The local UI
 

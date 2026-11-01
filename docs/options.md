@@ -151,9 +151,11 @@ circular); no calendar-spread charge or short-option minimum from the SPAN
 file, no "additional ELM" for stocks under surveillance, exposure on hedged
 spreads is the naive per-leg rule, and intraday the exchange's file moves.
 `--scan-pct`, `--vol-scan` and `--elm-pct` override the assumptions. The
-broker's basket margin (`broker_basket`) stays empty for now: the Upstox,
-Kite and Dhan adapters can read it, and wiring it in next to this estimate
-is [planned](roadmap.md). Check it in your broker's app before any real order.
+broker's own basket margin (`margin.broker_basket`) is shown next to this
+estimate, with the difference, once `ticket.py margin-check` has saved the
+day's figure (or fetched once when your broker's token is in the shell; Kite,
+Upstox, Dhan and Angel One, read only). It never changes the estimate. See
+[brokers.md](brokers.md). Check it in your broker's app before any real order.
 
 ### Probability of profit, two ways
 
