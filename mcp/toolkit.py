@@ -103,6 +103,30 @@ PERSONA = S("string", "the agent persona drafting it, e.g. intraday-trader (agen
                       "scorecard; changes no size and no check", pattern=r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$", maxLength=40)
 ANY_OBJ = {"type": "object"}
 ANY_LIST = {"type": "array"}
+LANG = S("string", "the language of the text summaries: en, or hi-en for Hinglish (Roman script). Structured data "
+                   "keeps its English keys and values. Default: the config's lang, else en", enum=["en", "hi-en"])
+
+# the few sentences this server writes itself, in each language the skills speak (their own text comes from them)
+TEXT = {
+    "en": {
+        "brief_ready": "{n} candidate(s) passed your risk check; each still needs your typed yes.",
+        "brief_none": "No ready candidate: sitting out is the decision today.",
+    },
+    "hi-en": {
+        "brief_ready": "{n} candidate(s) aapke risk check mein pass hue; har ek ko ab bhi aapka typed yes chahiye.",
+        "brief_none": "Koi candidate ready nahi: aaj baith kar intezaar karna hi faisla hai.",
+    },
+}
+
+
+def say(key, lang="en", **kw):
+    text = (TEXT.get(lang) or TEXT["en"]).get(key) or TEXT["en"][key]
+    return text.format(**kw) if kw else text
+
+
+def lang_of(kit, a):
+    """The tool's lang argument, else the config's "lang", else English."""
+    return api.skill("risk").pick_lang((a or {}).get("lang"), kit.ctx.config())
 
 
 def envelope_schema(data_schema):
@@ -585,10 +609,15 @@ def _risk_record(kit):
 
 
 def t_risk_check(kit, a, call):
+    risk = api.skill("risk")
     if a.get("record"):
         data, err = _risk_record(kit)
+        if a.get("lang"):
+            data["summary"] = risk.report(data, lang_of(kit, a))
         return data, [err or None, "Recorded in trader/state/risk.json: the paper broker accepts these verdicts today."]
     view = api.r_risk(kit.ctx, {}, None)
+    if a.get("lang") and view.get("preview"):
+        view["summary"] = risk.report(view["preview"], lang_of(kit, a))
     view.pop("disclaimer", None)
     view.pop("scenarios", None)           # risk_scenarios has the F&O book
     notes = ["A preview, not recorded. Call with record: true to record the verdicts."]
@@ -713,11 +742,11 @@ def t_paper_order_confirm(kit, a, call):
         raise ToolError("not confirmed: the reply must be short text")
     argv = ["confirm", "--orders", kit.p("orders.json"), "--config", kit.p("config.json"),
             "--risk", kit.p("state", "risk.json"), "--state", kit.p("state", "broker.json"),
-            "--index", str(idx), "--yes-text", text] + kit.ctx.now_args()
+            "--index", str(idx), "--yes-text", text, "--lang", lang_of(kit, a)] + kit.ctx.now_args()
     rc, out, err = kit.run("broker", argv)
     if rc != 0:
         msg = _clean(err or out) if (err or out) else "the paper broker refused"
-        if via == "elicitation" and out.strip().startswith("Not recorded"):
+        if via == "elicitation" and out.strip().startswith(("Not recorded", "Record nahi hua")):
             return {"confirmed": False, "index": idx, "fingerprint": fp, "via": via, "action": "accept",
                     "message": out.strip()}, []
         raise ToolError(msg)
@@ -1252,6 +1281,8 @@ def t_cotrader_candidates(kit, a, call):
             raise ToolError("no trader/cotrader.json yet: call cotrader_candidates with refresh: true")
         notes = ["The saved run of %s IST (not refreshed)." % doc.get("as_of")]
     doc = dict(doc)
+    if a.get("lang"):
+        doc["summary"] = ct.render_today(doc, lang_of(kit, a))
     doc["candidates"] = [_slim_candidate(c) for c in doc.get("candidates") or []]
     doc.pop("settings", None)
     doc.pop("disclaimer", None)
@@ -1277,7 +1308,7 @@ def t_cotrader_explain(kit, a, call):
     if c is None:
         raise ToolError("no candidate %s in trader/cotrader.json: call cotrader_candidates first" % a["id"])
     out = _slim_candidate(c)
-    out["text"] = ct.render_explain(c)
+    out["text"] = ct.render_explain(c, lang_of(kit, a))
     return out, [COTRADER_LIMITS, "Read only."]
 
 
@@ -2072,8 +2103,9 @@ def t_trade_brief(kit, a, call):
     part("calibration", calib)
     out["unavailable"] = gaps
     ready = [c for c in out.get("candidates") or [] if c["status"] == "ready"]
-    out["headline"] = ("%d candidate(s) passed your risk check; each still needs your typed yes." % len(ready)
-                       if ready else "No ready candidate: sitting out is the decision today.")
+    lang = lang_of(kit, a)
+    out["lang"] = lang
+    out["headline"] = say("brief_ready", lang, n=len(ready)) if ready else say("brief_none", lang)
     return out, ["One read-only look: regime, candidates (not logged, not written), the paper account and the "
                  "calibration. Quote n and the 95% ranges with every probability.", PROPOSE_NOTE, COTRADER_LIMITS]
 
@@ -2084,6 +2116,8 @@ RO = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
 
 
 def tool(name, title, description, fn, props=None, required=None, data=None, annotations=None, network=True):
+    props = dict(props or {})
+    props.setdefault("lang", LANG)          # every tool takes it; the ones with text summaries use it
     ann = dict(annotations or RO)
     ann["title"] = title
     ann.setdefault("openWorldHint", network)
@@ -2911,7 +2945,7 @@ def tool_reference_md(tools=None):
     for t in tools:
         props = t["inputSchema"].get("properties", {})
         req = set(t["inputSchema"].get("required", []))
-        args = ", ".join("`%s`%s" % (k, "" if k in req else "?") for k in props) or "none"
+        args = ", ".join("`%s`%s" % (k, "" if k in req else "?") for k in props if k != "lang") or "none"
         ann = t["annotations"]
         hints = []
         if ann.get("readOnlyHint"):

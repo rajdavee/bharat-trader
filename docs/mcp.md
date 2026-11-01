@@ -86,6 +86,12 @@ JSON in a text block. A problem the assistant can fix (a bad symbol, a missing
 plan, a refused yes) is a tool result with `isError: true` and a plain-words
 message.
 
+Every tool also takes an optional `lang`: `en` or `hi-en` (Hinglish, Roman script; see
+[hinglish.md](hinglish.md)). It changes the text summaries only (`trade_brief`'s headline,
+`cotrader_explain`'s text, the `summary` that `risk_check` and `cotrader_candidates` add when you pass
+it, and the paper broker's confirmation message); keys and structured values stay English. Left out,
+the config's `lang` decides.
+
 <!-- tools:start -->
 | tool | what it does | arguments | hints |
 | --- | --- | --- | --- |
