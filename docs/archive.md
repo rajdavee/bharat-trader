@@ -30,6 +30,11 @@ trader/archive/
   ca/2026.json.gz                  corporate actions by year
   intraday/1m/RELIANCE/2026-10.csv.gz   broker and Yahoo candles, with their source
   chain/NIFTY/2026-10-30/1000_2026-11-03.json.gz   option-chain snapshots
+  chain/capture.json               capture-chains heartbeat (rounds, snapshots, last and next time)
+  indexhist/nifty-50/2010.csv.gz   index history before 2012-02-21, one folder per index
+  results/2012/2012-01_board.json.gz, 2012-01_filings.json.gz   results meetings and filings by month
+  members/                         announcement texts, today's index lists, symbol changes, companies
+  optx/upstox/NIFTY/2025-04-24/22500CE_1m.csv.gz   expired-option candles from your broker
   .cache/                          derived per-symbol indexes (safe to delete)
 ```
 

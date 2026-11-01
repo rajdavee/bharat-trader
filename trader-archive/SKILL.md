@@ -88,7 +88,8 @@ Each dataset-year folder has a `manifest.json`: every file's source URL,
 weekdays NSE had no session (a weekday whose bhavcopy is missing well after
 the day). Expect about 0.2 MB a day for `eq`, 0.6 MB for `fo`: roughly 0.6 GB
 for three years of everything, and about 90 minutes for a first 3-year
-backfill at the default pace.
+backfill at the default pace. Everything from 2010 (`--datasets all`): about
+9 to 10 hours and 2 to 2.5 GB, measured on samples from 2012 and 2018.
 
 ## Politeness
 
