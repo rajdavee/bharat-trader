@@ -1374,3 +1374,49 @@ def forward(doc, chains, out, res, status, today=None, now=None, write=True):
     return {"name": name, "kind": "options", "today": today, "verdict": v, "why": why, "settled": len(new),
             "forward": fs, "plans": [], "baskets": baskets, "written": written, "notes": notes, "params": params,
             "open": bt["open"]}
+
+
+# ---------------------------------------------------------------- options edge v2: vol, events, engines
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ENGINE_FAMILIES = ("vrp-selling", "event-vol", "option-buying")
+
+
+def _submodule(name):
+    """vol.py, events.py or engines.py from this folder, loaded by path (this package is itself loaded by
+    path, so a relative import would not work), with O pointing back here."""
+    import importlib.util
+    import sys
+    me = sys.modules.get(__name__)
+    if me is None or getattr(me, "__dict__", None) is not globals():
+        import types
+        me = types.SimpleNamespace(**globals())
+    key = "%s_%s" % (__name__, name)
+    mod = sys.modules.get(key)
+    if mod is None:
+        spec = importlib.util.spec_from_file_location(key, os.path.join(HERE, name + ".py"))
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[key] = mod
+        spec.loader.exec_module(mod)
+    mod.O = me
+    return mod
+
+
+def vol_api():
+    """Realised-vol estimators, the HAR-RV forecast and the IV - RV spread (vol.py)."""
+    return _submodule("vol")
+
+
+def events_api():
+    """Implied vs realised moves around results, and the event-day calendar (events.py)."""
+    return _submodule("events")
+
+
+def engines_api():
+    """The engines the edge-hunt executor calls by family name (engines.py; its docstring is the contract)."""
+    return _submodule("engines")
+
+
+def engine(family):
+    """engines_api().engine(family): fn(hyp, params, window, data, cost_mult=1.0) -> result."""
+    return engines_api().engine(family)
