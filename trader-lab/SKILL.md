@@ -291,9 +291,11 @@ python3 "<skill dir>/lab.py" hunt run EH-ID --data DIR             # a plain dat
   results-date drift), **pairs** (correlation and Engle-Granger on train
   only, z-score bands, futures legs). Quality is not built (no dated
   fundamentals); VRP, event straddles and option buying wait for #73.
-- Data: the archive's long-history read functions (`load_continuous`,
-  `members`, `results_dates`) when present. Without point-in-time membership
-  or results dates a run is blocked, not run on a biased universe.
+- Data: trader-archive's read API (`load_continuous` with its roll log,
+  `members`, `results_dates`, `load_daily_many`, `load_index`, `load_vix`).
+  Without point-in-time membership or results dates for the span a run is
+  blocked, not run on a biased universe; the archive's membership caveat
+  (NIFTY 100/200/500 approximate before about 2018) goes into the scorecard.
 
 From an AI assistant: `edge_hunt_status` and `edge_hunt_run` (time budget,
 progress, resumable, `dry_run`).

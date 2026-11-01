@@ -2,7 +2,7 @@
 
 Fixtures:
 - tests/fixtures/trader-lab/archive/: real NSE UDiFF F&O bhavcopies, NIFTY only, 20 sessions of Oct 2026 with
-  the 27-Oct monthly expiry (see test_lab_options.py). The continuous future is built from them.
+  the 27-Oct monthly expiry (see test_lab_options.py). trader-archive's load_continuous reads them.
 - tests/fixtures/trader-lab/SYMBOL-1d.csv.gz and ^NSEI-1d.csv.gz: real daily bars of ten NIFTY 50 stocks and
   NIFTY, 30 Oct 2024 to 30 Oct 2026 (the lab's own fixtures).
 - tests/fixtures/trader-lab/hunt/: members.json (those ten stocks, all NIFTY 50 members over the span, as
@@ -98,7 +98,8 @@ class Futures(unittest.TestCase):
         self.assertTrue(s.roll[k])
         self.assertEqual(s.expiry[k], "2026-10-27")
         self.assertEqual(s.expiry[k + 1], "2026-11-23")
-        self.assertEqual(s.lot[k + 1], 65)
+        self.assertEqual(s.lot_at(k + 1), 65)
+        self.assertIn("load_continuous", s.source)      # trader-archive's own series and roll log
         # the expiry-day return is the NEXT contract's own: close 27-Oct over its close on 26-Oct
         self.assertAlmostEqual(s.ret_cc[k + 1], s.c[k + 1] / s.next_c[k] - 1, places=12)
         self.assertNotAlmostEqual(s.ret_cc[k + 1], s.c[k + 1] / s.c[k] - 1, places=4)
@@ -128,6 +129,10 @@ class Futures(unittest.TestCase):
             def members(self, index, day, root=None):
                 raise arc.ArchiveError("no current %s list yet" % index)
 
+            def membership(self, index, root=None):
+                return {"index": index, "issues": [{"kind": "size"}, {"kind": "size"}], "first_change": "2009-03-27",
+                        "unresolved": [{"name": "x"}]}
+
             def results_dates(self, symbol, start=None, end=None, root=None):
                 return [{"symbol": symbol, "date": "2026-10-17", "announced_at": "2026-10-17 17:47",
                          "after_close": True, "event_session": "2026-10-19"}]
@@ -138,6 +143,9 @@ class Futures(unittest.TestCase):
         self.assertEqual(s.ret_cc, direct.ret_cc)
         self.assertEqual(s.lot_at(s.days.index("2026-10-27")), 65)        # read from that day's board
         self.assertIsNone(mk.members("NIFTY 200", "2026-10-01"))
+        self.assertIn("approximately survivorship-free before about 2018", mk.membership_note("NIFTY 200"))
+        self.assertIn("2 compositions off", mk.membership_note("NIFTY 200"))
+        self.assertEqual(mk.members("F&O", "2026-10-30"), [])          # the fixture holds NIFTY rows only
         self.assertEqual(mk.results("HDFCBANK"), [{"date": "2026-10-19", "announced": "2026-10-17 17:47"}])
 
     def test_hand_computed_long_with_a_roll(self):

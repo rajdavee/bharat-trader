@@ -97,8 +97,8 @@ class FuturesJob(Job):
         for u in self.underlyings():
             s = self.mkt.futures(u, self.start, until)
             if s is None or not s.n:
-                raise Blocked("no %s futures data from %s to %s: the run waits for the history (the long-history "
-                              "archive's load_continuous, or the archive's F&O boards)" % (u, self.start, until))
+                raise Blocked("no %s futures data from %s to %s: the run waits for the history (trader-archive's "
+                              "load_continuous: backfill the F&O bhavcopies)" % (u, self.start, until))
             self.series[u] = s
             self.notes.append("%s futures: %s" % (u, s.source))
 
@@ -209,8 +209,8 @@ class StockJob(Job):
     def blockers(self):
         out = []
         if self.doc["universe"].get("point_in_time") and not self.mkt.has_members():
-            out.append("point-in-time index membership (the long-history archive's members(index, date)): until "
-                       "then a cross-sectional run would carry survivorship bias, so it is refused")
+            out.append("point-in-time index membership (trader-archive's members(index, date), backfill --datasets "
+                       "members): until then a cross-sectional run would carry survivorship bias, so it is refused")
         return out
 
     def load(self, until):
@@ -235,6 +235,10 @@ class StockJob(Job):
         days = sorted(x["date"] for x in idx) if idx else sorted(set(b["date"] for v in bars.values() for b in v))
         self.index_bars = idx
         self.panel = portfolio.Panel(days, bars)
+        for ix in self.indexes():
+            note = self.mkt.membership_note(ix)
+            if note and note not in self.notes:
+                self.notes.append(note)
         missing = sorted(syms - set(bars))
         if missing:
             self.notes.append("%d member symbols have no bars in the data (%s%s)" % (
@@ -284,7 +288,8 @@ class EventJob(StockJob):
     def blockers(self):
         out = StockJob.blockers(self)
         if not self.mkt.has_results():
-            out.append("results dates history (the long-history archive's results_dates(symbol, from, to))")
+            out.append("results dates history (trader-archive's results_dates(symbol, from, to), backfill the "
+                       "results dataset)")
         return out
 
     def load(self, until):

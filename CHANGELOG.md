@@ -69,9 +69,11 @@ All notable changes are documented here. The format follows
   proxy, a capacity note), events (turn of the month, pre-holiday, expiry
   week, overnight, results-date drift) and pairs (correlation and
   Engle-Granger on train only, z-score bands, futures legs), all with
-  portfolio metrics. The data adapter calls the long-history archive's
-  `load_continuous`, `members` and `results_dates` when present and blocks
-  a point-in-time or results-date run without them. MCP: `edge_hunt_status`
+  portfolio metrics. The data adapter reads the long-history archive
+  (#71: `load_continuous` with its roll log, `members`, `results_dates`,
+  index history and VIX), blocks a point-in-time or results-date run when
+  that data is not there, and copies the archive's membership caveat into
+  the scorecard. MCP: `edge_hunt_status`
   and `edge_hunt_run` (57 tools). The Lab page lists the hypotheses with
   their status and outcome. No real hunt was run (that is #74).
 

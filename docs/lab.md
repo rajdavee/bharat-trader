@@ -378,19 +378,24 @@ Files: `trader/lab/edge-hunt/<id>/state.json`, `trials.jsonl`,
 ### The data adapter
 
 The engines read one adapter (`engines/market.py`). With the archive it
-calls the long-history read functions by name when they exist:
-`load_continuous(underlying, method, from, to)`, `members(index, date)`,
-`results_dates(symbol, from, to)`, plus the archive's adjusted daily bars and
-index closes. `load_continuous` is asked for the unadjusted series with its
+calls trader-archive's read API: `load_continuous(underlying, method, start,
+end, roll)`, `members(index, date)`, `results_dates(symbol, start, end)`
+(each event with the first session that could react), `load_daily_many`,
+`load_index` (the indexhist dataset before 2012) and `load_vix` (from July
+2010). `load_continuous` is asked for the unadjusted series with its
 roll log (method `none`, roll `days:1`): each bar is the contract held that
 day, and each roll's new-contract price on the old one's last day becomes the
 roll price; lots come from that day's F&O board (else the lot-size
 snapshot), and a day with no lot is sized in single units and said so. The
 F&O stock list on a day (for pairs) is the stocks with a stock future in
-that day's bhavcopy. Without these functions: a continuous future is built
-from the archive's daily F&O boards; a point-in-time universe or a results-date idea is
-**blocked**, not run on today's index (that would be survivorship bias); a
-window the data does not cover is blocked until the history is there.
+that day's bhavcopy. When the archive has no such data (not backfilled for
+that span, or a membership it has not rebuilt), the answer is None: a
+point-in-time universe or a results-date idea is **blocked**, not run on
+today's index (that would be survivorship bias), and a window the data does
+not cover is blocked until the history is there. The archive's own caveat on
+a rebuilt index (NIFTY 50 effectively exact; NIFTY 100, 200 and 500
+approximate before about 2018) is copied into the scorecard's "does NOT
+show" list.
 `--data DIR` reads a plain folder instead: `SYMBOL-1d.csv(.gz)` bars,
 `^NSEI-1d.csv(.gz)`, `members.json` (`{"NIFTY 200": {"YYYY-MM-DD": [symbols]}}`,
 each list holding until the next), `results.json`, `sectors.json`,
@@ -505,7 +510,7 @@ return from the best two months.
 - Charges are a typical discount broker's; tax is left out; slippage and
   margin are models; fills at the open and close assume you trade there.
 - A long-short book's short leg and the pairs' legs are priced at the stock,
-  not its future, until the long-history archive gives stock-futures series.
+  not its future (stock-futures continuous series are not wired in yet).
 - Survivorship and look-ahead are only as good as the point-in-time
   membership and the dated results the archive provides.
 - A WATCH is evidence, not a promise; the programme's BH cut and the paper

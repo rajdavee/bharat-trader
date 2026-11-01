@@ -1,8 +1,9 @@
 """Futures engine: a continuous near-month series, lot sizes by date, a SPAN-style margin estimate, the dated
 2026 futures charges, roll costs, overnight or intraday holding and daily mark-to-market.
 
-    series      continuous(rows): one row a session for the contract held that day, with its own open and
-                close, its expiry and lot, and on a roll day the price of the next contract at that close.
+    series      Continuous(rows): one row a session for the contract held that day, with its own open and
+                close, its expiry and lot, and on a roll day the price of the next contract at that close
+                (the archive's load_continuous with its roll log, via market.py).
                 Returns are always within one contract, so a roll never shows up as a fake gain or loss.
     simulate    turns intents ([{entry, entry_at, exit, exit_at, side}], session indexes, "open" or
                 "close") into fills: whole lots sized on the equity at entry (notional = equity x leverage,
@@ -102,56 +103,6 @@ class Continuous(object):
     def ref_close(self, k):
         """The close a position held overnight from k is marked from on k+1."""
         return self.next_c[k] if self.roll[k] and self.next_c[k] else self.c[k]
-
-
-def _remaining(days, i, expiry):
-    """Sessions after days[i] up to and including expiry (weekdays past the end of the data)."""
-    import bisect
-    if expiry <= days[-1]:
-        return bisect.bisect_right(days, expiry) - (i + 1)
-    n = len(days) - (i + 1)
-    d, end = core.day(days[-1]), core.day(expiry)
-    import datetime
-    while d < end:
-        d += datetime.timedelta(days=1)
-        if d.weekday() < 5:
-            n += 1
-    return n
-
-
-def build_continuous(boards, underlying, roll_sessions=1):
-    """Continuous near-month rows from end-of-day F&O boards ([{date, futures: [{expiry, open, high, low,
-    close, settle, lot, volume}]}], one a session). The near contract is held until the close
-    `roll_sessions` sessions before its expiry day, then the next one (1: roll at the close of the session
-    before expiry). A roll needs the next contract's price that day; without it the roll waits a day. A
-    session where the held contract is missing restarts on the nearest one, flagged break (no return)."""
-    boards = sorted([b for b in boards if b and b.get("futures")], key=lambda b: b["date"])
-    days = [b["date"] for b in boards]
-    rows = []
-    active = None
-    for i, b in enumerate(boards):
-        futs = {f["expiry"]: f for f in b["futures"] if (f.get("close") or f.get("settle"))}
-        exps = sorted(e for e in futs if e >= b["date"])
-        if not exps:
-            continue
-        brk = False
-        if active is None or active not in futs:
-            brk = active is not None
-            active = next((e for e in exps if _remaining(days, i, e) >= roll_sessions), exps[-1])
-        f = futs[active]
-        px = float(f.get("close") or f.get("settle"))
-        row = {"date": b["date"], "o": float(f.get("open") or px), "h": float(f.get("high") or px),
-               "l": float(f.get("low") or px), "c": px, "expiry": active, "lot": f.get("lot"),
-               "volume": f.get("volume"), "break": brk}
-        if _remaining(days, i, active) <= roll_sessions:
-            nxt = next((e for e in exps if e > active), None)
-            if nxt is not None:
-                nf = futs[nxt]
-                row.update({"roll": True, "next_c": float(nf.get("close") or nf.get("settle")),
-                            "next_expiry": nxt, "next_lot": nf.get("lot")})
-                active = nxt
-        rows.append(row)
-    return rows
 
 
 # ---------------------------------------------------------------- the simulator

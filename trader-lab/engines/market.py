@@ -1,16 +1,19 @@
 """The data the engines read, behind one small adapter.
 
-ArchiveMarket reads trader-archive (the local NSE bhavcopy archive). The long-history archive adds four read
-functions this adapter calls by name when they are there, and otherwise falls back as written:
+ArchiveMarket reads trader-archive (the local NSE bhavcopy archive) through its read API:
 
-    load_continuous(underlying, method, start, end)   a continuous near-month futures series; fallback: built
-                                                      here from the archive's daily F&O boards (roll at the
-                                                      close of the session before expiry)
-    members(index, day)                               an index's members on a day (point in time); fallback:
-                                                      none, and a point-in-time run is refused
-    results_dates(symbol, start, end)                 the dates a company published results; fallback: none,
-                                                      and a results-date run is refused
-    load_daily / load_index (and legacy files to 2010) the adjusted daily bars, already in the archive
+    load_continuous(underlying, "none", start, end, roll="days:1")   the near-month future held each day,
+                                      unadjusted, with its roll log (left the session before expiry)
+    members(index, day)               an index's members on a day (point in time; NIFTY 50 effectively exact,
+                                      NIFTY 100/200/500 rebuilt from announcements and approximate before
+                                      about 2018: membership(index)["issues"])
+    results_dates(symbol, start, end) results events with the first session that could react
+    load_daily_many / load_index / load_vix   adjusted daily bars, index history (indexhist before 2012),
+                                      India VIX from July 2010
+    load_fo_chain_eod / load_lots     the lot of a contract on a day
+
+When the archive has no such data (not backfilled, or the function raises), the answer is None and the run
+is blocked, never filled with a guess.
 
 FolderMarket reads a plain folder (the tests' fixtures, or data you bring): SYMBOL-1d.csv(.gz) bars in the
 lab's format, ^NSEI-1d.csv(.gz) for the index, members.json ({"NIFTY 200": {"YYYY-MM-DD": [symbols]}}, each
@@ -111,6 +114,9 @@ class Market(object):
     def members(self, index, day):
         return None
 
+    def membership_note(self, index):
+        return None
+
     def results(self, symbol, start=None, end=None):
         return None
 
@@ -151,37 +157,50 @@ class ArchiveMarket(Market):
 
     def futures(self, underlying, start=None, end=None):
         fn = getattr(self.api, "load_continuous", None)
-        if fn is not None:
-            try:
-                res = fn(underlying, "none", start, end, roll="days:%d" % self.roll_sessions, root=self.root)
-            except TypeError:
-                res = fn(underlying, self.method, start, end)
-            except Exception:       # the archive has no futures of it in that span
-                res = None
-            rows = from_load_continuous(res)
-            if rows:
-                return futures.Continuous(underlying, rows, "load_continuous(%s, none, days:%d) with its roll log"
-                                          % (underlying, self.roll_sessions), self.lot_fn(underlying))
-        days = self.api.trading_days(start, end, root=self.root)
-        boards = []
-        for d in days:
-            b = self.api.load_fo_chain_eod(underlying, d, root=self.root)
-            if b and b.get("futures"):
-                boards.append(b)
-        rows = futures.build_continuous(boards, underlying)
+        if fn is None:
+            return None
+        try:
+            res = fn(underlying, "none", start, end, roll="days:%d" % self.roll_sessions, root=self.root)
+        except Exception:       # the archive has no futures of it in that span
+            return None
+        rows = from_load_continuous(res)
         if not rows:
             return None
-        return futures.Continuous(underlying, rows, "built from the archive's F&O boards (roll the session before "
-                                                    "expiry)")
+        issues = len((res or {}).get("issues") or []) if isinstance(res, dict) else 0
+        return futures.Continuous(underlying, rows, "the archive's load_continuous(%s, none, days:%d) with its roll "
+                                                    "log%s" % (underlying, self.roll_sessions,
+                                                               ", %d data issues logged" % issues if issues else ""),
+                                  self.lot_fn(underlying))
 
     def daily_many(self, symbols, start=None, end=None):
         return self.api.load_daily_many(list(symbols), start, end, root=self.root)
 
     def index(self, name, start=None, end=None):
-        return self.api.load_index(INDEX_ALIASES.get(str(name).upper(), name), start, end, root=self.root)
+        n = INDEX_ALIASES.get(str(name).upper(), name)
+        if n == "India VIX" and getattr(self.api, "load_vix", None) is not None:
+            return self.api.load_vix(start, end, root=self.root)
+        return self.api.load_index(n, start, end, root=self.root)
 
     def has_members(self):
         return getattr(self.api, "members", None) is not None
+
+    def membership_note(self, index):
+        """The archive's own caveat on a rebuilt index history, in plain words (None when it has none)."""
+        fn = getattr(self.api, "membership", None)
+        if fn is None or index in ("F&O",):
+            return None
+        try:
+            m = fn(index, root=self.root)
+        except Exception:
+            return None
+        off = [i for i in m.get("issues") or [] if i.get("kind") == "size"]
+        if index == "NIFTY 50":
+            return ("NIFTY 50 membership rebuilt from NSE's change announcements since %s (%d compositions off the "
+                    "index's size)" % (m.get("first_change"), len(off)))
+        return ("%s membership is rebuilt from NSE's change announcements (first change on file %s; %d "
+                "compositions off the index's size, %d names not matched to a symbol): treat it as approximately "
+                "survivorship-free before about 2018, not exactly" % (index, m.get("first_change"), len(off),
+                                                                      len(m.get("unresolved") or [])))
 
     def members(self, index, day):
         key = (index, day)
