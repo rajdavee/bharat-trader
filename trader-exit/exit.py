@@ -1395,13 +1395,13 @@ def main(argv=None):
     p.add_argument("--write", nargs="?", const="trader/plan.json", metavar="PATH",
                    help="save the plan (default trader/plan.json)")
     p.add_argument("--json", action="store_true")
-    p.add_argument("--lang", choices=LANGS, help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
+    p.add_argument("--lang", choices=LANGS, metavar="LANG", help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
     p = sub.add_parser("show", help="print the current plan")
     p.add_argument("--plan", default="trader/plan.json")
     p.add_argument("--config", default="trader/config.json", help="only its \"lang\" is read")
     p.add_argument("--now")
     p.add_argument("--json", action="store_true")
-    p.add_argument("--lang", choices=LANGS, help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
+    p.add_argument("--lang", choices=LANGS, metavar="LANG", help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
     a = ap.parse_args(argv)
     if not a.cmd:
         ap.print_help()

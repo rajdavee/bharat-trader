@@ -3629,7 +3629,7 @@ def main(argv=None):
         p.add_argument("--config", default="trader/config.json")
         p.add_argument("--risk", default="trader/state/risk.json")
         p.add_argument("--state", default="trader/state/broker.json")
-        p.add_argument("--lang", choices=LANGS, help="messages in en or hi-en (Hinglish); default: the config's lang")
+        p.add_argument("--lang", choices=LANGS, metavar="LANG", help="messages in en or hi-en (Hinglish); default: the config's lang")
         clock(p)
 
     def fno_inputs(p):

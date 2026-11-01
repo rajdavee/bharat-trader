@@ -1316,7 +1316,7 @@ def main(argv=None):
     ap.add_argument("--write", nargs="?", const="trader/orders.json", metavar="PATH",
                     help="write the proposed order (default trader/orders.json)")
     ap.add_argument("--json", action="store_true", help="print JSON instead of the report")
-    ap.add_argument("--lang", choices=LANGS, help="the report's language: en or hi-en (Hinglish); default: the "
+    ap.add_argument("--lang", choices=LANGS, metavar="LANG", help="the report's language: en or hi-en (Hinglish); default: the "
                                                   "config's \"lang\", else en")
     ap.add_argument("--persona", help="tag the proposal with the agent persona drafting it, e.g. intraday-trader "
                                       "(a note for the persona scorecard: it changes no size and is never sent)")

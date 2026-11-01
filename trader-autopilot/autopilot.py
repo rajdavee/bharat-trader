@@ -2292,7 +2292,7 @@ def main(argv=None):
     p.add_argument("--date", help="YYYY-MM-DD (default: the last day run)")
     p.add_argument("--replay", help="read the report of this replay (its sandbox name, e.g. 2026-09-21)")
     p.add_argument("--json", action="store_true")
-    p.add_argument("--lang", choices=LANGS, help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
+    p.add_argument("--lang", choices=LANGS, metavar="LANG", help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
     p = sub.add_parser("replay", help="replay past sessions from saved bars on a simulated clock (a sandbox)")
     common(p)
     p.add_argument("--date", required=True, help="the first day, YYYY-MM-DD")

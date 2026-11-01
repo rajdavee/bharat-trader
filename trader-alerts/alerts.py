@@ -1283,7 +1283,7 @@ def main(argv=None):
     p.add_argument("--prices-out", default="trader/prices.json")
     p.add_argument("--config", default="trader/config.json", help="extra_holidays, special_sessions and lang")
     p.add_argument("--no-write", action="store_true")
-    p.add_argument("--lang", choices=LANGS, help="the rings' language: en or hi-en (Hinglish); default: the "
+    p.add_argument("--lang", choices=LANGS, metavar="LANG", help="the rings' language: en or hi-en (Hinglish); default: the "
                                                  "config's \"lang\", else en")
     p = sub.add_parser("add", help="add a rule")
     p.add_argument("--rules", default="trader/alerts.json")

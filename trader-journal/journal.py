@@ -1840,7 +1840,7 @@ def main(argv=None):
     _common(p)
     p = sub.add_parser("review", help="write the weekly review to trader/journal/weekly-YYYY-Www.md")
     p.add_argument("--week", nargs="?", const="this", default="this", help="ISO week like 2026-W44, this or last")
-    p.add_argument("--lang", choices=LANGS, help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
+    p.add_argument("--lang", choices=LANGS, metavar="LANG", help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
     _common(p)
     p = sub.add_parser("import", help="import a broker trade book (CSV or JSON)")
     p.add_argument("file")

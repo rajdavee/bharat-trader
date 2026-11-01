@@ -3409,7 +3409,7 @@ def main(argv=None):
     ap.add_argument("--out", default="trader/state/risk.json", help="where the verdicts are recorded")
     ap.add_argument("--no-write", action="store_true", help="do not record the verdicts")
     ap.add_argument("--json", action="store_true")
-    ap.add_argument("--lang", choices=LANGS, help="the report's language: en or hi-en (Hinglish); default: the "
+    ap.add_argument("--lang", choices=LANGS, metavar="LANG", help="the report's language: en or hi-en (Hinglish); default: the "
                                                   "config's \"lang\", else en")
     a = ap.parse_args(argv)
     try:
