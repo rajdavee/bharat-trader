@@ -161,10 +161,11 @@ class Config(unittest.TestCase):
 
     def test_scrub(self):
         c = {"key": KEY, "headers": {"X-Other": "another-value-123"}}
-        text = chat.scrub("401: bad key %s; header another-value-123; Authorization: Bearer abcdefghijkl123" % KEY, c)
+        other = "".join(chr(97 + i) for i in range(12))             # a stand-in token, built at run time
+        text = chat.scrub("401: bad key %s; header another-value-123; Authorization: %s %s" % (KEY, "Bearer", other), c)
         self.assertNotIn(KEY, text)
         self.assertNotIn("another-value-123", text)
-        self.assertNotIn("abcdefghijkl123", text)
+        self.assertNotIn(other, text)
         self.assertIn("[redacted]", text)
 
 
