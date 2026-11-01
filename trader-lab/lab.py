@@ -2661,14 +2661,16 @@ def save_run(out, doc, res, now):
     return st
 
 
-def run_and_decide(doc, data, ctx, out, fno=None, now=None, progress=None):
-    """run_lab + the verdict against the status and forward record kept in out/<name>/."""
+def run_and_decide(doc, data, ctx, out, fno=None, now=None, progress=None, extra_trials=0):
+    """run_lab + the verdict against the status and forward record kept in out/<name>/.
+    extra_trials  more trials to charge the deflated Sharpe for (e.g. other specs of the same family tried
+                  by an assistant), on top of the spec's trials_tried and its earlier versions"""
     now = now or ist_now()
     name = doc.get("name")
     status = read_json(os.path.join(lab_dir(out, name), "status.json"), {}) or {} if name else {}
     h = spec_hash(doc)
     earlier = [x for x in status.get("spec_hashes") or [] if x != h]
-    res = run_lab(doc, data, ctx, fno, extra_trials=len(earlier), progress=progress)
+    res = run_lab(doc, data, ctx, fno, extra_trials=len(earlier) + max(0, int(extra_trials)), progress=progress)
     fwd = forward_trades(out, res["name"], h)
     prev = status.get("verdict") if status.get("spec_hash") == h else None
     v, why = decide(res["gates"], res["gates_set"], fwd, res["walk_forward"]["stats"]["max_drawdown"], prev)
