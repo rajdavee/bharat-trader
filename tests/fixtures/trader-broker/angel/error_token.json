@@ -1,0 +1,18 @@
+{
+ "doc_derived": true,
+ "source": "https://smartapi.angelone.in/docs/Exceptions (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/rest/secure/angelbroking/user/v1/getProfile"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": false,
+   "message": "Invalid Token",
+   "errorcode": "AG8001",
+   "data": null
+  }
+ },
+ "repairs": "the documented failed-response structure (ResponseStructure) with code AG8001 from the Exceptions table; the HTTP status of a failed call is not documented: 200 here, as SmartAPI answers most failures"
+}

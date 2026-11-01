@@ -2,8 +2,8 @@
 name: trader-broker
 description: >-
   Order Executor for NSE trades: PAPER trading by default, never without your
-  typed yes, plus read-only access to your real Upstox, Zerodha Kite or Dhan
-  account. Shows each proposed order as a plain ticket (BUY 42 RELIANCE on
+  typed yes, plus read-only access to your real Upstox, Zerodha Kite, Dhan or
+  Angel One account. Shows each proposed order as a plain ticket (BUY 42 RELIANCE on
   NSE, MIS, LIMIT, then an SL-M stop-loss and a LIMIT target, the order value
   and the loss at the stop with STT and other charges) plus the exact
   broker-neutral order JSON. An order is READY only if trader-risk passed
@@ -12,8 +12,12 @@ description: >-
   and a trades log, cancels the other leg when the stop or target fills, and
   builds the SELL tickets that close every MIS position by your flat-by time
   (15:10 IST). Reads your broker's holdings, positions, funds and order book;
-  logs you in through a local browser callback (the daily token stays in your
-  shell); checks your static IP against SEBI's rules. On paper it also
+  logs you in through a local browser callback or Angel One's TOTP code (the
+  daily token stays in your shell); checks your static IP against SEBI's
+  rules; sends the stop and target as ONE broker-native linked order (Kite GTT
+  OCO, Upstox multi-leg GTT, Dhan Super Order) under the same gates and your
+  yes, reconciles them after a restart, and shows the broker's own basket
+  margin next to our estimate. On paper it also
   trades NSE F&O: a multi-leg option strategy (iron condor, strangle,
   spread) from trader-strategy is ONE basket ticket and one yes, filled all
   or nothing and hedge first, with margin blocked and released, broker
@@ -29,8 +33,11 @@ description: >-
   "static IP check", "is my broker ready", "paper trade this iron condor",
   "place the basket", "my F&O MTM", "option positions P&L", "portfolio
   Greeks", "roll my short call", "add a hedge", "close the strangle",
-  "settle my expiry", "kitna margin laga", or after /trader-risk passes.
-argument-hint: "[show | confirm --index N --yes-text \"...\" | confirm --basket | fill | mtm | adjust | settle | flatten | status | holdings | positions | preflight]"
+  "settle my expiry", "kitna margin laga", "Angel One login", "Angel
+  holdings", "GTT OCO", "super order", "bracket order", "stop aur target ek
+  saath", "broker margin check", "reconcile my GTTs", or after /trader-risk
+  passes.
+argument-hint: "[show | confirm --index N --yes-text \"...\" | confirm --basket | fill | mtm | adjust | settle | flatten | status | holdings | positions | preflight | margin-check | reconcile]"
 ---
 
 # trader-broker
@@ -244,18 +251,20 @@ python3 "<skill dir>/ticket.py" shadow-report --live --broker kite     # live fi
 Baskets are paper-only in this version: a live config refuses `confirm
 --basket`.
 
-## Live brokers: Upstox, Zerodha Kite, Dhan
+## Live brokers: Upstox, Zerodha Kite, Dhan, Angel One
 
 The adapters live in `adapters/` next to `ticket.py` (`base.py` is the
-contract; `upstox.py`, `kite.py`, `dhan.py` map each broker's API, standard
-library only). Setup per broker, plans and costs: `docs/brokers.md` in the
+contract; `upstox.py`, `kite.py`, `dhan.py`, `angel.py` map each broker's API,
+`auth.py` the login helpers, standard library only). Setup per broker, plans and costs: `docs/brokers.md` in the
 repo.
 
 **Credentials.** Only from environment variables the user sets in their own
 shell: `BT_UPSTOX_API_KEY`, `BT_UPSTOX_API_SECRET`, `BT_UPSTOX_REDIRECT`;
 `BT_KITE_API_KEY`, `BT_KITE_API_SECRET`, `BT_KITE_REDIRECT`;
 `BT_DHAN_CLIENT_ID` and `BT_DHAN_ACCESS_TOKEN` (or `BT_DHAN_API_KEY`,
-`BT_DHAN_API_SECRET`, `BT_DHAN_REDIRECT`). Never ask for them in the chat.
+`BT_DHAN_API_SECRET`, `BT_DHAN_REDIRECT`); `BT_ANGEL_API_KEY`,
+`BT_ANGEL_CLIENT_CODE`, `BT_ANGEL_PIN` and optionally `BT_ANGEL_TOTP_SECRET`.
+Never ask for them, or for a TOTP code, in the chat.
 
 **Daily login.** SEBI's rules mean a 2FA login once every trading day.
 `ticket.py login <broker>` (the user runs it) opens the broker's login page,
@@ -264,11 +273,18 @@ broker, e.g. `http://127.0.0.1:8765/kite`), checks the `state` value,
 exchanges the code and prints two `export BT_<BROKER>_...` lines for the
 user's shell (`eval "$(python3 ticket.py login kite)"`). The token is never
 written to disk, the repo or `trader/`, and is scrubbed from every message.
+Angel One has no browser step: `ticket.py login angel` sends the client code
+and PIN from the shell with a 6-digit TOTP code the user types (not echoed)
+or, if `BT_ANGEL_TOTP_SECRET` is set, computes it (RFC 6238). Setting the
+secret folds two factors into one: anyone who can read the shell's
+environment can log in as the user; typing the code is safer
+(`docs/brokers.md` explains).
 
 **Preflight.** `ticket.py preflight <broker>`: the public IP (two echo
 services must agree) against the config's `"static_ip"` and, for Upstox and
-Dhan, the IPs the broker has on record; the token's freshness (Kite stops at
-06:00 IST, Upstox at 03:30 IST, Dhan 24 hours after login); one harmless
+Dhan, the IPs the broker has on record (Angel One cannot tell: the config's
+`"static_ip"` it is); the token's freshness (Kite stops at 06:00 IST, Upstox
+at 03:30 IST, Dhan 24 hours after login, Angel One at midnight); one harmless
 call (your profile). It says in plain words what passed and why it matters.
 
 **A live order** needs every gate, checked again at the moment of sending:
@@ -287,15 +303,41 @@ above 9: SEBI's line for algo registration is 10). One yes, one order: a
 second `place` of the same order is refused. MARKET and SL-M go out only with
 the broker's market protection (Kite, Upstox); Dhan takes LIMIT and SL only.
 After the entry fills, `place --index N --leg stop` (or `--leg target`)
-sends one exit leg; only one exit leg works at the broker at a time in this
-version (`cancel --index N --leg stop` first). Reads are retried; an order
-call never is: if the line drops, it says so and asks you to check
-`ticket.py orders` for the order's tag (`bt...`).
+sends one exit leg; only one exit leg works at the broker at a time that way
+(`cancel --index N --leg stop` first). Reads are retried; an order call never
+is: if the line drops, it says so and asks you to run `ticket.py reconcile`
+or check `ticket.py orders` for the order's tag (`bt...`).
+
+**Native linked exits** (capability `native_oco`): the stop and the target as
+ONE broker order, so the broker cancels the other when one fills, even with
+this machine off. Kite: `place --index N --leg oco` after the entry fills (a
+GTT two-leg OCO; GTT legs are LIMIT orders, so the stop needs an SL limit
+price). Upstox and Dhan: `place --index N --leg bracket` instead of the entry
+(a multi-leg GTT, a Super Order: the LIMIT entry with both exits). Angel
+One's GTT is single-leg, so its exits go leg by leg. The same six gates
+apply; the ticket's yes covers that ticket's own linked exit only (never a
+plain order, another ticket or edited prices), once, and never alongside
+leg-by-leg exits. An auto-pilot yes never opens a live gate. `cancel --index
+N --leg oco|bracket` (or `--linked-id ID`) cancels it. A new stop or target is
+a new ticket with its own trader-risk PASS and yes, sent with `ticket.py
+modify-exits --index NEW --linked-id ID`. After a restart, `ticket.py
+reconcile` reads the broker's GTT / super-order book (read only), matches it
+to this tool's records, finds a send whose outcome was unknown and lists
+linked orders it did not make (left alone).
+
+**The broker's basket margin.** `ticket.py margin-check --broker B` asks the
+broker's margin calculator (Kite `/margins/basket`, Upstox margin API, Dhan
+margin calculator, Angel One margin API; read only) for the F&O legs in
+`trader/orders.json` and shows it next to our SPAN-style estimate, with the
+difference. The day's figure is kept in `trader/state/broker_margin.json`,
+where trader-strategy and trader-risk pick it up (they also ask once
+themselves when the broker's token is in the shell). It never changes an
+estimate or a verdict.
 
 ## What it never does
 
 - Never places an order without both gates (on paper) or all six (live), and never two orders on one yes.
-- Never runs `ticket.py login` or `ticket.py place` itself: the user runs them, in their own terminal.
+- Never runs `ticket.py login`, `ticket.py place`, `cancel` or `modify-exits` itself: the user runs them, in their own terminal.
 - Never places orders from a scheduled or background task: nobody is there to say yes.
 - Never asks for, reads, stores or repeats API keys, passwords or OTPs.
 - Never switches `"paper"` to false or `"broker"` away from paper. The user does that themselves.

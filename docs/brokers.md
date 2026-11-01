@@ -1,6 +1,6 @@
-# Live brokers: Upstox, Zerodha Kite, Dhan
+# Live brokers: Upstox, Zerodha Kite, Dhan, Angel One
 
-trader-broker can read your real account at three Indian brokers, and (only
+trader-broker can read your real account at four Indian brokers, and (only
 when every gate is open) send one order at a time to it. Paper stays the
 default: with no setup at all nothing talks to a broker.
 
@@ -13,28 +13,32 @@ default: with no setup at all nothing talks to a broker.
 >    money and can be changed only about once a week. Reading your account
 >    works from any IP.
 > 2. **A login every trading day.** Tokens expire daily (Upstox 03:30 IST,
->    Kite 06:00 IST, Dhan 24 hours after login), and each login needs your
->    two-factor step in a browser. `ticket.py login` makes it one command.
+>    Kite 06:00 IST, Dhan 24 hours after login, Angel One at midnight), and
+>    each login needs your two-factor step (in a browser, or Angel One's
+>    6-digit TOTP code). `ticket.py login` makes it one command.
 >
 > `ticket.py preflight <broker>` checks both before any live order. If either
 > is a problem for you, stay on paper: everything else works the same.
 
-| | Upstox | Zerodha Kite | Dhan |
-| --- | --- | --- | --- |
-| API version | v2 + v3 | Kite Connect v3 | DhanHQ v2 |
-| Read: profile, funds, holdings, positions, orders, trades | yes | yes | yes |
-| Quotes (LTP) and candles | yes, free | Connect plan only | Data API plan only |
-| Instrument master (incl. NFO symbols) | yes | yes | yes |
-| Basket margin | yes | yes | yes (multi-order calculator) |
-| Broker-side GTT / OCO | yes | yes | yes (Forever orders) |
-| Sandbox | yes (orders) | no | yes (closed environment) |
-| Market protection for MARKET / SL-M | yes (`market_protection`) | yes (`market_protection`) | not wired: LIMIT and SL only |
-| Daily token stops | 03:30 IST | 06:00 IST | 24 hours after login |
-| Static IPs on record, readable by API | `GET /v2/user/ip` | no (set in the console) | `GET /v2/ip/getIP` |
+| | Upstox | Zerodha Kite | Dhan | Angel One |
+| --- | --- | --- | --- | --- |
+| API version | v2 + v3 | Kite Connect v3 | DhanHQ v2 | SmartAPI |
+| Read: profile, funds, holdings, positions, orders, trades | yes | yes | yes | yes |
+| Quotes (LTP) and candles | yes, free | Connect plan only | Data API plan only | yes, free |
+| Instrument master (incl. NFO symbols) | yes | yes | yes | yes (scrip master) |
+| Basket margin | yes | yes | yes (multi-order calculator) | yes (margin calculator) |
+| Native linked stop + target (`native_oco`) | yes: multi-leg GTT with the entry | yes: GTT two-leg OCO after the fill | yes: Super Order with the entry | no: GTT is single-leg, exits go leg by leg |
+| Sandbox | yes (orders) | no | yes (closed environment) | no |
+| Market protection for MARKET / SL-M | yes (`market_protection`) | yes (`market_protection`) | not wired: LIMIT and SL only | not wired: LIMIT and SL only |
+| Daily token stops | 03:30 IST | 06:00 IST | 24 hours after login | midnight IST |
+| Login | browser (OAuth) | browser | browser (consent) or token | client code + PIN + TOTP code, no browser |
+| Static IPs on record, readable by API | `GET /v2/user/ip` | no (set in the console) | `GET /v2/ip/getIP` | no (set on smartapi.angelone.in) |
 
 The code is `trader-broker/adapters/` (standard library only). The
-contract is `adapters/base.py`; the tests are `tests/test_broker_adapters.py`,
-one suite run against all three on recorded, secret-free fixtures.
+contract is `adapters/base.py`; the tests are `tests/test_broker_adapters.py`
+(one contract suite run against all four on recorded, secret-free fixtures)
+and `tests/test_broker_v2.py` (linked exits, gates, reconcile, Angel One's
+login, the margin cross-check).
 
 ## What it costs (as of 1 Nov 2026)
 
@@ -138,12 +142,53 @@ Kite has no sandbox: test on paper first.
 Quotes and candles at Dhan need the Data API plan; without it the broker
 answers DH-902, which this tool reports as "not in your plan".
 
+### Angel One
+
+1. On **smartapi.angelone.in**, use **New Login** and create a **static-IP API
+   key** (IPv4 only). The static IP is registered against the key; SmartAPI
+   has no API to read it back, so put the same IP in `"static_ip"` in
+   `trader/config.json` and `preflight` compares this machine's IP with it.
+2. Enable **TOTP** for your Angel One account (the SmartAPI site's "Enable
+   TOTP" page shows a QR code and the secret behind it).
+3. In your shell:
+   ```bash
+   export BT_ANGEL_API_KEY=...           # the SmartAPI key
+   export BT_ANGEL_CLIENT_CODE=...       # your Angel One client code
+   export BT_ANGEL_PIN=...               # your 4-digit PIN (SmartAPI's "password")
+   # optional, and read the warning below first:
+   export BT_ANGEL_TOTP_SECRET=...       # the base32 TOTP secret
+   ```
+4. Every day: `eval "$(python3 trader-broker/ticket.py login angel)"`. It asks
+   for the 6-digit code from your authenticator app (typed, not shown, never
+   on the command line), sends client code + PIN + code to
+   `loginByPassword` and prints the `export` lines for the session token. The
+   refresh and feed tokens that come back are dropped. The session ends at
+   midnight IST.
+
+**TOTP secret, security.** With `BT_ANGEL_TOTP_SECRET` set the tool computes
+the code itself (RFC 6238, standard library). That is convenient and it turns
+two factors into one: anyone who can read your shell environment (a process
+listing tool, a crash report, a shared machine, a leaked dotfile) has your
+PIN and your second factor and can log in as you, read your account and,
+from your static IP, trade. Prefer typing the code. If you set the secret,
+keep it in a password manager's CLI rather than a dotfile, never in
+`trader/`, a repo or a chat, and rotate it (disable and enable TOTP again)
+if you think it leaked. The tool never stores it, never prints it and scrubs
+it from every message.
+
+SmartAPI asks for client headers (`X-ClientLocalIP`, `X-ClientPublicIP`,
+`X-MACAddress`). This tool sends `127.0.0.1`, your config's `static_ip` (or
+`127.0.0.1`) and `00:00:00:00:00:00`: never your real MAC address.
+SmartAPI's rate limit is per client code across every process; this tool
+keeps reads at 3 a second and orders at your `order_rate_per_sec`.
+
 ## Every trading day: log in, then preflight
 
 ```bash
 eval "$(python3 trader-broker/ticket.py login upstox)"     # browser login with 2FA; sets the token in THIS shell
 python3 trader-broker/ticket.py preflight upstox           # static IP, token, one harmless call
 python3 trader-broker/ticket.py holdings --broker upstox   # read only
+eval "$(python3 trader-broker/ticket.py login angel)"      # Angel One: asks for the 6-digit TOTP code instead
 ```
 
 `login` starts a one-shot server on `127.0.0.1` at the redirect URL's port,
@@ -188,12 +233,14 @@ token (a hash prefix), never the token.
 | `ticket.py positions --broker B` | today's positions (MIS, CNC, NRML) with P&L |
 | `ticket.py orders --broker B` | today's order book and trades |
 | `ticket.py instruments --broker B --symbol S --exchange NSE/NFO` | the broker's own symbol, id, lot, tick and freeze quantity |
+| `ticket.py margin-check --broker B` | the broker's basket margin for the F&O legs in `trader/orders.json` next to our estimate (below) |
+| `ticket.py reconcile --broker B` | the broker's GTT / super-order book matched to this tool's linked orders (below) |
 
 `--json` prints the broker-neutral shapes of `adapters/base.py`. Without
 `--broker` the config's `"broker"` is used. The local UI shows the same on
 the Portfolio page (holdings, positions) and the Settings page (connection),
-and the MCP server has `broker_status`, `broker_holdings` and
-`broker_positions`. None of them can place an order.
+and the MCP server has `broker_status`, `broker_holdings`, `broker_positions`
+and `broker_margin_check`. None of them can place an order.
 
 ### Symbols
 
@@ -201,10 +248,13 @@ A stock is its NSE symbol (`RELIANCE`, `M&M`). A future is
 `NIFTY 2026-11-23 FUT`, an option `NIFTY 2026-11-23 25000 CE`, always with
 `--exchange NFO`. Each broker's own identifier (Kite `NIFTY26NOV25000CE`, or
 `NIFTY26N0925000CE` for a weekly; Upstox `NSE_FO|64439`; Dhan security id
-`64439`) comes from that broker's daily instrument master, never from a
-formula. The masters agree on NSE's exchange token, which the tests check
-across all three. Lot size, tick size and freeze quantity come from the
-master too (Upstox and Dhan publish ticks in paise; the adapters convert).
+`64439`; Angel One `NIFTY23NOV2625000CE` with token `64439`) comes from that
+broker's daily instrument master, never from a formula. The masters agree on
+NSE's exchange token, which the tests check across all four. Lot size, tick
+size and freeze quantity come from the master too (Upstox, Dhan and Angel One
+publish ticks in paise, Angel One its option strikes too; the adapters
+convert. Angel One's `freeze_qty` is the first quantity refused, 1801 for
+NIFTY, so the adapter keeps 1800).
 
 ## A live order: every gate
 
@@ -234,13 +284,73 @@ broker refused the order (make a new ticket and say yes again). An order call
 is never retried: if the connection drops, it says so and asks you to check
 `ticket.py orders` for the tag first.
 
-After the entry fills, send one exit leg: `place --index N --leg stop` (the
-SL-M or SL stop) or `--leg target` (the LIMIT target). In this version only
-one exit leg works at the broker at a time; to switch, `cancel --index N
---leg stop` first. Broker-side OCO (Kite GTT two-leg, Upstox GTT, Dhan
-Forever OCO) is the next step
-([#34](https://github.com/rajdavee/bharat-trader/issues/34)); until then watch the position yourself and
-remember the broker's MIS square-off.
+After the entry fills, the exits. Leg by leg (every broker):
+`place --index N --leg stop` (the SL-M or SL stop) or `--leg target` (the
+LIMIT target); only one exit leg works at the broker at a time, so to switch,
+`cancel --index N --leg stop` first. Or, where the broker has one, as **one
+native linked order** (next section): the broker holds the stop and the
+target together and cancels the other when one fills, even if this machine
+is off.
+
+## Native linked exits: one stop + target at the broker
+
+| broker | how | when | `--leg` |
+| --- | --- | --- | --- |
+| Zerodha Kite | GTT two-leg (OCO): two triggers, two LIMIT orders | after the entry fills | `oco` |
+| Upstox | multi-leg GTT: ENTRY (IMMEDIATE, a limit order sent at once) + TARGET + STOPLOSS | with the entry, in place of it | `bracket` |
+| Dhan | Super Order: entry + target + stop loss in one order | with the entry, in place of it | `bracket` |
+| Angel One | none (SmartAPI's GTT rules are single-leg) | | leg by leg |
+
+```bash
+python3 trader-broker/ticket.py place --index 1 --leg bracket   # Upstox, Dhan: entry and exits as ONE order
+python3 trader-broker/ticket.py place --index 1                 # Kite: the entry first ...
+python3 trader-broker/ticket.py place --index 1 --leg oco       # ... then, after the fill, one GTT OCO
+python3 trader-broker/ticket.py cancel --index 1 --leg oco      # cancel it (the same yes covers its cancel)
+python3 trader-broker/ticket.py reconcile                       # after a restart: the broker's book vs ours
+```
+
+The same six gates as any order, at the moment of sending: the config
+broker, `"paper": false`, `live_enabled`, trader-risk PASS for this exact
+ticket today (its stop and target are part of the fingerprint), your typed
+yes for it and today's preflight. **Your yes for a ticket covers that
+ticket's own linked exit and nothing else**: the pass is sealed to the exact
+stop-and-target order of that ticket, is used once, and cannot send a plain
+order, another ticket's exits or edited prices. A ticket's exits go one way
+only: leg by leg or one linked order, never both (a working leg-by-leg stop
+must be cancelled before an OCO; a bracket is refused after a separate entry
+and vice versa). A yes recorded by trader-autopilot (`--actor autopilot`)
+never opens a live gate, linked or not: the auto-pilot is paper only.
+
+What each broker needs:
+
+- **Kite**: GTT legs are LIMIT orders, so the ticket's stop must be an SL
+  with a limit `price` (an SL-M stop is refused for a native OCO; send it leg
+  by leg). The GTT needs the last price: the entry's fill price, or
+  `--last-price`. If the market has already crossed a trigger, the OCO is
+  refused (it would fire at once).
+- **Upstox and Dhan**: the entry must be a LIMIT order (the exits hang on its
+  price); the stop goes as the stop's trigger price (`stopLossPrice` at Dhan,
+  the STOPLOSS rule's trigger at Upstox) and executes as the broker's own
+  stop. Trailing is off (`trailingJump` 0, no `trailing_gap`).
+
+**A new stop or target** is a new ticket, never a quiet edit: write the
+ticket again with the same symbol, side, qty and product and the new
+`stop_loss` / `target`, run trader-risk, say yes to it, then
+`ticket.py modify-exits --index NEW --linked-id ID`. That changes the working
+linked order (Kite `PUT /gtt/triggers/:id`, Upstox `PUT /v3/order/gtt/modify`,
+Dhan `PUT /super/orders/:id` for the TARGET_LEG and STOP_LOSS_LEG) under the
+new ticket's own PASS and yes; one yes, one change.
+
+**Reconciliation on restart.** `ticket.py reconcile` reads the broker's book
+of linked orders (Kite `GET /gtt/triggers`, Upstox `GET /v3/order/gtt`, Dhan
+`GET /super/orders`) and matches it to this tool's records of the last 7
+days: by id, and for a send whose outcome was unknown (the connection dropped)
+by Dhan's correlation id or by the same qty, side, stop and target. It
+prints each one (matches, prices differ, not in the broker's book, found),
+lists the broker's linked orders this tool did not make (left alone), and
+records an unknown send it found so it can be cancelled or changed. It sends,
+changes and cancels nothing. Upstox's GTT list leaves out completed GTTs, so
+"not in the broker's book" can mean it completed.
 
 What it maps, one to one, and refuses otherwise:
 
@@ -250,6 +360,7 @@ What it maps, one to one, and refuses otherwise:
 | `order_type` LIMIT, SL, SL-M, MARKET | same | same | `LIMIT`, `STOP_LOSS`, `STOP_LOSS_MARKET`, `MARKET` |
 | `exchange` NSE / NFO | instrument key segment | `NSE` / `NFO` | `NSE_EQ` / `NSE_FNO` |
 | our tag | `tag` | `tag` (20 chars) | `correlationId` |
+| Angel One | product `INTRADAY` / `DELIVERY` / `CARRYFORWARD`; `STOPLOSS_LIMIT`, `STOPLOSS_MARKET` (variety `STOPLOSS`); `ordertag` under 20 chars | | |
 
 Before any network call it refuses: a qty that is not a multiple of the lot
 or is above the freeze quantity, a price off the tick, CNC on NFO, NRML on a
@@ -260,6 +371,44 @@ Errors come back in plain words, normalised: token expired (log in again),
 IP not whitelisted (Upstox UDAPI1154 and any broker message about a static
 IP), rate limited, insufficient funds, rejected, not in your plan (Kite
 PermissionException, Dhan DH-902), broker down.
+
+## The broker's basket margin next to ours
+
+trader-strategy and trader-risk estimate an F&O basket's margin SPAN-style
+(+/- about 15%). With a broker token in your shell they also show **the
+broker's own basket margin** and the difference:
+
+```bash
+python3 trader-broker/ticket.py margin-check --broker kite
+# Zerodha Kite basket margin for 2 legs at 10:02 IST: ₹34,786.73.
+# Our SPAN-style estimate: ₹30,000.00, from trader-strategy (trader/strategy.json). Difference: +₹4,786.73 (+16.0%).
+```
+
+It calls Kite `POST /margins/basket` (with your positions considered),
+Upstox `POST /v2/charges/margin`, Dhan `POST /margincalculator/multi` or
+Angel One `POST margin/v1/batch`: read-only calculators, nothing is placed.
+The result is kept for the day in `trader/state/broker_margin.json`, keyed by
+the basket's legs, so trader-strategy (`Broker basket margin (...)` under the
+margin line, `margin.broker_basket` in its JSON) and trader-risk (an info
+line with the basket, and a warning when the broker blocks more than the
+figure it used) show it next to ours. When today's figure is missing and the
+config broker's token (or `"margin_broker"`'s, for a paper config) is in the
+shell, they run `margin-check` once themselves; `strategy.py
+--no-broker-margin` and `"broker_margin_check": false` turn that off. It
+never changes our estimate or a verdict: the broker's figure is shown, and
+it is the one the broker blocks. The local UI's Settings page has a "Check
+basket margin" card, and the MCP tool is `broker_margin_check`.
+
+## OpenAlgo bridge (not built yet)
+
+If you run your own [OpenAlgo](https://github.com/marketcalls/openalgo)
+server, an adapter could reach its brokers over HTTP: one more module in
+`adapters/` implementing `base.Adapter` against your server's REST API (its
+API key in `BT_OPENALGO_API_KEY`, its URL in the config), read side first,
+then `order_request` behind the same `GatePass`. No OpenAlgo code would be
+copied (it is AGPL; this repo is MIT, and calling a server over HTTP is not
+vendoring). It is not in this release; the contract suite in
+`tests/test_broker_adapters.py` is what such an adapter would have to pass.
 
 ## Sandbox smoke tests (opt in)
 
@@ -277,9 +426,11 @@ The endpoints, fields, error codes and example responses come from each
 broker's official API docs, read on 1 Nov 2026
 ([Upstox](https://upstox.com/developer/api-documentation/),
 [Kite Connect v3](https://kite.trade/docs/connect/v3/),
-[DhanHQ v2](https://dhanhq.co/docs/v2/)); the instrument masters are the real
-public files of that day. Not verified against a live account by this
-project:
+[DhanHQ v2](https://dhanhq.co/docs/v2/),
+[SmartAPI](https://smartapi.angelone.in/docs)); the instrument masters are the
+real public files of that day. SmartAPI's printed examples are often not
+valid JSON (missing commas and braces, unquoted values); each fixture says how
+it was repaired. Not verified against a live account by this project:
 
 - Dhan's multi-order margin request: its docs show two spellings
   (`scripList`/`includeOrder` in the curl example, `scripts`/`includeOrders`
@@ -291,3 +442,12 @@ project:
   for a URL "in your control").
 - The exact wording of each broker's static-IP rejection apart from Upstox's
   UDAPI1154.
+- Native linked orders were not sent to a real account: how Upstox fills an
+  IMMEDIATE ENTRY rule and executes its STOPLOSS rule (as SL-M with
+  protection?), how Dhan executes the super order's stop leg, and Kite's
+  exact rule for how far a GTT trigger must sit from the last price.
+- Angel One: whether SmartAPI checks the client IP and MAC headers, the HTTP
+  status of its failed responses (most come back as HTTP 200 with
+  `"status": false`), the `getPosition` P&L fields (not in the docs' example,
+  so P&L shows as unknown when missing) and whether market orders get
+  automatic protection (not wired: LIMIT and SL only).

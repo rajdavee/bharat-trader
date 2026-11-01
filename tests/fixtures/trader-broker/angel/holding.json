@@ -1,0 +1,38 @@
+{
+ "doc_derived": true,
+ "source": "https://smartapi.angelone.in/docs/Portfolio (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/rest/secure/angelbroking/portfolio/v1/getHolding"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": true,
+   "message": "SUCCESS",
+   "errorcode": "",
+   "data": [
+    {
+     "tradingsymbol": "TATASTEEL-EQ",
+     "exchange": "NSE",
+     "isin": "INE081A01020",
+     "t1quantity": 0,
+     "realisedquantity": 2,
+     "quantity": 2,
+     "authorisedquantity": 0,
+     "product": "DELIVERY",
+     "collateralquantity": null,
+     "collateraltype": null,
+     "haircut": 0,
+     "averageprice": 111.87,
+     "ltp": 130.15,
+     "symboltoken": "3499",
+     "close": 129.6,
+     "profitandloss": 37,
+     "pnlpercentage": 16.34
+    }
+   ]
+  }
+ },
+ "repairs": "the docs print one holding without colons, commas or the status wrapper: rebuilt as valid JSON in the documented response structure"
+}

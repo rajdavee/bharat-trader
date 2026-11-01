@@ -1,0 +1,22 @@
+{
+ "doc_derived": true,
+ "source": "https://upstox.com/developer/api-documentation/place-gtt-order/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/v3/order/gtt/place"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": "success",
+   "data": {
+    "gtt_order_ids": [
+     "GTT-CU25280200021013"
+    ]
+   },
+   "metadata": {
+    "latency": 88
+   }
+  }
+ }
+}

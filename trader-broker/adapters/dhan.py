@@ -12,7 +12,8 @@ import io
 import urllib.parse
 
 from .base import (IST, Adapter, AuthExpired, BrokerDown, BrokerError, InsufficientFunds, InvalidInstrument,
-                   IPNotWhitelisted, NotSubscribed, RateLimited, Rejected, canonical_symbol, ip_words, mask_id, num,
+                   InvalidOrder, IPNotWhitelisted, NotSubscribed, RateLimited, Rejected, canonical_symbol, ip_words,
+                   mask_id, num,
                    parse_ist, rupees, whole)
 
 STATUS = {"TRADED": "filled", "CANCELLED": "cancelled", "REJECTED": "rejected", "EXPIRED": "cancelled"}
@@ -30,7 +31,7 @@ class DhanAdapter(Adapter):
     title = "Dhan"
     capabilities = {"profile": True, "funds": True, "holdings": True, "positions": True, "orders": True,
                     "quotes": True, "history": True, "instruments": True, "basket_margin": True, "gtt_oco": True,
-                    "sandbox": True, "place_orders": True, "market_protection": False}
+                    "native_oco": True, "sandbox": True, "place_orders": True, "market_protection": False}
     env_names = {"client_id": "BT_DHAN_CLIENT_ID", "access_token": "BT_DHAN_ACCESS_TOKEN",
                  "api_key": "BT_DHAN_API_KEY", "api_secret": "BT_DHAN_API_SECRET", "redirect": "BT_DHAN_REDIRECT",
                  "token_date": "BT_DHAN_TOKEN_DATE", "sandbox_token": "BT_DHAN_SANDBOX_TOKEN"}
@@ -237,6 +238,62 @@ class DhanAdapter(Adapter):
 
     def cancel_request(self, broker_order_id):
         return "DELETE", "api", "/orders/%s" % urllib.parse.quote(str(broker_order_id)), {}
+
+    # ---------------------------------------------------------------- native linked order: the Super Order
+    linked_style = "bracket"
+    linked_words = ("a Super Order: the entry, the target and the stop loss in one order; Dhan cancels the other exit "
+                    "when one fills (the stop leg is Dhan's own stop at stopLossPrice)")
+
+    def linked_request(self, linked, inst, last_price=None):
+        if linked.get("linked") != "bracket":
+            raise InvalidOrder("Dhan's native linked order is the Super Order (the entry with its stop and target)")
+        body = {"dhanClientId": self.client_id(), "correlationId": str(linked.get("tag") or "")[:25],
+                "transactionType": str(linked["side"]).upper(), "exchangeSegment": SEGMENT_TO[inst["exchange"]],
+                "productType": PRODUCT_TO[str(linked["product"]).upper()], "orderType": "LIMIT",
+                "securityId": str(inst["broker_id"]), "quantity": int(linked["qty"]),
+                "price": round(float(linked["price"]), 2), "targetPrice": round(float(linked["target"]["price"]), 2),
+                "stopLossPrice": round(float(linked["stop"]["trigger_price"]), 2), "trailingJump": 0}
+        return "POST", "api", "/super/orders", {"json_body": body}
+
+    def linked_placed_id(self, res):
+        return str((res or {}).get("orderId")) if isinstance(res, dict) and res.get("orderId") else None
+
+    def linked_cancel_request(self, linked_id, record=None):
+        """Cancelling the ENTRY_LEG cancels every leg of the super order (Dhan's docs)."""
+        return "DELETE", "api", "/super/orders/%s/ENTRY_LEG" % urllib.parse.quote(str(linked_id)), {}
+
+    def linked_modify_requests(self, linked_id, linked, inst, record=None, last_price=None):
+        oid = str(linked_id)
+        path = "/super/orders/%s" % urllib.parse.quote(oid)
+        return [("PUT", "api", path, {"json_body": {"dhanClientId": self.client_id(), "orderId": oid,
+                                                     "legName": "TARGET_LEG",
+                                                     "targetPrice": round(float(linked["target"]["price"]), 2)}}),
+                ("PUT", "api", path, {"json_body": {"dhanClientId": self.client_id(), "orderId": oid,
+                                                     "legName": "STOP_LOSS_LEG",
+                                                     "stopLossPrice": round(float(linked["stop"]["trigger_price"]), 2),
+                                                     "trailingJump": 0}})]
+
+    def linked_book(self):
+        out = []
+        for o in self.call("GET", "api", "/super/orders") or []:
+            legs = {str(x.get("legName")): x for x in o.get("legDetails") or []}
+            st = str(o.get("orderStatus") or "").upper()
+            status = {"PENDING": "active", "TRANSIT": "active", "PART_TRADED": "active", "TRADED": "active",
+                      "CLOSED": "completed", "REJECTED": "rejected", "CANCELLED": "cancelled",
+                      "EXPIRED": "expired"}.get(st, st.lower() or "unknown")
+            out.append({"linked_id": str(o.get("orderId")), "style": "bracket", "symbol": o.get("tradingSymbol"),
+                        "broker_symbol": o.get("tradingSymbol"), "broker_id": str(o.get("securityId") or ""),
+                        "exchange": SEGMENT_FROM.get(o.get("exchangeSegment"), o.get("exchangeSegment")),
+                        "product": PRODUCT_FROM.get(o.get("productType"), o.get("productType")),
+                        "side": str(o.get("transactionType") or "").upper(), "qty": whole(o.get("quantity")),
+                        "entry_price": num(o.get("price")),
+                        "stop_trigger": num((legs.get("STOP_LOSS_LEG") or {}).get("price")), "stop_price": None,
+                        "target_price": num((legs.get("TARGET_LEG") or {}).get("price")), "status": status,
+                        "raw_status": st, "legs": [{"leg": "entry", "status": st, "order_id": str(o.get("orderId"))}] + [
+                            {"leg": "stop" if k == "STOP_LOSS_LEG" else "target", "status": v.get("orderStatus"),
+                             "order_id": v.get("orderId")} for k, v in sorted(legs.items())],
+                        "tag": o.get("correlationId"), "time": parse_ist(o.get("createTime"))})
+        return out
 
     # ---------------------------------------------------------------- login (API key and secret consent flow)
     def redirect(self):

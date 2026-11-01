@@ -674,6 +674,12 @@ def broker_status(ctx):
     pre = ctx.read("state", "preflight.json")
     pre = pre if isinstance(pre, dict) else {}
     le = cfg.get("live_enabled") if isinstance(cfg.get("live_enabled"), dict) else {}
+    cache = ctx.read("state", "broker_margin.json")
+    margins = {}
+    for c in (cache.get("checks") or []) if isinstance(cache, dict) else []:
+        if c.get("date") == ctx.today():
+            margins[c.get("broker")] = {k: c.get(k) for k in ("at", "total", "our_estimate", "difference",
+                                                               "difference_pct", "legs")}
     rows = []
     for name in b.LIVE_BROKERS:
         ad = b.get_adapter(name, cfg)
@@ -681,7 +687,8 @@ def broker_status(ctx):
         rows.append({"broker": name, "title": ad.title, "configured": name == named,
                      "live_enabled": le.get(name) is True, "credentials": ad.credentials_status(),
                      "token": bool(ad.token()), "token_cutoff": ad.token_cutoff, "capabilities": ad.caps(),
-                     "plans": ad.plans,
+                     "plans": ad.plans, "native_oco": ad.linked_leg(), "native_oco_words": ad.linked_words,
+                     "margin_check": margins.get(name),
                      "preflight": {k: p.get(k) for k in ("at", "date", "passed", "public_ip", "static_ip",
                                                          "registered_ips", "checks")} if p else None,
                      "preflight_today": bool(p and p.get("date") == ctx.today() and p.get("passed"))})
@@ -699,10 +706,63 @@ def _broker_pick(ctx, q):
     want = b.broker_name(q.get("broker") or ctx.config().get("broker"))
     if want == "paper":
         return None, "The config broker is paper: there is no live account to read. Pick one with ?broker=upstox, " \
-                     "kite or dhan (read only)."
+                     "kite, dhan or angel (read only)."
     if want not in b.LIVE_BROKERS:
         raise ApiError(400, "broker is one of %s" % ", ".join(b.LIVE_BROKERS))
     return want, None
+
+
+def broker_margin(ctx, q):
+    """The live broker's own basket margin for the F&O basket in trader/strategy.json (or trader/orders.json), next
+    to our SPAN-style estimate, with the difference. Read only: the broker's margin calculator, nothing placed."""
+    b = skill("broker")
+    sdoc = ctx.read("strategy.json")
+    sdoc = sdoc if isinstance(sdoc, dict) else {}
+    legs = [o for o in (sdoc.get("orders") or []) if b.is_fno(o)]
+    src = "trader/strategy.json"
+    if not legs:
+        od = ctx.read("orders.json")
+        od = od.get("orders", []) if isinstance(od, dict) else (od if isinstance(od, list) else [])
+        legs, src = [o for o in od if isinstance(o, dict) and b.is_fno(o)], "trader/orders.json"
+    out = {"connected": False, "broker": None, "read_only": True, "legs": len(legs), "source": src,
+           "broker_margin": None, "our_estimate": None, "difference": None, "difference_pct": None}
+    if not legs:
+        return dict(out, source=None, note="No F&O basket to check: build one with trader-strategy first.")
+    m = sdoc.get("margin") if b.strategy_matches(sdoc, legs) else None
+    ours = m.get("required") if isinstance(m, dict) else None
+    out["our_estimate"] = ours
+    key = b.margin_key(b.margin_rows(legs))
+    cache = ctx.read("state", "broker_margin.json")
+    cached = None
+    for c in (cache.get("checks") or []) if isinstance(cache, dict) else []:
+        if c.get("key") == key and c.get("date") == ctx.today():
+            cached = c
+    out["saved"] = cached
+    name, why_not = _broker_pick(ctx, q)
+    if name is None:
+        return dict(out, note=why_not)
+    ad = b.get_adapter(name, ctx.config())
+    out.update(broker=name, title=ad.title)
+    if ctx.offline:
+        return dict(out, note="Offline mode: the live broker is not called." + (
+            " Last check today: %s at %s." % (b.inr(cached["total"]), cached.get("at")) if cached else ""))
+    if not ad.token():
+        return dict(out, note="No %s token in this server's environment. In the shell that starts the UI: eval "
+                              "\"$(python3 trader-broker/ticket.py login %s)\", then start it again."
+                              % (ad.env_names["access_token"], name))
+    base = b.adapters().base
+    try:
+        got = ctx.cached("broker-margin-%s-%s" % (name, key), 30, lambda: ad.basket_margin(
+            [b.adapter_order(o) for o in legs]))
+    except base.BrokerError as e:
+        raise ApiError(502, "%s: %s" % (ad.title, e.message))
+    total = got.get("total")
+    diff = round(total - ours, 2) if (total is not None and ours) else None
+    return dict(out, connected=True, as_of=ist_text(ctx.now_ist()), broker_margin=total,
+                hedge_benefit=got.get("hedge_benefit"), difference=diff,
+                difference_pct=round(100.0 * diff / ours, 1) if diff is not None else None,
+                note="Read only, from %s's margin calculator: %s. The broker's figure is what it blocks; our "
+                     "estimate is SPAN-style. Nothing was placed." % (ad.title, got.get("note") or "basket margin"))
 
 
 def broker_rows(ctx, q, what):
@@ -734,6 +794,10 @@ def broker_rows(ctx, q, what):
 
 def r_broker(ctx, q, body):
     return broker_status(ctx)
+
+
+def r_broker_margin(ctx, q, body):
+    return broker_margin(ctx, q)
 
 
 def r_broker_holdings(ctx, q, body):
@@ -2740,6 +2804,8 @@ ROUTES = [
     ("GET", "/api/orders", r_orders, "order tickets with their trader-risk status (a basket as one ticket)", False),
     ("GET", "/api/fno", r_fno, "paper F&O by strategy: MTM, Greeks, margin, payoff at expiry", False),
     ("GET", "/api/broker", r_broker, "live broker connection: credentials set, capabilities, last preflight", False),
+    ("GET", "/api/broker/margin", r_broker_margin, "the broker's basket margin for the F&O basket vs our estimate, read "
+                                                   "only: ?broker=", False),
     ("GET", "/api/broker/holdings", r_broker_holdings, "holdings at the live broker, read only: ?broker=", False),
     ("GET", "/api/broker/positions", r_broker_positions, "positions at the live broker, read only: ?broker=", False),
     ("GET", "/api/risk", r_risk, "your limits, the verdicts, a fresh preview, Greeks, scenarios, kill switch",

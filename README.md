@@ -21,7 +21,7 @@ placed without your yes.
   next to simulated ones. The Strategy Lab rejects most strategies, and says why.
 - **Standard library only.** Python 3.8+, nothing to `pip install`, every tool runs by hand.
 - **Agent-native.** Twenty-one [Agent Skills](https://agentskills.io), six agent
-  personas, and an [MCP](https://modelcontextprotocol.io/) server with 52 tools
+  personas, and an [MCP](https://modelcontextprotocol.io/) server with 53 tools
   for any MCP-compatible AI assistant.
 - **Zero-install UI.** `python3 ui/serve.py --open`: a web app on `127.0.0.1`
   that never loads anything from the internet.
@@ -89,10 +89,13 @@ close and expiry settlement, then the end-of-day report, calibration and the
 lab's forward record (promote or demote). It refuses a live config. Replay any
 past day on a simulated clock. See [docs/autopilot.md](docs/autopilot.md).
 
-**Brokers.** Read your real Upstox, Zerodha Kite or Dhan account (funds,
-holdings, positions, orders, instruments) with a one-shot local login and
-a static-IP preflight. A live order is possible only after six gates and you
-running the command yourself. See [docs/brokers.md](docs/brokers.md).
+**Brokers.** Read your real Upstox, Zerodha Kite, Dhan or Angel One account
+(funds, holdings, positions, orders, instruments) with a one-shot local login
+(Angel One: your TOTP code) and a static-IP preflight, and check the broker's
+own basket margin against our estimate. A live order is possible only after
+six gates and you running the command yourself; its stop and target can go
+as one broker-native linked order (Kite GTT OCO, Upstox GTT, Dhan Super
+Order) under the same gates. See [docs/brokers.md](docs/brokers.md).
 
 **Local web UI.** A "Today" cockpit (the session clock with your entry
 window, day P&L after charges, loss budget, risk state, positions, alerts),
@@ -103,7 +106,7 @@ first-run setup and a validated settings editor. Grouped navigation that works
 on a phone, a command palette (Ctrl/Cmd-K), guided or expert detail, and a
 "why" panel for every number. See [docs/ui.md](docs/ui.md).
 
-**Your AI assistant, via MCP.** 52 tools and 16 prompts for any
+**Your AI assistant, via MCP.** 53 tools and 16 prompts for any
 MCP-compatible assistant, over stdio or loopback HTTP. Paper only: there is
 no live-order tool at all. See [docs/mcp.md](docs/mcp.md).
 
@@ -246,7 +249,7 @@ Copy one or all into your agent's skills folder; each works on its own:
 | `trader-timemachine` | Replays the rest of the session 10,000 times from the stock's own last 60 days, plus every past day the setup fired. Honest odds. |
 | `trader-budget` | `init` builds your risk config from your capital. Sizes each trade so the loss at the stop, charges included, fits your limit. |
 | `trader-risk` | PASS or BLOCK for every order: stop, max loss, daily loss, trades per day, entry window, market hours, position size, cash; F&O baskets as one position (lots, ban list, expiry day, margin, Greeks, scenarios); circuit-breakers, order rate and a kill switch. |
-| `trader-broker` | Paper broker for shares and F&O baskets: plain-language tickets, records your yes, fills with charges and slippage, margin, MTM, adjustments, expiry settlement. Reads your real Upstox, Zerodha Kite or Dhan account; a live order only after every gate. |
+| `trader-broker` | Paper broker for shares and F&O baskets: plain-language tickets, records your yes, fills with charges and slippage, margin, MTM, adjustments, expiry settlement. Reads your real Upstox, Zerodha Kite, Dhan or Angel One account; a live order (and its native linked stop and target) only after every gate. |
 | `trader-alerts` | Rings on your stop, your target, the opening bell, the closing auction and your flat-by time. Knows the NSE calendar. |
 | `trader-analyst` | Quarterly results straight from NSE XBRL filings: revenue, margins, profit, EPS, YoY and QoQ, in ₹ crore. |
 | `trader-insider` | NSE bulk and block deals and SEBI insider-trading (PIT) disclosures, flagged when they touch stocks you hold or watch. |
@@ -269,7 +272,7 @@ all of these together, run on your own machine:
 
 | | after-charges payoff | honest-odds simulation | out-of-sample lab | multi-broker paper F&O | local-first | MCP | dated rules |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 52 tools | ✅ effective date and source per rule |
+| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 53 tools | ✅ effective date and source per rule |
 | Typical free option-analytics apps | ◐ often gross only | ◐ one model-based PoP | — | ◐ one broker, forward only | — hosted, broker login | — rarely | ◐ |
 | Typical paid backtesting platforms | ◐ often | ◐ | ◐ backtests, rarely overfitting statistics | ◐ their own simulator | — hosted, your strategies on their servers | — rarely | ◐ |
 | Typical open-source NSE toolkits | ◐ | — rarely | — rarely | ◐ a few, often needing a live broker session | ✅ | ◐ some | — rarely |
@@ -367,7 +370,7 @@ FY23 ([Business Standard, 24 Jul 2024](https://www.business-standard.com/markets
 
 **Nothing is placed without your yes.** Only `trader-broker` can lead to an
 order, only after `trader-risk` passes that exact order, and only after you
-type yes. Paper is the default. A live order at Upstox, Zerodha Kite or Dhan
+type yes. Paper is the default. A live order at Upstox, Zerodha Kite, Dhan or Angel One
 also needs `"paper": false`, `live_enabled` for that broker, a passed
 static-IP preflight today, and you running `ticket.py place` yourself.
 

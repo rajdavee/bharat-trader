@@ -5,7 +5,8 @@ import { get } from './api.js';
 import { h, clear, card, kv, note, table, loading } from './dom.js';
 import { inr, num, int, signed, tone, when } from './fmt.js';
 
-const BROKERS = [['upstox', 'Upstox'], ['kite', 'Zerodha Kite'], ['dhan', 'Dhan']];
+const BROKERS = [['upstox', 'Upstox'], ['kite', 'Zerodha Kite'], ['dhan', 'Dhan'], ['angel', 'Angel One']];
+const LINKED = { oco: 'one GTT OCO after the fill', bracket: 'with the entry, one order' };
 
 function yesNo(v) {
   return h('span', { class: 'badge ' + (v ? 'pass' : 'warn') }, v ? 'yes' : 'no');
@@ -24,17 +25,67 @@ export function statusCard(st) {
       h('td', { class: 'small' }, pf ? [h('span', { class: 'badge ' + (pf.passed ? 'pass' : 'block') },
         pf.passed ? 'passed' : 'failed'), ' ', when(pf.at), pf.public_ip ? ' from ' + pf.public_ip : '']
         : h('span', { class: 'muted' }, 'not run')),
+      h('td', { class: 'small' }, b.native_oco
+        ? h('span', { class: 'badge pass', title: b.native_oco_words }, LINKED[b.native_oco] || b.native_oco)
+        : h('span', { class: 'muted', title: b.native_oco_words }, 'leg by leg')),
+      h('td', { class: 'small' }, marginText(b.margin_check)),
       h('td', { class: 'small muted' }, b.plans));
   });
   return card('Broker connection (read only)',
     kv([['Mode', st.mode === 'live' ? h('strong', null, 'LIVE with ' + st.broker + ' (real money)')
       : st.mode === 'paper' ? 'Paper (no real money)' : 'Not valid'],
     st.error ? ['Config problem', st.error] : null]),
-    table(['Broker', 'BT_* variables set (names only)', 'Token', 'live_enabled', 'Last preflight', 'Plan'], rows,
+    table(['Broker', 'BT_* variables set (names only)', 'Token', 'live_enabled', 'Last preflight',
+      'Native stop + target', 'Basket margin today', 'Plan'], rows,
       { caption: 'Live broker connection' }),
     h('p', { class: 'small' }, st.rule),
     h('p', { class: 'small muted' }, 'In your terminal: ', h('code', null, st.commands.login), ', then ',
       h('code', null, st.commands.preflight), '. Tokens stay in your shell, never in trader/.'));
+}
+
+function marginText(m) {
+  if (!m || m.total == null) return h('span', { class: 'muted' }, 'not checked');
+  const parts = [inr(m.total), ' at ', when(m.at)];
+  if (m.difference != null) {
+    parts.push(' (ours ', inr(m.our_estimate), ', ', h('span', { class: tone(-m.difference) }, signed(m.difference)),
+      ')');
+  }
+  return parts;
+}
+
+export function marginCard(defaultBroker) {
+  const pick = h('select', { 'aria-label': 'Broker for the margin check' },
+    BROKERS.map(([v, t]) => h('option', { value: v, selected: v === defaultBroker ? true : null }, t)));
+  const go = h('button', { type: 'button', class: 'btn' }, 'Check basket margin');
+  const out = h('div');
+  go.addEventListener('click', async () => {
+    go.disabled = true;
+    loading(out, 'Asking the broker');
+    try {
+      const d = await get('/api/broker/margin?broker=' + encodeURIComponent(pick.value));
+      clear(out);
+      if (!d.connected) {
+        out.appendChild(note(d.note, 'info'));
+        if (d.saved && d.saved.total != null) out.appendChild(h('p', { class: 'small' }, 'Saved today: ', marginText(d.saved)));
+        return;
+      }
+      out.appendChild(kv([
+        ['Broker basket margin', inr(d.broker_margin)],
+        ['Our SPAN-style estimate', d.our_estimate != null ? inr(d.our_estimate) : 'not for this basket'],
+        d.difference != null ? ['Difference', [signed(d.difference), ' (', num(d.difference_pct, 1), '%)']] : null,
+        d.hedge_benefit ? ['Hedge benefit', inr(d.hedge_benefit)] : null,
+        ['Legs', int(d.legs) + ' from ' + d.source]]));
+      out.appendChild(h('p', { class: 'small muted' }, `${d.title}, ${when(d.as_of)}. ${d.note}`));
+    } catch (e) {
+      clear(out).appendChild(note(e.message, 'error'));
+    } finally {
+      go.disabled = false;
+    }
+  });
+  return card('Broker basket margin (read only)',
+    h('p', { class: 'small muted' }, 'The broker’s own margin for the F&O basket you built, next to our estimate. ' +
+      'Read only: its margin calculator, nothing is placed.'),
+    h('div', { class: 'row' }, pick, go), out);
 }
 
 function rowsTable(kind, d) {

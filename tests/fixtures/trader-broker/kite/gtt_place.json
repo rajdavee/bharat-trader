@@ -1,0 +1,17 @@
+{
+ "doc_derived": true,
+ "source": "https://kite.trade/docs/connect/v3/gtt/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/gtt/triggers"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": "success",
+   "data": {
+    "trigger_id": 123
+   }
+  }
+ }
+}

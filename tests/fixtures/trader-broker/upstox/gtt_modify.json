@@ -1,0 +1,23 @@
+{
+ "doc_derived": true,
+ "source": "https://upstox.com/developer/api-documentation/modify-gtt-order/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "PUT",
+  "path": "/v3/order/gtt/modify"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": "success",
+   "data": {
+    "gtt_order_ids": [
+     "GTT-C25270200137952"
+    ]
+   },
+   "metadata": {
+    "latency": 60
+   }
+  }
+ },
+ "repairs": "the modify page's response has the place response's shape; its latency value is illustrative"
+}

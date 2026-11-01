@@ -1580,6 +1580,123 @@ def strategy_matches(strategy, legs):
     return mine == theirs
 
 
+# ---------------------------------------------------------------- the broker's basket margin (shared block)
+# The same block in trader-strategy and trader-risk (tests/test_broker_v2.py keeps them identical). Read only:
+# the broker's own basket margin comes from trader-broker's `ticket.py margin-check`, kept for the day in
+# trader/state/broker_margin.json and shown next to our SPAN-style estimate, with the difference.
+
+BROKER_MARGIN_FILE = os.path.join("trader", "state", "broker_margin.json")
+MARGIN_TOKENS = {"kite": "BT_KITE_ACCESS_TOKEN", "upstox": "BT_UPSTOX_ACCESS_TOKEN", "dhan": "BT_DHAN_ACCESS_TOKEN",
+                 "angel": "BT_ANGEL_ACCESS_TOKEN"}
+
+
+def margin_key(rows):
+    """One basket, broker-neutral: rows of (side, underlying, expiry, strike, CE/PE/FUT, qty). The same function in
+    trader-broker, trader-strategy and trader-risk, so each finds the broker's figure for its own legs."""
+    parts = []
+    for side, und, exp, strike, kind, qty in rows:
+        kind = str(kind or "").upper()
+        k = "-" if kind == "FUT" or strike in (None, "") else "%g" % float(strike)
+        parts.append("%s|%s|%s|%s|%s|%d" % (str(side).upper(), str(und).upper(), str(exp)[:10], k, kind,
+                                            int(round(abs(float(qty or 0))))))
+    return hashlib.sha256("\n".join(sorted(parts)).encode("utf-8")).hexdigest()[:16]
+
+
+def margin_broker(cfg, env=None, want=None):
+    """The live broker whose basket margin to read: the one asked for, else "margin_broker" in the config, else the
+    config broker, and only when its token is in this shell. None otherwise: then nothing is fetched."""
+    env = os.environ if env is None else env
+    b = str(want or (cfg or {}).get("margin_broker") or (cfg or {}).get("broker") or "").strip().lower()
+    b = {"zerodha": "kite", "angelone": "angel"}.get(b, b)
+    return b if b in MARGIN_TOKENS and env.get(MARGIN_TOKENS[b]) else None
+
+
+def broker_margin_lookup(key, ours, path=None, today=None):
+    """Today's broker basket margin for this basket (trader/state/broker_margin.json), next to our estimate."""
+    try:
+        with open(path or BROKER_MARGIN_FILE, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    hit = None
+    for c in (doc.get("checks") or []) if isinstance(doc, dict) else []:
+        if c.get("key") == key and (today is None or c.get("date") == today) and c.get("total") is not None:
+            hit = c
+    if hit is None:
+        return None
+    total = float(hit["total"])
+    out = {"broker": hit.get("broker"), "title": hit.get("title") or hit.get("broker"), "at": hit.get("at"),
+           "total": round(total, 2), "hedge_benefit": hit.get("hedge_benefit"), "note": hit.get("note"),
+           "our_estimate": round(float(ours), 2) if ours else None, "difference": None, "difference_pct": None,
+           "read_only": True}
+    if ours:
+        d = total - float(ours)
+        out["difference"] = round(d, 2)
+        out["difference_pct"] = round(100.0 * d / float(ours), 1)
+    return out
+
+
+def broker_margin_fetch(legs, ours, broker, path=None, here=None, timeout=60):
+    """Ask trader-broker (a sibling folder) for the broker's basket margin, read only: ticket.py margin-check in a
+    child process, which saves it for broker_margin_lookup. -> (ok, words)."""
+    import subprocess
+    import tempfile
+    root = os.path.dirname(os.path.dirname(os.path.abspath(here or __file__)))
+    script = os.path.join(root, "trader-broker", "ticket.py")
+    if not os.path.isfile(script):
+        return False, "trader-broker is not installed next to this skill"
+    fd, tmp = tempfile.mkstemp(suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(legs, fh)
+        argv = [sys.executable, script, "margin-check", "--broker", broker, "--legs-json", tmp, "--cache",
+                path or BROKER_MARGIN_FILE, "--json"]
+        if ours:
+            argv += ["--estimate", "%.2f" % float(ours)]
+        r = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+                           timeout=timeout)
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        return False, "could not run ticket.py margin-check (%s)" % e
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    if r.returncode != 0:
+        lines = (r.stderr or r.stdout or "").strip().splitlines()
+        return False, lines[-1] if lines else "ticket.py margin-check failed"
+    return True, "read"
+
+
+def broker_margin_words(bm, money):
+    """One plain line: the broker's basket margin next to our estimate."""
+    if not bm:
+        return None
+    s = "Broker basket margin (%s, %s IST): %s" % (bm["title"], str(bm.get("at") or "")[11:16], money(bm["total"]))
+    if bm.get("difference") is not None:
+        s += " vs our SPAN-style estimate %s: %s%s (%+.1f%%)" % (
+            money(bm["our_estimate"]), "+" if bm["difference"] >= 0 else "-", money(abs(bm["difference"])),
+            bm["difference_pct"])
+    return s + ". The broker's figure is what it blocks; read only, nothing was sent."
+
+# ---------------------------------------------------------------- end of the shared block
+
+
+def basket_broker_margin(legs, orders, ours, cfg, today):
+    """The broker's own basket margin for these legs, read only (shown, never used for the verdict): today's
+    figure from ticket.py margin-check, else one fresh read when the broker's token is in this shell
+    ("broker_margin_check": false in the config turns the fresh read off)."""
+    rows = [("BUY" if l["qty"] > 0 else "SELL", l["underlying"], l["expiry"], l.get("strike"),
+             "FUT" if l["instrument"] == "FUT" else l.get("option_type"), l["qty"]) for l in legs]
+    key = margin_key(rows)
+    bm = broker_margin_lookup(key, ours, None, today)
+    if bm is None and (cfg or {}).get("broker_margin_check", True) is not False:
+        b = margin_broker(cfg)
+        if b and broker_margin_fetch(orders, ours, b)[0]:
+            bm = broker_margin_lookup(key, ours, None, today)
+    return bm
+
+
 def basket_margin(legs, today, cfg, strategy=None, upper=True):
     """(margin to hold against your cash, detail). trader-strategy's estimate when trader/strategy.json is
     this basket, else the same method here. Expiry day: 2% more ELM on index shorts expiring today (if the
@@ -2424,6 +2541,15 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
             margin.update({"available": round_paise(avail), "cash": round_paise(acct["cash"]),
                            "open_margin": round_paise(open_margin), "buffer": round_paise(buffer_rs)})
             summary["margin"] = margin
+            if not adjusting:
+                bm = basket_broker_margin(pos, [orders[j] for j in idxs], margin.get("estimate"), c, today)
+                if bm:
+                    margin["broker"] = bm
+                    info.append(broker_margin_words(bm, inr))
+                    if bm["total"] > margin_use + PAISA:
+                        warns.append("%s's own basket margin %s is more than the %s used here: keep at least %s free "
+                                     "for this basket" % (bm["title"], inr(bm["total"]), inr(margin_use),
+                                                          inr(bm["total"])))
             if adjusting and margin_use > avail + PAISA:
                 later.append("margin: after this %s the position needs about %s (%s, %s), %s more than now, but only "
                              "%s is free after your %s%% cash buffer and %s already blocked" % (
