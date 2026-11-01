@@ -6,7 +6,7 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-11-xx
+## [0.3.0] - 2026-11-01
 
 The co-trader release: candidates only from validated rules, odds with their
 range and sample size, "no trade today" as a first-class answer, and every

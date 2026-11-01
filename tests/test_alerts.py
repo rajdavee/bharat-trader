@@ -18,7 +18,7 @@ alerts = load("trader-alerts", "alerts")
 QDIR = os.path.join(FIX, "trader-alerts")
 PLAN = os.path.join(QDIR, "plan-reliance.json")
 DT = datetime.datetime
-UA = "Mozilla/5.0 (compatible; bharat-trader/0.2; +https://github.com/rajdavee/bharat-trader)"
+UA = "Mozilla/5.0 (compatible; bharat-trader/0.3; +https://github.com/rajdavee/bharat-trader)"
 
 # NSE Capital Market trading holidays 2026, from NSE's holiday master (key "CM")
 NSE_2026 = ["2026-01-15", "2026-01-26", "2026-02-15", "2026-03-03", "2026-03-21", "2026-03-26",
