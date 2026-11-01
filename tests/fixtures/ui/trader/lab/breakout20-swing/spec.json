@@ -1,0 +1,76 @@
+{
+ "schema": "bharat-trader/lab-spec/1",
+ "name": "breakout20-swing",
+ "title": "20-day breakout swing",
+ "description": "Swing, delivery (CNC). Buy at the next open after a close above the highest high of the previous 20 sessions. Stop 2 ATR(14) under the entry; sell at the next open after a close under the lowest low of the previous 10 sessions, or after 30 sessions.",
+ "kind": "equity",
+ "timeframe": "1d",
+ "product": "CNC",
+ "side": "long",
+ "universe": [
+  "RELIANCE",
+  "HDFCBANK",
+  "ICICIBANK",
+  "INFY",
+  "TCS",
+  "SBIN",
+  "BHARTIARTL",
+  "ITC",
+  "LT",
+  "AXISBANK"
+ ],
+ "params": {
+  "lookback": 20,
+  "stop_atr": 2
+ },
+ "entry": [
+  "close",
+  ">",
+  {
+   "highest": "$lookback",
+   "of": "high",
+   "shift": 1
+  }
+ ],
+ "stop": {
+  "atr": 14,
+  "mult": "$stop_atr"
+ },
+ "exit": {
+  "when": [
+   "close",
+   "<",
+   {
+    "lowest": 10,
+    "of": "low",
+    "shift": 1
+   }
+  ],
+  "max_bars": 30
+ },
+ "sizing": {
+  "capital": 100000,
+  "risk_per_trade_pct": 1,
+  "max_trades_per_day": 3
+ },
+ "grid": {
+  "lookback": [
+   10,
+   20,
+   40
+  ],
+  "stop_atr": [
+   1.5,
+   2,
+   3
+  ]
+ },
+ "walk_forward": {
+  "in_sample": 120,
+  "out_of_sample": 40
+ },
+ "seed": 16,
+ "references": [
+  "Richard Donchian's channel breakout; the Turtle rules (Curtis Faith, Way of the Turtle, 2007)"
+ ]
+}

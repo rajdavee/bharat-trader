@@ -1,0 +1,24 @@
+{
+ "name": "breakout20-swing",
+ "verdict": "REJECT",
+ "why": "7 of 8 gates failed: out-of-sample expectancy after charges; out-of-sample profit factor; max drawdown (whole sample); deflated Sharpe ratio; probability of backtest overfitting; survives 1.5x costs; parameter neighbourhood",
+ "spec_hash": "34d92273443526c4",
+ "updated": "2026-11-01 12:00",
+ "history": [
+  {
+   "at": "2026-11-01 12:00",
+   "verdict": "REJECT",
+   "why": "7 of 8 gates failed: out-of-sample expectancy after charges; out-of-sample profit factor; max drawdown (whole sample); deflated Sharpe ratio; probability of backtest overfitting; survives 1.5x costs; parameter neighbourhood",
+   "spec_hash": "34d92273443526c4"
+  }
+ ],
+ "spec_hashes": [
+  "34d92273443526c4"
+ ],
+ "forward": {
+  "trades": 0,
+  "net": 0.0,
+  "expectancy_r": 0.0,
+  "profit_factor": null
+ }
+}
