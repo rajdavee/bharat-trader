@@ -296,6 +296,9 @@ python3 trader-broker/ticket.py preflight upstox       # static IP and today's l
 python3 trader-doctor/doctor.py                        # is every NSE and Yahoo source answering? (exit 1 if not)
 python3 trader-archive/archive.py backfill --years 3    # years of NSE EOD history on your disk, resumable
 python3 trader-archive/archive.py verify                # gaps, duplicates, checksums, survivorship
+python3 trader-archive/archive.py backfill --from 2010-01-01 --datasets all   # 15+ years, PIT index members, results dates
+python3 trader-archive/archive.py continuous --underlying NIFTY --method back # continuous futures with a roll log
+python3 trader-archive/archive.py members --index NIFTY50 --date 2015-06-30  # who was in NIFTY 50 that day
 python3 trader-regime/regime.py history NIFTY --from 2025-01-01   # every day's regime, stored
 python3 trader-journal/journal.py sync                 # the trade journal: stats, rule breaks, after charges
 python3 trader-journal/journal.py import tradebook.csv --broker zerodha   # your broker's trade book
