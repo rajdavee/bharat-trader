@@ -6,6 +6,48 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **UI redesign** (#48): a research-led rework of the local web app, written up
+  in `docs/design.md` (workflow research, an audit of the old UI, the design
+  system). Design system v2 in CSS variables: type scale, spacing, radii,
+  elevation, semantic gain/loss/warn/info colours that always come with a
+  sign, ▲/▼ or ✓/✕, dark and light themes, guided or expert detail, reduced
+  motion. New components: grouped sidebar, drawer and phone bottom bar,
+  command palette (Ctrl/Cmd-K), metric tiles with "why" panels and plain-words
+  "?" help, meters against limits, steppers, toasts, empty, loading and error
+  states, sticky table headers.
+- **Today** cockpit as the home page: a session rail from pre-open to the
+  close with your entry window, exits-only time and flat-by, day P&L after
+  charges, the daily loss budget, trades used, risk state (kill switch,
+  circuit-breakers), positions, the plan and its last risk check, alerts,
+  NSE status and the data self-test; places for the market regime and
+  co-trader candidates.
+- **Strategy Lab page** and `GET /api/lab`: each trader-lab run's verdict,
+  out-of-sample sample size, expectancy after charges, Monte Carlo range,
+  drawdown, equity curve, gates, regime split, deflated Sharpe, overfitting
+  odds and what a backtest does not show.
+- **Setup guide** on a fresh folder and `GET /api/onboarding`: capital, risk
+  per trade, trades per day, product and broker previewed as the config
+  `size.py init` would write and saved through the validated settings API;
+  then the MCP entry for your assistant and the read-only broker variables.
+  Every step skippable; going live is never part of it.
+- Placeholder pages for Co-trader, Auto-pilot and Journal, labelled "Coming
+  in v0.3".
+- `ui/screenshots.py`: screenshots of every page at any width with a headless
+  browser you already have (DevTools protocol, standard library), flagging
+  sideways scroll and error notes; `tests/test_ui_screens.py` runs it on the
+  key pages when a browser is installed.
+
+### Changed
+- The offline demo copies `tests/fixtures/ui/lab/` (two real lab runs) into
+  its `trader/lab/`.
+- Every page now follows the design system and opens with a one-line
+  description of its step in the trader's day (hidden in expert detail).
+
+### Fixed
+- The navigation no longer cuts off pages at 1280 or 1440 px, and every page
+  is reachable on a phone (#39).
+
 ## [0.2.0] - 2026-11-01
 
 NSE F&O, an honest Strategy Lab, live broker adapters behind gates, a local
