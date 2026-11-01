@@ -45,6 +45,7 @@ def _load_api():
         "analyst": ("trader-analyst", "facts"),
         "lab": ("trader-lab", "lab"),
         "regime": ("trader-regime", "regime"),
+        "discover": ("trader-discover", "discover"),
     })
     return mod
 
@@ -1009,6 +1010,105 @@ def _lab_draft_basket(kit, lab, r, want, persona=None):
     return {"risk": risk, "basket_ticket": bv, "next_step": step, "basket": b}, notes
 
 
+# ---------------------------------------------------------------- tools: strategy discovery
+
+RUN_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
+DISCOVER_LIMITS = ("Most runs find nothing, and that is the honest answer. A finalist beat the luck of every trial "
+                   "counted here on data the search never saw; it is still the past, the universe has survivorship "
+                   "bias, and it needs the lab's paper forward test before any PROMOTE.")
+
+
+def _discover_report(disc, out, name):
+    row = disc.run_summary(out, name)
+    if not row:
+        raise ToolError("no discovery run %s (discover_report without a name lists them)" % name)
+    res = disc.read_json(os.path.join(out, name, "results.json"))
+    if res:
+        row["report"] = res["report"]
+        row["run_level"] = res["run_level"]
+        row["candidates"] = [{k: c.get(k) for k in ("id", "family", "params", "choices", "train", "validation",
+                                                    "holdout", "gates", "dsr", "haircut", "lab")}
+                             for c in res["candidates"]]
+        row["does_not_show"] = disc.limits(res)
+    return row
+
+
+def t_discover_strategies(kit, a, call):
+    disc = api.skill("discover")
+    lab = disc.lab_api()
+    out, lab_out = kit.p("discover"), kit.p("lab")
+    name = a.get("name")
+    if name is not None and not RUN_NAME_RE.match(str(name)):
+        raise ToolError("name is lowercase letters, digits and dashes")
+    n = kit.now_text("discover_strategies")
+    now = lab.ist_now(str(n)) if n else lab.ist_now()
+    tf = a.get("timeframe") or "1d"
+
+    def progress(f, msg):
+        if call.cancel.is_set():
+            return
+        call.progress(min(0.99, max(0.0, f)), msg)
+        call.log("info", msg)
+
+    try:
+        syms, ulabel, _ = disc.resolve_universe(a.get("universe") or "nifty50")
+        budget, seed = int(a.get("budget") or 100), int(a.get("seed") if a.get("seed") is not None else 7)
+        name = name or disc.default_name(ulabel, tf, seed, budget)
+        existing = disc.read_json(os.path.join(out, name, "plan.json"))
+        if existing:
+            syms, tf = existing["universe"], existing["timeframe"]
+        data_dir = kit.offline.path("discover_strategies", "trader-lab") if kit.offline else None
+        archive = kit.p("archive") if os.path.isdir(kit.p("archive")) else None
+        call.progress(0.01, "loading bars for %d symbols" % len(syms))
+        data, ctx, notes = disc.load_market(lab, syms, tf, data_dir, os.path.join(lab_out, "data"), not kit.offline,
+                                            now, archive)
+        missing = [x for x in syms if x not in data]
+        notes = [x for x in notes if not any(x.startswith(m + ":") for m in missing)]
+        if missing:
+            notes.append("no bars for %d of %d symbols (%s%s)" % (len(missing), len(syms), ", ".join(missing[:8]),
+                                                                  "..." if len(missing) > 8 else ""))
+        fno, fnote = lab.load_fno_stocks({}, kit.p("fno_stocks.json"), fetch=not kit.offline)
+        cancel = call.cancel.is_set
+        secs = float(a.get("max_seconds") or 300)
+        if existing:
+            plan, res, msg = disc.resume(lab, name, out, lab_out, data, ctx, fno, now, progress, secs, cancel)
+        else:
+            plan, res, msg = disc.start(lab, name, tf, ",".join(syms) if ulabel == "custom" else ulabel, budget, seed,
+                                        a.get("search") or "random", out, lab_out, data, ctx, fno, now, progress, secs,
+                                        cancel, sources=notes)
+    except disc.DiscoverError as e:
+        raise ToolError(str(e))
+    except (lab.LabError, lab.RulesError) as e:
+        raise ToolError(str(e))
+    if call.cancel.is_set():
+        raise ToolError("cancelled: the run is saved; call discover_strategies again with name %s to resume" % name)
+    view = _discover_report(disc, out, name)
+    view["message"] = msg
+    if res is None:
+        view["next_step"] = "Paused (%s). Call discover_strategies with name %s to carry on." % (msg, name)
+    elif res["finalists"]:
+        view["next_step"] = ("Finalists are trader-lab specs now; read their lab verdicts. A WATCH needs lab_forward "
+                             "each session (a paper forward test) before any PROMOTE; any paper order still needs "
+                             "risk_check and the user's own yes.")
+    else:
+        view["next_step"] = "No finalists: tell the user plainly that nothing beat the luck of the search."
+    return view, notes + [fnote, "Wrote trader/discover/%s/." % name, DISCOVER_LIMITS]
+
+
+def t_discover_report(kit, a, call):
+    disc = api.skill("discover")
+    out = kit.p("discover")
+    name = a.get("name")
+    if not name:
+        return {"runs": disc.list_runs(out)}, ["discover_strategies starts a run; most runs find nothing."]
+    if not RUN_NAME_RE.match(str(name)):
+        raise ToolError("name is lowercase letters, digits and dashes")
+    try:
+        return _discover_report(disc, out, str(name)), [DISCOVER_LIMITS]
+    except disc.DiscoverError as e:
+        raise ToolError(str(e))
+
+
 # ---------------------------------------------------------------- tools: trader-strategy
 
 _STRATEGY_CTX = {}
@@ -1335,6 +1435,35 @@ def build_tools():
                   "the run does NOT prove. Read only.", t_lab_report,
                   {"strategy": lab_name, "include_trades": S("boolean", "add the out-of-sample trades (up to 500)")},
                   ["strategy"], data=lab_data, network=False))
+    run_name = S("string", "a discovery run's name (discover_report lists them), e.g. nifty50-1d-s7-b100",
+                 pattern=RUN_NAME_RE.pattern, maxLength=64)
+    T.append(tool("discover_strategies", "Strategy discovery: search with overfitting controls",
+                  "Search trader-lab's rule vocabulary for an edge with a FIXED trial budget declared up front: "
+                  "train / validation / untouched holdout split by time (purged, embargoed), every trial logged and "
+                  "counted, then cost stress, parameter neighbourhood, regime consistency, the deflated Sharpe with "
+                  "the true trial count, overfitting odds over the trial matrix, a Reality Check / SPA bootstrap and "
+                  "a false-discovery cut; the holdout is opened once per finalist. Finalists become trader-lab specs "
+                  "(WATCH at best). Sends progress, stops at max_seconds and on cancel, and resumes when called "
+                  "again with the same name. Writes trader/discover/<name>/. Expect zero finalists.",
+                  t_discover_strategies,
+                  {"universe": S("string", "nifty50 (default), lab10 or NSE symbols, comma separated", maxLength=400,
+                                 pattern=r"^[A-Za-z0-9&\-,\s]{1,400}$"),
+                   "timeframe": S("string", "1d (default, swing CNC) or 5m (intraday MIS)", enum=["1d", "5m"]),
+                   "budget": S("integer", "trials, declared up front (default 100)", minimum=10, maximum=2000),
+                   "seed": S("integer", "the sampling seed (default 7)", minimum=0, maximum=2 ** 31 - 1),
+                   "search": S("string", "random (default) or grid", enum=["random", "grid"]),
+                   "name": run_name,
+                   "max_seconds": S("integer", "time budget in seconds (default 300); the run pauses, resumable",
+                                    minimum=5, maximum=1800)},
+                  data=obj({"name": S("string"), "state": S("string"), "next_step": S("string")},
+                           ["name", "state", "next_step"], extra=True),
+                  annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True}))
+    T.append(tool("discover_report", "Strategy discovery: report",
+                  "Without a name: every discovery run in trader/discover/ with its state and funnel. With a name: "
+                  "the plain-words report (N trials, M survived validation, K survived holdout and multiple "
+                  "testing), the whole-search tests, a scorecard per validation survivor, the finalists' lab "
+                  "verdicts and what the run does NOT show. Read only.", t_discover_report, {"name": run_name},
+                  data=ANY_OBJ, network=False))
     T.append(tool("lab_forward", "Strategy lab: paper forward test",
                   "Run a WATCH or PROMOTE strategy on the latest bars: settle its signals since the backtest into "
                   "the rolling forward record (a decayed PROMOTE is demoted) and list today's fresh signals as draft "

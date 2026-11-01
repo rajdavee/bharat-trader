@@ -988,7 +988,27 @@ class LabAndSetup(unittest.TestCase):
         finally:
             shutil.rmtree(empty, ignore_errors=True)
         self.assertEqual((status, d["runs"]), (200, []))
+        self.assertEqual(d["discovery"], [])
         self.assertIn("lab.py run", d["how"])
+
+    def test_lab_lists_discovery_runs(self):
+        wd = tempfile.mkdtemp(prefix="bt-ui-disc-")
+        try:
+            disc = api.skill("discover")
+            lab = disc.lab_api()
+            fix = os.path.join(ROOT, "tests", "fixtures", "trader-lab")
+            data, cx, _ = disc.load_market(lab, list(disc.LAB10), "1d", fix, None, False, None, None)
+            out = os.path.join(wd, "trader", "discover")
+            disc.start(lab, "ui-run", "1d", "lab10", 20, 1, out=out, lab_out=None, data=data, ctx=cx,
+                       now=lab.ist_now("2026-11-01 12:00"), settings={"bootstrap": 100})
+            status, d = api.dispatch(api.Context(wd), "GET", "/api/lab", {}, None)
+        finally:
+            shutil.rmtree(wd, ignore_errors=True)
+        self.assertEqual(status, 200)
+        self.assertEqual([r["name"] for r in d["discovery"]], ["ui-run"])
+        run = d["discovery"][0]
+        self.assertEqual((run["state"], run["counts"]["search_trials"], run["finalists"]), ("decided", 20, []))
+        self.assertIn("holdout", d["discovery_limits"])
 
     def test_onboarding_preview_is_size_py_init(self):
         _, d = self.s.get("/api/onboarding")

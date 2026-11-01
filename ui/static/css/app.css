@@ -704,3 +704,6 @@ canvas.plot:focus-visible { outline: 2px solid var(--focus); }
   .side, .top, .bottom-bar, .status-strip { display: none; }
   .shell { display: block; }
 }
+
+/* discovery runs on the Lab page: finalist lists inside a table cell */
+ul.plain { list-style: none; margin: 0; padding: 0; }

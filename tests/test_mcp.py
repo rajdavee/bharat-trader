@@ -25,7 +25,8 @@ FP = "9ba8b90f83f96546"        # tests/fixtures/ui/trader/orders.json ticket 1, 
 TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit_plan", "timemachine_run",
          "size_trade", "risk_check", "risk_scenarios", "paper_orders_show", "paper_order_draft", "paper_order_confirm",
          "portfolio_status", "paper_mtm", "options_chain", "options_summary", "results_analyse", "insider_deals",
-         "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "lab_forward", "strategy_build",
+         "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "discover_strategies", "discover_report", "lab_forward",
+         "strategy_build",
          "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor", "persona_scorecards", "regime_now"]
 # one offline call per tool, on the real saved answers in tests/fixtures (see tests/fixtures/mcp/offline.json)
 CALLS = [
@@ -53,6 +54,8 @@ CALLS = [
     ("lab_run", {"strategy": "rsi2-nifty50"}),
     ("lab_report", {"strategy": "rsi2-nifty50"}),
     ("lab_forward", {"strategy": "rsi2-nifty50"}),
+    ("discover_strategies", {"universe": "lab10", "budget": 20}),
+    ("discover_report", {}),
     ("strategy_build", {"template": "iron-condor", "symbol": "NIFTY", "wings": 200, "width": 100, "paths": 1000}),
     ("strategy_price", {"symbol": "NIFTY", "legs": "-1 CE 23000, +1 CE 23000 @01-Dec-2026", "simulate": False}),
     ("broker_status", {}),
@@ -662,6 +665,63 @@ class Lab(ServerCase):
         self.assertIn("run it first", r["content"][0]["text"])
         r = self.result(self.c.call("lab_run", {"strategy": "no-such-thing"}))
         self.assertTrue(r["isError"])
+
+
+class Discovery(ServerCase):
+    def test_discover_with_progress_then_report(self):
+        others = []
+        r = self.c.request("tools/call", {"name": "discover_strategies",
+                                          "arguments": {"universe": "lab10", "budget": 30, "seed": 3},
+                                          "_meta": meta(progressToken="disc-1")}, others=others)
+        res = self.result(r)
+        self.assertFalse(res["isError"], res["content"][0]["text"][:400])
+        d = res["structuredContent"]["data"]
+        prog = [m["params"]["progress"] for m in others if m.get("method") == "notifications/progress"]
+        self.assertGreater(len(prog), 3)
+        self.assertEqual(prog, sorted(prog))
+        self.assertEqual(d["state"], "decided")
+        self.assertEqual(d["counts"]["search_trials"], 30)
+        self.assertEqual(d["finalists"], [])                    # the honest answer on the saved bars
+        self.assertIn("No finalists", d["next_step"])
+        self.assertIn("30 trials were declared up front", d["report"])
+        folder = os.path.join(self.c.workdir, "trader", "discover", d["name"])
+        for f in ("plan.json", "trials.jsonl", "results.json", "report.md"):
+            self.assertTrue(os.path.exists(os.path.join(folder, f)), f)
+        ls = self.result(self.c.call("discover_report", {}))["structuredContent"]["data"]
+        self.assertEqual([x["name"] for x in ls["runs"]], [d["name"]])
+        one = self.result(self.c.call("discover_report", {"name": d["name"]}))["structuredContent"]["data"]
+        self.assertEqual(one["report"], d["report"])
+        self.assertTrue(self.result(self.c.call("discover_report", {"name": "no-such-run"}))["isError"])
+
+
+class DiscoveryCancel(unittest.TestCase):
+    def test_cancel_saves_a_resumable_run(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("bt_mcp_toolkit_disc", os.path.join(ROOT, "mcp", "toolkit.py"))
+        tk = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tk)
+        wd = workdir_copy()
+        try:
+            kit = tk.Kit(wd, offline=BUNDLE)
+            ev = threading.Event()
+            seen = []
+
+            def progress(f, msg):
+                seen.append(msg)
+                if len(seen) >= 2:
+                    ev.set()                                   # the client cancels mid-run
+            call = tk.Call(cancel=ev, progress=progress)
+            with self.assertRaises(tk.ToolError) as e:
+                kit.call("discover_strategies", {"universe": "lab10", "budget": 40, "name": "c1"}, call)
+            self.assertIn("resume", str(e.exception))
+            with open(os.path.join(wd, "trader", "discover", "c1", "plan.json"), encoding="utf-8") as fh:
+                plan = json.load(fh)
+            self.assertEqual(plan["state"], "paused")
+            env = kit.call("discover_strategies", {"name": "c1"}, tk.Call())
+            self.assertEqual(env["data"]["state"], "decided")
+            self.assertEqual(env["data"]["counts"]["search_trials"], 40)
+        finally:
+            shutil.rmtree(wd, ignore_errors=True)
 
 
 class LabBudget(unittest.TestCase):

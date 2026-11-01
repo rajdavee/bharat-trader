@@ -146,6 +146,34 @@ function runCard(run) {
     h('p', { class: 'small muted' }, 'Full scorecard: ', h('code', null, `python3 trader-lab/lab.py report ${run.name}`)));
 }
 
+function discoveryCard(d) {
+  const runs = d.discovery || [];
+  if (!runs.length) return null;
+  const rows = runs.map((x) => {
+    const c = x.counts || {};
+    const fins = (x.finalists || []).map((f) => {
+      const lab = f.lab || {};
+      return h('li', null, h('code', null, lab.name || f.family), ' ', lab.verdict ? verdictTag(lab.verdict) : null);
+    });
+    return h('tr', null,
+      h('td', null, h('code', null, x.name)),
+      h('td', null, `${x.timeframe}, ${x.symbols} stocks`),
+      h('td', null, x.state === 'decided' ? 'decided' : `${x.state}: ${x.trials_run} of ${x.budget} trials`),
+      h('td', { class: 'num' }, c.counted === undefined ? '–' : num(c.counted, 0)),
+      h('td', { class: 'num' }, c.survived_validation === undefined ? '–' : num(c.survived_validation, 0)),
+      h('td', { class: 'num' }, c.finalists === undefined ? '–' : num(c.finalists, 0)),
+      h('td', null, fins.length ? h('ul', { class: 'plain' }, fins) : (x.state === 'decided' ? 'none' : '–')));
+  });
+  return card('Discovery runs',
+    h('p', { class: 'explain' }, 'Searches over the lab\'s rules with every trial counted. Trials: all of them, ' +
+      'neighbour checks included. Survived validation: before robustness and multiple testing. Finalists: also ' +
+      'survived the untouched holdout; they are lab specs above, WATCH at best.'),
+    table(['Run', 'Bars', 'State', { label: 'Trials counted', num: true }, { label: 'Survived validation', num: true },
+      { label: 'Finalists', num: true }, 'In the lab'], rows, { caption: 'Discovery runs' }),
+    h('div', { class: 'note warn' }, h('b', null, 'What this does not show. '), d.discovery_limits || ''),
+    h('p', { class: 'small muted' }, 'Full report: ', h('code', null, 'python3 trader-discover/discover.py report RUN')));
+}
+
 export async function render(root, ctx) {
   clear(root);
   if (ctx && ctx.bus) {
@@ -164,10 +192,12 @@ export async function render(root, ctx) {
     return;
   }
   clear(body);
+  const disc = discoveryCard(d);
   if (!d.runs.length) {
     body.appendChild(card('No lab runs yet', empty('Test a strategy before you trust it',
       'Run a backtest from the built-in library; its scorecard and equity curve appear here.',
       h('code', null, 'python3 trader-lab/lab.py run orb15-vwap'))));
+    if (disc) body.appendChild(disc);
     return;
   }
   const counts = {};
@@ -180,6 +210,7 @@ export async function render(root, ctx) {
     h('td', { class: 'num' }, h('span', { class: tone(x.oos.net) }, signed(x.oos.net))), h('td', null, (x.updated || '') + ' IST'))),
   { caption: 'Lab runs' }), h('p', { class: 'explain' }, Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ') +
     '. A REJECT is the lab doing its job: most ideas should fail here, before they cost money.')));
+  if (disc) body.appendChild(disc);
   for (const run of d.runs) {
     const c = runCard(run);
     c.id = 'lab-' + run.name;

@@ -44,6 +44,7 @@ SKILLS = {
     "strategy": ("trader-strategy", "strategy"),
     "doctor": ("trader-doctor", "doctor"),
     "regime": ("trader-regime", "regime"),
+    "discover": ("trader-discover", "discover"),
 }
 # how long a live answer is reused, in seconds (free endpoints: be polite)
 TTL = {"quotes": 15, "nse": 120, "chart-1m": 30, "chart-5m": 60, "chart-1d": 900, "history": 900}
@@ -2125,6 +2126,25 @@ def lab_run(ctx, name):
     }
 
 
+DISCOVER_LIMITS = ("A discovery run counts every rule it tried and makes each survivor beat the luck of the whole "
+                   "search on an untouched holdout. Most runs find nothing, which is the honest answer. A finalist is "
+                   "still the past (survivorship bias included) and needs the lab's paper forward test.")
+
+
+def discovery_runs(ctx):
+    """trader-discover's runs (trader/discover/<run>/), each with its funnel and its finalists' lab verdicts."""
+    base = ctx.path("discover")
+    if not os.path.isdir(base):
+        return []
+    try:
+        rows = skill("discover").list_runs(base)
+    except Exception:  # a broken run folder must not take the Lab page down
+        return []
+    order = {"decided": 0, "paused": 1, "running": 2, "planned": 3}
+    rows.sort(key=lambda r: (order.get(r.get("state"), 4), r.get("decided_at") or r.get("created") or "", r["name"]))
+    return rows
+
+
 def r_lab(ctx, q, body):
     base = ctx.path("lab")
     runs = []
@@ -2140,6 +2160,9 @@ def r_lab(ctx, q, body):
     order = {"PROMOTE": 0, "WATCH": 1, "REJECT": 2}
     runs.sort(key=lambda r: (order.get(str(r["verdict"]).upper(), 3), r["name"]))
     return {"runs": runs, "path": base, "limits": LAB_LIMITS,
+            "discovery": discovery_runs(ctx), "discovery_limits": DISCOVER_LIMITS,
+            "discovery_how": "Search with: python3 trader-discover/discover.py run --budget 200 --universe nifty50 "
+                             "--timeframe 1d. Each run writes trader/discover/<run>/.",
             "how": "Run a backtest with: python3 trader-lab/lab.py run orb15-vwap (or any spec in "
                    "trader-lab/library/). Each run writes trader/lab/<name>/.",
             "disclaimer": DISCLAIMER}
@@ -2213,7 +2236,7 @@ ROUTES = [
     ("GET", "/api/strategy", r_strategy, "strategy templates, symbols and the saved trader/strategy.json", False),
     ("GET", "/api/doctor", r_doctor, "the last data self-test (trader/doctor.json), for the header badge", False),
     ("GET", "/api/agents", r_agents, "the agent personas (agents/) and each one's paper scorecard", False),
-    ("GET", "/api/lab", r_lab, "Strategy Lab runs (trader/lab/): verdict, after-charges numbers, gates, equity curve",
+    ("GET", "/api/lab", r_lab, "Strategy Lab runs (trader/lab/): verdict, after-charges numbers, gates, equity curve; discovery runs (trader/discover/)",
      False),
     ("GET", "/api/onboarding", r_onboarding, "first-run steps; ?capital=&risk_pct=&max_trades=&product=&broker_profile= "
      "previews the config size.py init would write (save it with POST /api/config)", False),
