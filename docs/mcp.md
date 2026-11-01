@@ -7,6 +7,10 @@ status, scans, news, entry and exit plans, the time machine, sizing, risk
 checks and scenarios, the paper broker (shares and F&O), option chains and
 strategies, the Strategy Lab, results, insider deals, the data self-test,
 your broker's holdings and positions (read only) and the agent personas.
+On top of those sits a co-trader workflow layer: a one-call trade brief,
+the best lab-tested strategies for today's regime, strategy design into a
+lab spec, running your own spec with honest trial counting, and side-by-side
+comparisons ([using your assistant as a co-trader](#using-your-assistant-as-a-co-trader)).
 New to the project? [getting-started.md](getting-started.md) has the
 whole tour.
 
@@ -34,7 +38,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 41 tools and 11 prompts from
+4. Restart the client. It should list 47 tools and 16 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -200,6 +204,78 @@ log loss, reliability), read only. To paper trade a candidate,
 `trader/plan.json` and the normal flow follows, ending in the user's own
 typed yes. See [cotrader.md](cotrader.md).
 
+### The co-trader workflow
+
+These tools turn the assistant into an evidence-first co-trader. Each one
+returns sample sizes and 95% intervals with every rate.
+
+- `trade_brief` is the one-call morning look, and it is read only. It
+  returns the regime, today's validated candidates (worked out fresh, not
+  written or logged) with p, its 95% range, n in this regime and n overall,
+  and the expected R after charges. When there are no candidates it gives
+  the no-edge reasons instead. It also returns the risk locks, the open
+  paper positions with today's limits used, and the calibration of past
+  odds.
+- `best_for_regime` takes every lab run's past trades in today's regime
+  cell: NIFTY trending or ranging, crossed with the India VIX bucket, as of
+  the close before. For each run it reports the trades and wins in the cell
+  with a Wilson 95% range, the shrunk p and expected R with their ranges,
+  and whether the cell has enough trades to judge. Ranking is conservative:
+  fits the cell first, then tier, then the lower end of the expected R's
+  range. "Nothing fits" is an answer it gives.
+- `strategy_design` turns a structured intent into a lab spec draft:
+  - a library template (the style)
+  - symbols
+  - a clock window (`window_from`/`window_to`, 5-minute equity templates)
+  - expiry day (`days_to_expiry: 0`, options templates)
+  - VIX or IV-rank bounds
+  - an uptrend filter
+  - the lab's regime gate
+  - a risk budget
+  - one extra entry condition in the lab vocabulary
+
+  It returns the spec, every validation error, the strategy family and that
+  family's trial count so far. It never runs anything. The vocabulary is
+  fixed data: fields, session values, nine indicators, six comparisons and
+  `all`/`any`/`not`/`time_between`. An unknown name such as `eval` or
+  `__import__(...)` is a validation error, not code. When a request does not
+  fit the vocabulary (a VIX filter on an equity spec, a clock window on a
+  daily one), the error says so plainly.
+- `lab_run_spec` runs a spec the user or the assistant wrote, through the
+  same lab as `lab_run`. It reports progress and stops at its time budget.
+- `compare_strategies` puts 2 to 8 runs side by side. It shows the
+  out-of-sample win rate with its Wilson range, the expectancy with its 95%
+  range, the trials each run was charged for, the families, and the trades
+  in today's regime cell.
+- `archive_status` says what the local NSE archive holds. The options
+  backtests and IV ranks depend on it.
+
+**Trial-count honesty.** Every run through `lab_run` or `lab_run_spec`
+writes one line to `trader/state/lab-trials.jsonl`: the spec hash, its grid
+points and its *family*. The family is the spec's structure with every
+number, symbol and name removed: the fields and indicators used, the stop
+and target kinds. When a later spec of the same family runs, its deflated
+Sharpe is charged for the other specs' grid points too, so the bar rises
+with every variant tried. Renaming a spec or changing a number does not
+reset the count. Re-running the identical spec does not count it twice.
+The result's `trials` block says how many trials were counted, and
+`lab_run_spec` is annotated `idempotentHint: false`.
+
+**Proposing is not placing.** None of these tools drafts or places an order.
+A candidate becomes a paper ticket only through `paper_order_draft`, then
+trader-risk, then the user's own typed yes in `paper_order_confirm` (or in
+the UI).
+
+**Auto-pilot hook.** The paper auto-pilot (#45) has not merged at the time
+of writing, so no `autopilot_*` tool exists yet. When it lands, its
+paper-only status, start and stop tools join this table under the same
+rules: paper only, the kill switch wins, and every order goes through
+trader-risk. The place for them is marked in `mcp/toolkit.py`.
+
+The local UI's optional **Ask** page uses the same tool table: the
+read-only tools and `paper_order_draft`, never a confirm. See
+[ai-chat.md](ai-chat.md).
+
 ## Resources and prompts
 
 Resources are the JSON files of your `trader/` folder, read only:
@@ -234,11 +310,82 @@ bucket, with every input. See [regime.md](regime.md).
 | `options_income_scan` | `symbol`, `expiry`? | options_summary and options_chain; explain positioning and a seller's risks, no trade |
 | `weekly_review` | none | journal_stats, journal_summary and counterfactual_report, then portfolio, tickets, risk and config; one process change |
 | `research_strategy` | `idea`, `symbol`? | lab_list, lab_run and lab_report on the closest spec (gates, out of sample, what it does not prove); a forward test only for WATCH or PROMOTE; say what would kill the idea |
+| `daily_cotrader_brief` | `focus`? | trade_brief and best_for_regime: the regime, each candidate's odds with its 95% interval and n, or the no-edge decision; open positions, limits used, calibration |
+| `find_best_trade_now` | `universe`? | regime_now, best_for_regime, cotrader_candidates, cotrader_explain; rank by the lower end of the interval; "no edge today" is an answer |
+| `design_strategy_for_window` | `window`, `idea`?, `symbol`? | strategy_design for a window (the 09:15-10:00 open drive, expiry day), pre-register the test, then one lab_run_spec and the verdict with the trials counted |
+| `stress_test_my_idea` | `idea` | try to break it: costs, the parameter neighbourhood, out-of-sample n, deflated Sharpe with the family's trials, regime cells; the strongest argument against |
+| `review_my_week` | `week`? | journal_stats, journal_summary, counterfactual_report, calibration_report, persona_scorecards; process over outcome under 20 trades |
 | `persona_intraday_trader`, `persona_options_seller`, `persona_swing_trader`, `persona_researcher`, `persona_risk_officer`, `persona_journal_coach` | `focus`? | act as that persona from `agents/`: its routine, limits and report format, plus the current context from `trader/` (session, limits, lab verdicts, its paper scorecard). See [agents.md](agents.md) |
 
 Every prompt tells the assistant to use the tools for every number, show
 evidence and risks, never promise a result, and say it is not financial
-advice.
+advice. The five co-trader prompts add the evidence rules. Show n and the
+95% interval with every rate. Give numbers after charges. Name the regime.
+Say what the evidence does NOT show. Make no promises. Remember that
+proposing is not placing: every order goes through risk and the user's
+typed yes. Every spec run counts as a trial for its family.
+
+## Using your assistant as a co-trader
+
+Connect the server, then start with a prompt such as `daily_cotrader_brief`,
+or just ask. A good co-trader answer shows its evidence, is honest about how
+little a small sample says, and is fine saying "no trade". Below are three
+example conversations. The numbers are made up to show the shape of an honest
+answer; yours come from your own `trader/` folder.
+
+**"What's the best trade right now?"**
+
+> The assistant calls `trade_brief`, then `best_for_regime`.
+>
+> *NIFTY is trending down (ADX 32) with normal volatility (India VIX 12.3,
+> 50th percentile, as of yesterday's close). None of your lab strategies is
+> validated for this cell. `t-sma20-watch` is a WATCH: 6 of its 11 past
+> trades in this kind of market made money after charges. That is 55%, but
+> the Wilson 95% range runs from 28% to 79%, so 11 trades cannot tell it
+> from a coin flip. Shrunk toward its overall rate, it comes to 52% (95%
+> 38% to 66%) with an expected +0.08R a trade after charges (95% −0.21R to
+> +0.37R). That range includes losing money. The evidence does NOT show how
+> it behaves in a high-volatility week or on gap days, and the fills are a
+> model. Two candidates triggered. Both passed your risk check. I would
+> treat them as paper-only research. Sitting out is also a reasonable
+> decision today. Want me to draft one as a paper ticket? You would still
+> confirm it yourself.*
+
+**"Design an expiry-day NIFTY strategy and test it."**
+
+> The assistant calls `regime_now`, then `strategy_design` with `template:
+> nifty-expiry-iron-fly`, `days_to_expiry: 0`, `vix_max: 18` and
+> `profit_target_pct: 50`. It shows the spec. It notes that the family
+> already has 4 trials, and it pre-registers the gate that would kill the
+> idea: out-of-sample expectancy below zero after 1.5x costs. Then it calls
+> `lab_run_spec` once.
+>
+> *REJECT. 41 out-of-sample expiry days, and the expectancy after charges
+> is −₹212 a lot, with a 95% range of −₹780 to +₹356. The deflated Sharpe
+> counted 8 trials (this grid's 4 and the family's earlier 4) and came to
+> 0.31, far below the 0.95 gate. The win rate looks high (68%) because a
+> sold iron fly wins small and loses big. This does NOT tell us about
+> expiries with a gap at the open, and the archive only covers 2024 onward.
+> I won't keep tweaking the wings until something passes. That would just
+> be fitting noise, and every try raises the bar anyway.*
+
+**"Stress-test my opening-range idea."**
+
+> The assistant calls `lab_report`, then `compare_strategies` against
+> `orb15-vwap`, then `best_for_regime`.
+>
+> *It survives 1.5x costs but not 2x. Only 3 of the 9 grid points around
+> your settings make money, so this looks like one lucky point rather than
+> a plateau. There are 23 out-of-sample trades, and the expectancy's range
+> (−0.31R to +0.44R) spans zero. All of the edge comes from the trending,
+> low-volatility cell, with 9 trades. The strongest argument against: with
+> this few trades in one regime, the result is what luck alone produces
+> about one time in four. I would drop it unless the next 20 paper forward
+> trades average above 0R.*
+
+What a co-trader will not do here: place or confirm any order, call
+anything guaranteed, sure-shot or risk-free, or run variant after variant
+looking for a pass. A paper ticket always ends with your own typed yes.
 
 ## Good questions to ask
 
@@ -256,6 +403,13 @@ advice.
 - "Review my week: what did risk block, and which rule did I nearly break?"
 - "Does the 15-minute opening-range breakout survive charges out of sample?
   Run it in the lab and tell me which gates it failed."
+
+- "Give me today's co-trader brief: regime, candidates with their odds and n,
+  and how well past odds were calibrated."
+- "Which of my lab strategies has an edge in today's regime? Rank them by the
+  worst case of the range."
+- "Design an open-drive strategy for 09:15 to 10:00 on SBIN and TCS and test
+  it once. How many trials does that family have now?"
 
 Questions that will get a careful no: "which stock will go up?", "place a real
 order", "just buy it for me".

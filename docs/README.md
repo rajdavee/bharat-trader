@@ -17,7 +17,8 @@ your own AI assistant in about 30 minutes.
 | [brokers.md](brokers.md) | Upstox, Zerodha Kite and Dhan: setup, the **static IP** and **daily login** rules, read-only commands, and every gate before a live order. |
 | [ui.md](ui.md) | The local web UI: running it, the pages, the routes, the security model and the offline demo. |
 | [design.md](design.md) | How the web UI is organised and why: the UX research, the audit of the old UI, the design system and the page groups. |
-| [mcp.md](mcp.md) | Connecting any MCP-compatible AI assistant: install, every tool and prompt, the paper order flow, the security model and the protocol. |
+| [mcp.md](mcp.md) | Connecting any MCP-compatible AI assistant: install, every tool and prompt, using it as an evidence-first co-trader, trial-count honesty, the paper order flow, the security model and the protocol. |
+| [ai-chat.md](ai-chat.md) | The optional Ask page: chat with your own LLM endpoint inside the UI (env-only setup, the two API formats, privacy and consent, what it can and cannot do). |
 | [journal.md](journal.md) | The trade journal: entries from paper fills and broker trade books, statistics with their ranges, the rule-break log, the counterfactual ledger and the weekly review. |
 | [agents.md](agents.md) | The six agent personas, how to run them as sub-agents or over MCP, and their paper scorecards. |
 
