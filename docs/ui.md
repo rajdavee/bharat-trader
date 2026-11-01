@@ -55,7 +55,7 @@ Pages are grouped by the trader's day, so each step's next step is close by
 | Discover | Chart, Scanner, Option chain |
 | Plan | Strategy builder, Co-trader (coming in v0.3) |
 | Trade | Portfolio and orders, Risk, Auto-pilot (coming in v0.3) |
-| Review | Strategy Lab, Journal (coming in v0.3), Agents |
+| Review | Strategy Lab, Journal, Agents |
 | Setup | Settings, Setup guide, About |
 
 - 1100 px and wider: the groups are a sidebar. Narrower: the menu button opens
@@ -68,14 +68,15 @@ Pages are grouped by the trader's day, so each step's next step is close by
   to a term explains it in plain words.
 - Gains and losses carry a sign and a ▲ or ▼, not only a colour; pass and block
   carry ✓ and ✕.
-- The pages for Co-trader, Auto-pilot and Journal are placeholders, labelled
+- The pages for Co-trader and Auto-pilot are placeholders, labelled
   "Coming in v0.3", that say what they will show.
 
 ## Pages
 
 | page | shows | from |
 | --- | --- | --- |
-| Today | The session rail (pre-open to 15:30 IST with your entry window, exits-only time and flat-by, and a now needle), day P&L after charges (realised, open, charges), the daily loss budget used, trades used, risk state (kill switch, circuit-breakers), open positions, the plan and its last risk check, alerts, NSE status, indices, the data self-test, and places for the market regime and co-trader candidates (coming in v0.3) | `/api/dashboard`, `/api/portfolio`, `/api/risk` |
+| Today | The session rail (pre-open to 15:30 IST with your entry window, exits-only time and flat-by, and a now needle), day P&L after charges (realised, open, charges), the daily loss budget used, trades used, risk state (kill switch, circuit-breakers), open positions, the plan and its last risk check, alerts, NSE status, indices, the data self-test, this week from the journal (closed trades, net after charges, win rate with its range, rule breaks), and places for the market regime and co-trader candidates (coming in v0.3) | `/api/dashboard`, `/api/portfolio`, `/api/risk`, `/api/journal?lite=1` |
+| Journal | trader-journal's record: tiles for closed trades (with the sample-size warning), win rate with its Wilson 95% range, expectancy after charges with its range and the average R, net P&L with the cost drag, profit factor, max drawdown and streaks; the equity curve after charges; a breakdown by strategy, persona, regime, time of day, weekday or instrument; the rule-break log with the overtrading index; the counterfactual ledger (saved / cost per group, with the caveats); every closed trade, whose details (fills, R, MAE/MFE, rule notes) open in a dialog where you add notes and tags. See [journal.md](journal.md) | `trader-journal/journal.py` `summary`, `add_note` |
 | Strategy Lab | Each trader-lab run: the verdict and why, out-of-sample trades (the sample size), expectancy after charges, the Monte Carlo range of the final P&L, max drawdown, the equity curve after charges with the out-of-sample windows shaded, the gates, results by regime, the deflated Sharpe ratio, the probability of overfitting, the paper forward test, and what a backtest does not show | `trader/lab/<name>/results.json`, `status.json`, `equity.csv` from `trader-lab/lab.py run` |
 | Setup guide | The first-run steps above | trader-budget `build_config`, `describe_config`; the settings validator; trader-broker's adapters |
 | Chart | Candles and volume at 1m, 5m or 1d; EMA 9 and 21; session VWAP; the opening-range band; the plan's entry, stop and target; trader-entry's breakout status | Yahoo bars through trader-scanner's `yahoo_get`, parsed and evaluated by trader-entry; `trader/plan.json` |
@@ -148,6 +149,8 @@ free endpoints again.
 | POST | `/api/config` | validate and save `trader/config.json` (the old one becomes `config.json.bak`) |
 | POST | `/api/strategy/price` | price a template or custom legs (nothing is written) |
 | POST | `/api/strategy/draft` | write the legs as a paper PROPOSAL to `trader/orders.json` and the strategy to `trader/strategy.json`; refuses other proposals unless `replace`, and a non-paper config |
+| GET | `/api/journal` | trader-journal's summary, read only: stats with intervals, equity curve, breakdowns, rule breaks, the counterfactual ledger, every closed trade (`?lite=1`: this week only, no bars) |
+| POST | `/api/journal/note` | `{"id", "text", "tags"}`: your note and tags on one journal entry (`trader/journal/notes.json`); touches no order or trade record |
 | POST | `/api/doctor/run` | `doctor.py --json`: probe every data source now (about 30 s) and update `trader/doctor.json`; offline it replays `<offline>/doctor/` |
 
 Send to paper never places anything: the proposal goes through Run risk check

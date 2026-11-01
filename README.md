@@ -21,7 +21,7 @@ placed without your yes.
   next to simulated ones. The Strategy Lab rejects most strategies, and says why.
 - **Standard library only.** Python 3.8+, nothing to `pip install`, every tool runs by hand.
 - **Agent-native.** Nineteen [Agent Skills](https://agentskills.io), six agent
-  personas, and an [MCP](https://modelcontextprotocol.io/) server with 35 tools
+  personas, and an [MCP](https://modelcontextprotocol.io/) server with 38 tools
   for any MCP-compatible AI assistant.
 - **Zero-install UI.** `python3 ui/serve.py --open`: a web app on `127.0.0.1`
   that never loads anything from the internet.
@@ -89,7 +89,7 @@ first-run setup and a validated settings editor. Grouped navigation that works
 on a phone, a command palette (Ctrl/Cmd-K), guided or expert detail, and a
 "why" panel for every number. See [docs/ui.md](docs/ui.md).
 
-**Your AI assistant, via MCP.** 35 tools and 11 prompts for any
+**Your AI assistant, via MCP.** 38 tools and 11 prompts for any
 MCP-compatible assistant, over stdio or loopback HTTP. Paper only: there is
 no live-order tool at all. See [docs/mcp.md](docs/mcp.md).
 
@@ -223,7 +223,7 @@ all of these together, run on your own machine:
 
 | | after-charges payoff | honest-odds simulation | out-of-sample lab | multi-broker paper F&O | local-first | MCP | dated rules |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 35 tools | ✅ effective date and source per rule |
+| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 38 tools | ✅ effective date and source per rule |
 | Typical free option-analytics apps | ◐ often gross only | ◐ one model-based PoP | — | ◐ one broker, forward only | — hosted, broker login | — rarely | ◐ |
 | Typical paid backtesting platforms | ◐ often | ◐ | ◐ backtests, rarely overfitting statistics | ◐ their own simulator | — hosted, your strategies on their servers | — rarely | ◐ |
 | Typical open-source NSE toolkits | ◐ | — rarely | — rarely | ◐ a few, often needing a live broker session | ✅ | ◐ some | — rarely |

@@ -174,8 +174,8 @@ function drawer(e, back, root, ctx) {
     h('h3', { class: 'sub' }, 'Fills'),
     table(['Time', 'Side', { label: 'Qty', num: true }, 'Contract', { label: 'Price', num: true }, { label: 'Charges', num: true }],
       e.fills.map((f) => h('tr', null, h('td', null, t(f.at)), h('td', null, f.side), h('td', { class: 'num' }, num(f.qty, 0)),
-        h('td', null, f.symbol), h('td', { class: 'num' }, num(f.price)), h('td', { class: 'num' }, inr(f.charges || 0))))),
-    { dense: true, caption: 'Fills of this trade' }),
+        h('td', null, f.symbol), h('td', { class: 'num' }, num(f.price)), h('td', { class: 'num' }, inr(f.charges || 0)))),
+      { dense: true, caption: 'Fills of this trade' }),
     h('h3', { class: 'sub' }, 'Your notes'), notesList, tagLine, form, h('div', { class: 'row' }, closeBtn));
   const modal = h('div', { class: 'modal', onclick: (ev) => { if (ev.target === modal) close(modal, back); } }, box);
   modal._esc = (ev) => { if (ev.key === 'Escape') close(modal, back); };

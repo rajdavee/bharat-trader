@@ -27,7 +27,7 @@ Client configuration (the usual command + args shape):
 | file | what it is |
 | --- | --- |
 | `server.py` | JSON-RPC 2.0 over stdio and streamable HTTP; MCP revision 2026-07-28 plus the handshake-based 2025-11-25, 2025-06-18 and 2025-03-26; lifecycle, tools, resources, prompts, pagination, cancellation, progress, logging, elicitation, rate limit |
-| `toolkit.py` | the 35 tools, the `trader/` resources and the 11 prompts (5 workflows, 6 agent personas). Each tool calls a skill's own function, or its own command line with `--json`, through `ui/api.py`'s loader: one implementation of every number |
+| `toolkit.py` | the 38 tools, the `trader/` resources and the 11 prompts (5 workflows, 6 agent personas). Each tool calls a skill's own function, or its own command line with `--json`, through `ui/api.py`'s loader: one implementation of every number |
 
 Tools: `market_status`, `scan_daily`, `scan_orb`, `news`, `entry_check`,
 `exit_plan`, `timemachine_run`, `size_trade`, `risk_check`, `risk_scenarios`,
@@ -36,7 +36,8 @@ Tools: `market_status`, `scan_daily`, `scan_orb`, `news`, `entry_check`,
 `insider_deals`, `insider_disclosures`, `config_get`, `lab_list`, `lab_run`,
 `lab_report`, `lab_forward`, `strategy_build`, `strategy_price`,
 `broker_status`, `broker_holdings`, `broker_positions`, `doctor`,
-`persona_scorecards`.
+`persona_scorecards`, `regime_now`, `journal_summary`, `journal_stats`,
+`counterfactual_report`.
 
 Prompts: `morning_briefing`, `intraday_plan`, `options_income_scan`,
 `weekly_review`, `research_strategy`, and one per agent persona

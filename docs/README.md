@@ -17,6 +17,7 @@ your own AI assistant in about 30 minutes.
 | [ui.md](ui.md) | The local web UI: running it, the pages, the routes, the security model and the offline demo. |
 | [design.md](design.md) | How the web UI is organised and why: the UX research, the audit of the old UI, the design system and the page groups. |
 | [mcp.md](mcp.md) | Connecting any MCP-compatible AI assistant: install, every tool and prompt, the paper order flow, the security model and the protocol. |
+| [journal.md](journal.md) | The trade journal: entries from paper fills and broker trade books, statistics with their ranges, the rule-break log, the counterfactual ledger and the weekly review. |
 | [agents.md](agents.md) | The six agent personas, how to run them as sub-agents or over MCP, and their paper scorecards. |
 
 ## How it works

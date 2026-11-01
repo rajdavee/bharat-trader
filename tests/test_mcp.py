@@ -15,7 +15,7 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _load import FIX, ROOT  # noqa: E402
+from _load import FIX, ROOT, load  # noqa: E402
 
 SERVER = os.path.join(ROOT, "mcp", "server.py")
 BUNDLE = os.path.join(FIX, "mcp")
@@ -27,7 +27,8 @@ TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit
          "portfolio_status", "paper_mtm", "options_chain", "options_summary", "results_analyse", "insider_deals",
          "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "discover_strategies", "discover_report", "lab_forward",
          "strategy_build",
-         "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor", "persona_scorecards", "regime_now"]
+         "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor", "persona_scorecards", "regime_now",
+         "journal_summary", "journal_stats", "counterfactual_report"]
 # one offline call per tool, on the real saved answers in tests/fixtures (see tests/fixtures/mcp/offline.json)
 CALLS = [
     ("market_status", {}),
@@ -64,6 +65,9 @@ CALLS = [
     ("doctor", {}),
     ("persona_scorecards", {}),
     ("regime_now", {}),
+    ("journal_summary", {}),
+    ("journal_stats", {"by": "persona"}),
+    ("counterfactual_report", {}),
     ("paper_order_draft", {}),
     ("paper_order_confirm", {"index": 1, "risk_fingerprint": FP, "yes_text": "yes 42 RELIANCE"}),
 ]
@@ -773,7 +777,8 @@ class Resources(ServerCase):
         t = self.result(self.c.request("resources/templates/list"))["resourceTemplates"]
         self.assertEqual([x["uriTemplate"] for x in t], ["bharat-trader://trader/{file}",
                                                          "bharat-trader://trader/state/{file}",
-                                                         "bharat-trader://trader/regime/{file}"])
+                                                         "bharat-trader://trader/regime/{file}",
+                                                         "bharat-trader://trader/journal/{file}"])
         st = self.result(self.c.request("resources/read", {"uri": "bharat-trader://trader/state/risk.json"}))
         self.assertIn(FP, st["contents"][0]["text"])
 
@@ -788,6 +793,37 @@ class Resources(ServerCase):
         doc = self.result(self.c.request("resources/read", {"uri": "bharat-trader://trader/regime/NIFTY.json"}))
         self.assertEqual(json.loads(doc["contents"][0]["text"])["symbol"], "NIFTY")
         self.assertEqual(self.code(self.c.request("resources/read", {"uri": "bharat-trader://trader/regime/../config.json"})),
+                         -32602)
+
+    def test_journal_tools_and_resources(self):
+        journal = load("trader-journal", "journal")
+        res = journal.do_import(journal.Paths(self.c.workdir), os.path.join(FIX, "trader-journal", "imports",
+                                                                            "zerodha-tradebook.csv"), None, None, {})
+        self.assertEqual(res["new"], 6)
+        d = self.result(self.c.call("journal_summary", {"recent": 2}))["structuredContent"]["data"]
+        self.assertEqual(d["stats"]["trades"], 3)
+        self.assertEqual(len(d["entries"]), 2)
+        self.assertEqual(len(d["stats"]["win_rate_ci"]), 2)
+        self.assertNotIn("fills", d["entries"][0])
+        self.assertIn("off-ticket", d["behaviour"]["counts"])
+        s = self.result(self.c.call("journal_stats", {"by": "weekday", "week": "2026-W44"}))["structuredContent"]["data"]
+        self.assertEqual((s["week"], s["stats"]["trades"]), ("2026-W44", 3))
+        self.assertEqual(sorted(g["group"] for g in s["groups"]), ["Thursday", "Tuesday", "Wednesday"])
+        cf = self.result(self.c.call("counterfactual_report", {}))["structuredContent"]["data"]
+        self.assertEqual(set(cf["groups"]), {"co-trader skipped", "co-trader blocked by risk",
+                                             "your orders blocked by risk", "all"})
+        self.assertTrue(cf["caveats"])
+        bad = self.result(self.c.call("journal_stats", {"by": "nonsense"}))
+        self.assertTrue(bad.get("isError"))
+        journal.review(journal.Paths(self.c.workdir), "2026-W44", None, True, journal.parse_now("2026-11-01 10:00"))
+        r = self.result(self.c.request("resources/list"))
+        uris = {x["uri"]: x for x in r["resources"]}
+        md = uris["bharat-trader://trader/journal/weekly-2026-W44.md"]
+        self.assertEqual(md["mimeType"], "text/markdown")
+        doc = self.result(self.c.request("resources/read", {"uri": md["uri"]}))
+        self.assertEqual(doc["contents"][0]["mimeType"], "text/markdown")
+        self.assertIn("# Weekly review 2026-W44", doc["contents"][0]["text"])
+        self.assertEqual(self.code(self.c.request("resources/read", {"uri": "bharat-trader://trader/journal/imports"})),
                          -32602)
 
     def test_regime_now_offline(self):

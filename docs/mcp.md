@@ -34,7 +34,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 35 tools and 11 prompts from
+4. Restart the client. It should list 38 tools and 11 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -120,6 +120,9 @@ message.
 | `doctor` | **Data sources self-test.** Probe every free data source the tools read (NSE equity list, market status, holidays, announcements, board meetings, results, bulk/block deals, PIT, option chain and contract info, lot sizes, F&O list, India VIX history; Yahoo chart, spark and headlines), one polite request each (about 30 s): ok, slow, changed, down or blocked, since when, the tools affected and the fallback in use. Freshness follows the NSE calendar in IST. Read only. | `only`? | read-only; network |
 | `persona_scorecards` | **Agent persona scorecards.** Each agent persona's paper track record (agents/), rebuilt from trader/state/trades.json: closed trades, wins and losses, net P&L after every charge, profit factor, expectancy, max drawdown, losing streaks, entries per day, yes and no counts, and behaviour flags (overtrading, revenge trades, exits after flat_by, fills with no ticket). Fills are credited through the persona tag on the drafted proposal. Read only. | `persona`? | read-only |
 | `regime_now` | **Market regime now.** The market regime in plain words for NIFTY, BANKNIFTY or NSE stocks (trader-regime): trending up or down, ranging or no clear trend (ADX 14, efficiency ratio, 20/50 EMA slope, 200-day average), the volatility bucket (India VIX percentile over a year, realised vol, IV rank), the gap, breadth, weekly or monthly expiry today or next session, results day, RBI policy and Budget days, holidays, the closing-auction window and the time-of-day bucket. Each day uses data up to its own close only. From the local archive when present, else Yahoo daily bars. A description of the market so far, not a forecast. Read only (board meetings are cached a day in trader/regime/board/). | `symbols`?, `iv`? | read-only; network |
+| `journal_summary` | **Trade journal summary.** The user's trade journal (trader-journal), rebuilt from paper fills (trader/state/trades.json) and imported broker trade books: closed trades after charges, expectancy with its 95% range, win rate with its Wilson interval, profit factor, drawdown, streaks, this week's numbers, the rule-break log (risk overrides, trades after a circuit-breaker lock, revenge trades, oversizing, entries outside the window, late exits, fills with no ticket), the overtrading index, the cost drag, the counterfactual ledger's totals and the latest trades. Read only. | `recent`? | read-only |
+| `journal_stats` | **Trade journal statistics.** Statistics of the user's closed trades after charges (trader-journal): expectancy with its range, win rate with its Wilson 95% interval, profit factor, average win and loss, max drawdown and streaks, optionally broken down by strategy, persona, regime (NIFTY's trend and volatility the close before), time of day, weekday or instrument, for all trades or one ISO week; with the behaviour flags. Read only. | `by`?, `week`? | read-only |
+| `counterfactual_report` | **Counterfactual ledger.** What the trades the user did not take would have done (trader-journal): every co-trader candidate skipped or blocked by risk (trader/cotrader/log.jsonl) and every trader-risk BLOCK of the user's own order, replayed on the bars after it with trader-lab's no-look-ahead fill rules (next bar's open plus slippage, stop first, flat-by or maximum holding, net of charges): per group the plans, how many were replayed, taken anyway or unresolved, what the losers would have lost (saved) and the winners made (cost), with the caveats. Read only; bars from the local archive or the lab cache, never fetched. | `group`?, `since`?, `until`?, `limit`? | read-only |
 <!-- tools:end -->
 
 `?` marks an optional argument. Every tool also carries MCP annotations:
@@ -181,12 +184,22 @@ Resources are the JSON files of your `trader/` folder, read only:
 `bharat-trader://trader/plan.json`, `.../watchlist.json`,
 `.../portfolio.json`, `.../options.json`, `.../strategy.json`,
 `.../journal.json` (whichever exist), and `bharat-trader://trader/state/risk.json`,
-`.../broker.json`, `.../trades.json`, and the daily market regimes that
-`trader-regime history` stores: `bharat-trader://trader/regime/NIFTY.json`.
-Three templates cover the rest: `bharat-trader://trader/{file}`,
-`bharat-trader://trader/state/{file}` and `bharat-trader://trader/regime/{file}`.
-Names are checked (`*.json`, no `..`, no subfolders beyond `state/` and
-`regime/`) and the resolved path must stay inside `trader/`.
+`.../broker.json`, `.../trades.json`, the daily market regimes that
+`trader-regime history` stores: `bharat-trader://trader/regime/NIFTY.json`,
+and trader-journal's weekly reviews and notes:
+`bharat-trader://trader/journal/weekly-2026-W44.md` (markdown) and
+`.../journal/notes.json`. Four templates cover the rest:
+`bharat-trader://trader/{file}`, `bharat-trader://trader/state/{file}`,
+`bharat-trader://trader/regime/{file}` and `bharat-trader://trader/journal/{file}`.
+Names are checked (`*.json`, or `weekly-YYYY-Www.md` under `journal/`, no
+`..`, no subfolders beyond `state/`, `regime/` and `journal/`) and the
+resolved path must stay inside `trader/`.
+
+`journal_summary`, `journal_stats` and `counterfactual_report` read the trade
+journal (trader-journal): closed trades after charges with their ranges, the
+rule-break log, and what the skipped and blocked trades would have done. They
+never write; bars come from the local archive or the lab cache, never the
+network. See [journal.md](journal.md).
 
 `regime_now` is the regime read for today (trader-regime `now --json`):
 trend, volatility bucket, gap, expiry and event flags and the time-of-day
@@ -197,7 +210,7 @@ bucket, with every input. See [regime.md](regime.md).
 | `morning_briefing` | `focus`? | market_status, news, scan_daily, portfolio_status, then a pre-market summary |
 | `intraday_plan` | `symbol` | entry_check, exit_plan, timemachine_run, size_trade; draft and confirm only on your typed yes |
 | `options_income_scan` | `symbol`, `expiry`? | options_summary and options_chain; explain positioning and a seller's risks, no trade |
-| `weekly_review` | none | portfolio, tickets, risk, config and the trades/decisions logs; one process change |
+| `weekly_review` | none | journal_stats, journal_summary and counterfactual_report, then portfolio, tickets, risk and config; one process change |
 | `research_strategy` | `idea`, `symbol`? | lab_list, lab_run and lab_report on the closest spec (gates, out of sample, what it does not prove); a forward test only for WATCH or PROMOTE; say what would kill the idea |
 | `persona_intraday_trader`, `persona_options_seller`, `persona_swing_trader`, `persona_researcher`, `persona_risk_officer`, `persona_journal_coach` | `focus`? | act as that persona from `agents/`: its routine, limits and report format, plus the current context from `trader/` (session, limits, lab verdicts, its paper scorecard). See [agents.md](agents.md) |
 

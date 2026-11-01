@@ -454,7 +454,8 @@ class Server(object):
         if len(data) > 4 * 1024 * 1024:
             raise RpcError(INVALID_PARAMS, "%s is over 4 MB" % uri)
         text = data.decode("utf-8", errors="replace")
-        return self.cacheable(req, {"contents": [{"uri": uri, "mimeType": "application/json", "text": text}]}, 5000)
+        mime = "text/markdown" if path.endswith(".md") else "application/json"
+        return self.cacheable(req, {"contents": [{"uri": uri, "mimeType": mime, "text": text}]}, 5000)
 
     # -- prompts
     def prompts_list(self, req):

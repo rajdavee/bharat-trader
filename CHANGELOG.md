@@ -7,6 +7,35 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **`trader-journal`** (#49): the trade journal and the counterfactual
+  ledger. `journal.py sync | list | show ID | stats [--by strategy|persona|
+  regime|tod|weekday|instrument] | review --week 2026-W44 | counterfactual |
+  import FILE --broker NAME | note ID "..."`. One entry per closed trade (an
+  equity position flat to flat; a paper F&O strategy, rolls and settlement
+  included, as ONE entry) from paper fills, live trade books and tradebook
+  imports in Zerodha, Kite, Upstox, Dhan, Angel One and Groww layouts (from
+  each broker's documentation; charges estimated and marked when a file has
+  none): persona, strategy and setup, regime (NIFTY, the close before),
+  entry and exit, qty and lots, gross, charges, net, R multiple, MAE/MFE from
+  bars, holding time, rule notes, your notes and tags. Expectancy with a 95%
+  range, win rate with its Wilson interval, profit factor, equity curve after
+  charges, drawdown and streaks, by group. Rule-break log (risk overrides,
+  trades after a breaker lock, revenge, oversizing, outside the window, late
+  exits, off-ticket fills, overtrading), the overtrading index and the cost
+  drag. trader-risk's verdicts are kept in `trader/journal/risk-log.jsonl`.
+  The counterfactual ledger replays every co-trader candidate not taken
+  (`trader/cotrader/log.jsonl`) and every risk BLOCK of your order with
+  trader-lab's no-look-ahead fill rules: saved / cost with counts and
+  caveats. The weekly review markdown is the journal coach's input. See
+  docs/journal.md.
+- **UI Journal page** (#49): stats tiles with their intervals, the equity
+  curve, breakdowns, the rule-break list, the counterfactual summary, and a
+  trade dialog with notes (`GET /api/journal`, `POST /api/journal/note`); a
+  "This week" card on Today.
+- **MCP** (#49): `journal_summary`, `journal_stats`, `counterfactual_report`
+  (read only, 38 tools) and the `trader/journal/` resources (weekly reviews as
+  markdown, notes); the `weekly_review` prompt and the journal-coach persona
+  use them.
 - **`trader-discover`** (#43): strategy discovery with strict overfitting
   controls. `discover.py run --budget N --universe nifty50 --timeframe 1d|5m
   [--seed]`, `resume`, `report`, `list`. A fixed trial budget declared up
