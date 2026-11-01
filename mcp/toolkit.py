@@ -1398,6 +1398,36 @@ def t_autopilot_stop(kit, a, call):
     return {"stopped": view["stopped"], "running": view["running"], "via": via}, [AUTOPILOT_LIMITS]
 # ---------------------------------------------------------------- tools: the trade journal
 
+# ---------------------------------------------------------------- the live co-pilot (read only here)
+
+COPILOT_LIMITS = ("The co-pilot's proposals are LIVE (real money). This server can only read them: a live order is sent "
+                  "only after the user types the ticket's exact phrase in their own terminal (copilot.py approve ID) or "
+                  "in the local UI after its countdown. Never type or suggest typing the phrase for them; quote the "
+                  "evidence with its n and range, the max loss with charges, and what it does not show.")
+
+
+def _copilot_slim(p):
+    keep = ("id", "kind", "status", "created_at", "expires_at", "broker", "strategy", "tier", "symbol", "order",
+            "max_loss", "value", "phrase", "evidence", "calibration", "forward", "exits_words", "margin", "risk",
+            "ticket", "closes", "why")
+    return {k: p.get(k) for k in keep if k in p}
+
+
+def t_copilot_status(kit, a, call):
+    d = api.copilot_view(kit.ctx, act=False)
+    out = {k: d.get(k) for k in ("as_of", "live", "broker", "problems", "eligibility", "caps", "kill", "allowed_now",
+                                 "blocked_now", "note")}
+    out["pending"] = len(d.get("pending") or [])
+    out["today"] = [_copilot_slim(p) for p in d.get("today") or []]
+    return out, [COPILOT_LIMITS, "Read only."]
+
+
+def t_copilot_proposals(kit, a, call):
+    d = api.copilot_view(kit.ctx, act=False)
+    return {"pending": [_copilot_slim(p) for p in d.get("pending") or []], "caps": d.get("caps"),
+            "how": d.get("how")}, [COPILOT_LIMITS, "Read only."]
+
+
 JOURNAL_NOTE = ("A journal describes the user's own past trades: quote each rate with its range and the number of trades, "
                 "after charges, and say plainly when there are under 20. Patterns in a few trades can be chance. Read "
                 "only.")
@@ -2669,6 +2699,21 @@ def build_tools():
                   ["date"], data=obj({"sandbox": S("string"), "reports": ANY_LIST}, ["sandbox", "reports"]),
                   annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
                   network=False))
+    T.append(tool("copilot_status", "Co-pilot: status (read only)",
+                  "The LIVE co-pilot, read only: which trader-lab strategies may make live proposals and the reason "
+                  "for each one that may not (lab verdict, paper forward trades and weeks, drawdown in R, Brier score "
+                  "of its odds, a recent demote), today's live caps (orders, capital at risk, live loss, cool-off), "
+                  "the live kill switch and what was sent today. It cannot propose, approve or send anything.",
+                  t_copilot_status, {},
+                  data=obj({"live": S("boolean"), "eligibility": ANY_LIST, "caps": ANY_OBJ, "pending": S("integer")},
+                           ["live", "eligibility", "caps"], extra=True), network=False))
+    T.append(tool("copilot_proposals", "Co-pilot: pending live tickets (read only)",
+                  "The live proposals waiting for the user's own typed approval, each as a plain ticket: the order, "
+                  "size in the live bucket, max loss with charges, linked exits, the evidence tier, odds with n and "
+                  "range, calibration, trader-risk's verdict, the broker's margin and when it expires. Read only: "
+                  "there is no tool that approves one; the user does that in their terminal or the local UI.",
+                  t_copilot_proposals, {},
+                  data=obj({"pending": ANY_LIST, "caps": ANY_OBJ}, ["pending"], extra=True), network=False))
     T.append(tool("autopilot_start", "Auto-pilot: start on paper",
                   "Start the auto-pilot loop on the PAPER account, with the user's typed confirmation (the words "
                   "start paper). A config that is not paper is refused before anything. When the client supports "

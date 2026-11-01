@@ -49,6 +49,7 @@ SKILLS = {
     "discover": ("trader-discover", "discover"),
     "cotrader": ("trader-cotrader", "cotrader"),
     "autopilot": ("trader-autopilot", "autopilot"),
+    "copilot": ("trader-copilot", "copilot"),
     "journal": ("trader-journal", "journal"),
     "tax": ("trader-tax", "tax"),
 }
@@ -82,7 +83,7 @@ def skill_errors():
     for name, cls in (("alerts", "AlertError"), ("entry", "EntryError"), ("risk", "RiskError"),
                       ("broker", "TicketError"), ("budget", "SizeError"), ("scanner", "ScanError"),
                       ("options", "OptionsError"), ("strategy", "StrategyError"), ("cotrader", "CotraderError"),
-                      ("autopilot", "AutopilotError")):
+                      ("autopilot", "AutopilotError"), ("copilot", "CopilotError")):
         out.append(getattr(skill(name), cls))
     return tuple(out)
 
@@ -2601,6 +2602,138 @@ def r_autopilot_replay(ctx, q, body):
             "sandbox": "trader/autopilot/replays/%s" % (day + (("_" + to) if to and to != day else ""))}
 
 
+# ---------------------------------------------------------------- routes: the live co-pilot
+
+COPILOT_ID = re.compile(r"^CP-\d{8}-\d{1,6}$")
+COPILOT_NOTE = ("LIVE means real money. A live proposal exists only for a PROMOTED strategy whose paper forward record "
+                "meets your thresholds, and it is sent only after you type its exact phrase here (after a %d-second "
+                "countdown) or in your own terminal. There is no auto-approve, and an assistant cannot approve.")
+CLOCK = time.monotonic          # tests replace it to step past the countdown
+
+
+def _copilot_now(ctx):
+    return ctx.now_ist().strftime("%Y-%m-%d %H:%M:%S") if ctx.pinned else None
+
+
+def copilot_view(ctx, act=True):
+    """The co-pilot page: eligibility with reasons, pending live tickets, today's caps, the live kill switch.
+    act=False (the assistant's read-only tools) writes nothing."""
+    cp = skill("copilot")
+    d = cp.status(ctx.workdir, _copilot_now(ctx), act=act)
+    d["note"] = COPILOT_NOTE % cp.UI_COUNTDOWN_S
+    d["countdown_words"] = cp.COUNTDOWN_WORDS
+    d["how"] = ("In a terminal: python3 trader-copilot/copilot.py propose, then approve ID (it asks for the phrase). "
+                "Kite / Angel One: copilot.py exits ID after the entry fills.")
+    return d
+
+
+def r_copilot(ctx, q, body):
+    """Eligibility, pending live proposals with their evidence, caps and the live kill switch."""
+    return copilot_view(ctx)
+
+
+def r_copilot_propose(ctx, q, body):
+    """Make today's live proposals from the co-trader's last run. Places nothing."""
+    cp = skill("copilot")
+    with ctx.cmd_lock:
+        r = cp.propose(ctx.workdir, _copilot_now(ctx), log=lambda *a: None)
+    out = copilot_view(ctx)
+    out["proposed"] = {"made": [p["id"] for p in r["made"]], "skipped": r["skipped"], "blocked": r.get("blocked") or []}
+    return out
+
+
+def _copilot_id(body):
+    pid = (body or {}).get("id")
+    if not isinstance(pid, str) or not COPILOT_ID.match(pid):
+        raise ApiError(400, "id is a co-pilot proposal id like CP-20261029-1")
+    return pid
+
+
+def _copilot_client(client):
+    """A live approval comes from this machine's own browser session only (never the MCP server or the Ask panel,
+    which call without one)."""
+    client = client or {}
+    if client.get("peer") is not None and client.get("peer") not in ASK_PEERS:
+        raise ApiError(403, "live approvals are taken from 127.0.0.1 only")
+    if not client.get("session"):
+        raise ApiError(403, "a live approval needs this page's own session: open the Co-pilot page and type it there")
+    return client["session"]
+
+
+def _arms(ctx):
+    arms = getattr(ctx, "copilot_arms", None)
+    if arms is None:
+        arms = ctx.copilot_arms = {}
+    return arms
+
+
+def r_copilot_arm(ctx, q, body, client=None):
+    """Open the approval dialog for one proposal: starts the server-side countdown. Sends nothing."""
+    cp = skill("copilot")
+    sid = _copilot_client(client)
+    pid = _copilot_id(body)
+    st = cp.load_state(cp.Paths(ctx.workdir))
+    p = cp.find(st, pid)
+    if p["status"] != "pending":
+        raise ApiError(409, "%s is %s, not pending" % (pid, p["status"]))
+    nonce = os.urandom(8).hex()
+    _arms(ctx)[(sid, pid)] = (nonce, CLOCK())
+    return {"id": pid, "nonce": nonce, "wait_s": cp.UI_COUNTDOWN_S, "phrase": p["phrase"], "ticket": p["ticket"],
+            "words": cp.COUNTDOWN_WORDS}
+
+
+def r_copilot_approve(ctx, q, body, client=None):
+    """Your typed approval of ONE live proposal, after the countdown: re-checks everything, then trader-broker's
+    six gates send it."""
+    cp = skill("copilot")
+    sid = _copilot_client(client)
+    pid = _copilot_id(body)
+    arm = _arms(ctx).pop((sid, pid), None)
+    if not arm or arm[0] != (body or {}).get("nonce"):
+        raise ApiError(409, "open the approval dialog for %s first (it starts the countdown)" % pid)
+    waited = CLOCK() - arm[1]
+    if waited < cp.UI_COUNTDOWN_S:
+        raise ApiError(409, "the countdown has %d second(s) left: read the ticket first" % (int(cp.UI_COUNTDOWN_S - waited) + 1))
+    if waited > cp.UI_ARM_MAX_S:
+        raise ApiError(409, "the dialog was open too long: open it again")
+    typed = (body or {}).get("typed")
+    if not isinstance(typed, str):
+        raise ApiError(400, "typed is the phrase on the ticket")
+    lines = []
+    with ctx.cmd_lock:
+        try:
+            r = cp.approve(ctx.workdir, pid, typed=typed, channel="ui", now=_copilot_now(ctx), log=lines.append)
+        except cp.CopilotError as e:
+            raise ApiError(409, str(e))
+    out = copilot_view(ctx)
+    out["sent"] = {"id": pid, "broker_order_id": r.get("broker_order_id"), "words": [x for x in lines if x],
+                   "shadow": r.get("shadow")}
+    return out
+
+
+def r_copilot_reject(ctx, q, body):
+    cp = skill("copilot")
+    pid = _copilot_id(body)
+    try:
+        cp.reject(ctx.workdir, pid, _copilot_now(ctx))
+    except cp.CopilotError as e:
+        raise ApiError(409, str(e))
+    return copilot_view(ctx)
+
+
+def r_copilot_kill(ctx, q, body):
+    """Live kill switch on: waiting entries rejected, flatten tickets for open live positions (each still needs your
+    typed phrase). Lifting it is done in the terminal: copilot.py kill --lift."""
+    cp = skill("copilot")
+    with ctx.cmd_lock:
+        cp.kill(ctx.workdir, _copilot_now(ctx), (body or {}).get("reason") or "turned on in the UI")
+    return copilot_view(ctx)
+
+
+for _f in (r_copilot_arm, r_copilot_approve):
+    _f.wants_client = True
+
+
 # ---------------------------------------------------------------- routes: first-run setup
 
 def _mcp_snippet(ctx):
@@ -2764,6 +2897,16 @@ ROUTES = [
     ("POST", "/api/autopilot/stop", r_autopilot_stop, "stop the auto-pilot after its step (typed: stop paper)", True),
     ("POST", "/api/autopilot/replay", r_autopilot_replay, "replay a past session in a sandbox on a simulated clock "
      "(your account is not touched)", True),
+    ("GET", "/api/copilot", r_copilot, "the LIVE co-pilot: which strategies may trade live and why, pending live "
+     "tickets with evidence, today's live caps, the live kill switch", False),
+    ("POST", "/api/copilot/propose", r_copilot_propose, "today's live proposals from the co-trader's last run "
+     "(places nothing)", True),
+    ("POST", "/api/copilot/arm", r_copilot_arm, "open the approval dialog of one live proposal: starts the "
+     "10-second countdown (this page's session only; sends nothing)", True),
+    ("POST", "/api/copilot/approve", r_copilot_approve, "your typed phrase for ONE live proposal after the countdown; "
+     "trader-broker's gates then send it (this page's session only)", True),
+    ("POST", "/api/copilot/reject", r_copilot_reject, "reject one live proposal", True),
+    ("POST", "/api/copilot/kill", r_copilot_kill, "live kill switch on: no new live proposals; flatten tickets", True),
     ("POST", "/api/risk/check", r_risk_check, "run trader-risk on trader/orders.json and record the verdicts", True),
     ("POST", "/api/risk/kill", r_risk_kill, "kill switch on: no new entries today (exits still pass)", True),
     ("POST", "/api/risk/unkill", r_risk_unkill, "lift the kill switch: the typed word unkill", True),

@@ -288,7 +288,7 @@ class Approve(Base):
         shadow = jload(os.path.join(wd, "trader", "state", "shadow.json"))["orders"]
         self.assertEqual(len(shadow), 1)
         self.assertEqual(shadow[0]["broker_order_id"], "151220000000000")
-        self.assertTrue(shadow[0]["paper"]["filled"])
+        self.assertIn("BUY LIMIT 1174.30 waits", shadow[0]["paper"]["why"])     # the paper twin, same rules
         self.assertTrue(r["shadow"]["recorded"])
         with open(os.path.join(wd, "trader", "copilot", "approvals.jsonl"), encoding="utf-8") as fh:
             a = [json.loads(x) for x in fh]
@@ -496,10 +496,55 @@ class Approve(Base):
         wd = self.wd("upstox")
         p = self.proposal(wd)
         self.approve(wd, p["id"], p["phrase"])
-        self.assertEqual(len(self.stub.calls("POST", "/upstox/gtt")), 1)
-        self.assertEqual(self.stub.calls("POST", "/upstox/order"), [])
+        self.assertEqual(len(self.stub.calls("POST", "/upstox/v3/order/gtt/place")), 1)
+        self.assertEqual([h["path"] for h in self.sends()], ["/upstox/v3/order/gtt/place"])
         rec = jload(os.path.join(wd, "trader", "state", "broker.json"))["orders"][-1]
         self.assertEqual((rec["leg"], rec["linked"]), ("bracket", "bracket"))
+
+    def test_the_ui_dialog_countdown_then_phrase_sends_it(self):
+        api = load("ui", "api")
+        wd = self.wd()
+        ctx = api.Context(wd, now="2026-10-29 09:41")
+        status, d = api.dispatch(ctx, "POST", "/api/copilot/propose", {}, {})
+        self.assertEqual(status, 200, d)
+        pid = d["proposed"]["made"][0]
+        self.assertEqual(d["pending"][0]["phrase"], "yes live BUY 42 RELIANCE")
+        self.assertEqual(d["countdown_s"], 10)
+        client = {"session": "s1", "peer": "127.0.0.1"}
+        t = [1000.0]
+        api.CLOCK = lambda: t[0]
+        try:
+            self.assertEqual(api.dispatch(ctx, "POST", "/api/copilot/arm", {}, {"id": pid},
+                                          dict(client, peer="192.0.2.9"))[0], 403)
+            status, arm = api.dispatch(ctx, "POST", "/api/copilot/arm", {}, {"id": pid}, client)
+            self.assertEqual((status, arm["wait_s"]), (200, 10))
+            body = {"id": pid, "nonce": arm["nonce"], "typed": "yes live BUY 42 RELIANCE"}
+            t[0] += 9
+            status, d = api.dispatch(ctx, "POST", "/api/copilot/approve", {}, body, client)
+            self.assertEqual(status, 409)
+            self.assertIn("countdown", d["error"])
+            self.assertEqual(self.sends(), [])
+            status, arm = api.dispatch(ctx, "POST", "/api/copilot/arm", {}, {"id": pid}, client)
+            t[0] += 11
+            status, d = api.dispatch(ctx, "POST", "/api/copilot/approve", {}, dict(body, nonce=arm["nonce"],
+                                                                                 typed="yes"), client)
+            self.assertEqual(status, 409)
+            self.assertIn("did not match", d["error"])
+            self.assertEqual(self.sends(), [])
+            status, arm = api.dispatch(ctx, "POST", "/api/copilot/arm", {}, {"id": pid}, client)
+            t[0] += 11
+            self.assertEqual(api.dispatch(ctx, "POST", "/api/copilot/approve", {}, dict(body, nonce=arm["nonce"]),
+                                          dict(client, session="s2"))[0], 409)
+            status, arm = api.dispatch(ctx, "POST", "/api/copilot/arm", {}, {"id": pid}, client)
+            t[0] += 11
+            status, d = api.dispatch(ctx, "POST", "/api/copilot/approve", {}, dict(body, nonce=arm["nonce"]), client)
+            self.assertEqual(status, 200, d)
+            self.assertEqual(d["sent"]["broker_order_id"], "151220000000000")
+            self.assertEqual(len(self.stub.calls("POST", "/kite/orders/regular")), 1)
+            with open(os.path.join(wd, "trader", "copilot", "approvals.jsonl"), encoding="utf-8") as fh:
+                self.assertEqual(json.loads(fh.readline())["channel"], "ui")
+        finally:
+            api.CLOCK = __import__("time").monotonic
 
     def test_reject(self):
         wd = self.wd()
