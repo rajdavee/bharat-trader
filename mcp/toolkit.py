@@ -1915,6 +1915,42 @@ def build_tools():
                   "it never demotes.", t_calibration_report, {},
                   data=obj({"overall": ANY_OBJ, "by_strategy": ANY_OBJ, "by_tier": ANY_OBJ, "words": S("string")},
                            ["overall", "by_strategy", "by_tier", "words"], extra=True)))
+    date = S("string", "a date, YYYY-MM-DD", pattern=r"^\d{4}-\d{2}-\d{2}$")
+    T.append(tool("journal_summary", "Trade journal summary",
+                  "The user's trade journal (trader-journal), rebuilt from paper fills (trader/state/trades.json) and "
+                  "imported broker trade books: closed trades after charges, expectancy with its 95% range, win rate "
+                  "with its Wilson interval, profit factor, drawdown, streaks, this week's numbers, the rule-break log "
+                  "(risk overrides, trades after a circuit-breaker lock, revenge trades, oversizing, entries outside "
+                  "the window, late exits, fills with no ticket), the overtrading index, the cost drag, the "
+                  "counterfactual ledger's totals and the latest trades. Read only.", t_journal_summary,
+                  {"recent": S("integer", "how many recent trades to list (default 10)", minimum=0, maximum=200)},
+                  data=obj({"stats": ANY_OBJ, "this_week": ANY_OBJ, "behaviour": ANY_OBJ, "counterfactual": ANY_OBJ,
+                            "entries": ANY_LIST}, ["stats", "behaviour"], extra=True), network=False))
+    T.append(tool("journal_stats", "Trade journal statistics",
+                  "Statistics of the user's closed trades after charges (trader-journal): expectancy with its range, "
+                  "win rate with its Wilson 95% interval, profit factor, average win and loss, max drawdown and "
+                  "streaks, optionally broken down by strategy, persona, regime (NIFTY's trend and volatility the "
+                  "close before), time of day, weekday or instrument, for all trades or one ISO week; with the "
+                  "behaviour flags. Read only.", t_journal_stats,
+                  {"by": S("string", "break down by", enum=["strategy", "persona", "regime", "tod", "weekday",
+                                                            "instrument"]),
+                   "week": S("string", "an ISO week like 2026-W44, or this / last",
+                             pattern=r"^(\d{4}-?W\d{1,2}|this|last)$")},
+                  data=obj({"stats": ANY_OBJ, "behaviour": ANY_OBJ}, ["stats"], extra=True), network=False))
+    T.append(tool("counterfactual_report", "Counterfactual ledger",
+                  "What the trades the user did not take would have done (trader-journal): every co-trader candidate "
+                  "skipped or blocked by risk (trader/cotrader/log.jsonl) and every trader-risk BLOCK of the user's "
+                  "own order, replayed on the bars after it with trader-lab's no-look-ahead fill rules (next bar's "
+                  "open plus slippage, stop first, flat-by or maximum holding, net of charges): per group the plans, "
+                  "how many were replayed, taken anyway or unresolved, what the losers would have lost (saved) and "
+                  "the winners made (cost), with the caveats. Read only; bars from the local archive or the lab "
+                  "cache, never fetched.", t_counterfactual_report,
+                  {"group": S("string", "one group only", enum=["co-trader skipped", "co-trader blocked by risk",
+                                                                "your orders blocked by risk"]),
+                   "since": date, "until": date,
+                   "limit": S("integer", "how many replay rows to return (default 50)", minimum=1, maximum=500)},
+                  data=obj({"groups": ANY_OBJ, "rows": ANY_LIST, "caveats": ANY_LIST}, ["groups", "caveats"],
+                           extra=True), network=False))
     T.append(tool("autopilot_status", "Auto-pilot: status",
                   "The auto-pilot on PAPER: whether its loop is running (pid, last step), today's phase, the timeline "
                   "of today's actions (pre-open brief, orders placed with trader-risk PASS and the machine yes "
@@ -1952,42 +1988,6 @@ def build_tools():
                   data=obj({"stopped": S("string"), "via": S("string")}, ["stopped"], extra=True),
                   annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
                   network=False))
-    date = S("string", "a date, YYYY-MM-DD", pattern=r"^\d{4}-\d{2}-\d{2}$")
-    T.append(tool("journal_summary", "Trade journal summary",
-                  "The user's trade journal (trader-journal), rebuilt from paper fills (trader/state/trades.json) and "
-                  "imported broker trade books: closed trades after charges, expectancy with its 95% range, win rate "
-                  "with its Wilson interval, profit factor, drawdown, streaks, this week's numbers, the rule-break log "
-                  "(risk overrides, trades after a circuit-breaker lock, revenge trades, oversizing, entries outside "
-                  "the window, late exits, fills with no ticket), the overtrading index, the cost drag, the "
-                  "counterfactual ledger's totals and the latest trades. Read only.", t_journal_summary,
-                  {"recent": S("integer", "how many recent trades to list (default 10)", minimum=0, maximum=200)},
-                  data=obj({"stats": ANY_OBJ, "this_week": ANY_OBJ, "behaviour": ANY_OBJ, "counterfactual": ANY_OBJ,
-                            "entries": ANY_LIST}, ["stats", "behaviour"], extra=True), network=False))
-    T.append(tool("journal_stats", "Trade journal statistics",
-                  "Statistics of the user's closed trades after charges (trader-journal): expectancy with its range, "
-                  "win rate with its Wilson 95% interval, profit factor, average win and loss, max drawdown and "
-                  "streaks, optionally broken down by strategy, persona, regime (NIFTY's trend and volatility the "
-                  "close before), time of day, weekday or instrument, for all trades or one ISO week; with the "
-                  "behaviour flags. Read only.", t_journal_stats,
-                  {"by": S("string", "break down by", enum=["strategy", "persona", "regime", "tod", "weekday",
-                                                            "instrument"]),
-                   "week": S("string", "an ISO week like 2026-W44, or this / last",
-                             pattern=r"^(\d{4}-?W\d{1,2}|this|last)$")},
-                  data=obj({"stats": ANY_OBJ, "behaviour": ANY_OBJ}, ["stats"], extra=True), network=False))
-    T.append(tool("counterfactual_report", "Counterfactual ledger",
-                  "What the trades the user did not take would have done (trader-journal): every co-trader candidate "
-                  "skipped or blocked by risk (trader/cotrader/log.jsonl) and every trader-risk BLOCK of the user's "
-                  "own order, replayed on the bars after it with trader-lab's no-look-ahead fill rules (next bar's "
-                  "open plus slippage, stop first, flat-by or maximum holding, net of charges): per group the plans, "
-                  "how many were replayed, taken anyway or unresolved, what the losers would have lost (saved) and "
-                  "the winners made (cost), with the caveats. Read only; bars from the local archive or the lab "
-                  "cache, never fetched.", t_counterfactual_report,
-                  {"group": S("string", "one group only", enum=["co-trader skipped", "co-trader blocked by risk",
-                                                                "your orders blocked by risk"]),
-                   "since": date, "until": date,
-                   "limit": S("integer", "how many replay rows to return (default 50)", minimum=1, maximum=500)},
-                  data=obj({"groups": ANY_OBJ, "rows": ANY_LIST, "caveats": ANY_LIST}, ["groups", "caveats"],
-                           extra=True), network=False))
     return T
 
 
