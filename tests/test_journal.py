@@ -426,7 +426,7 @@ class Review(Workdir):
         self.assertIn("ONE process change", text)
         for bad in ("guaranteed", "sure-shot", "risk-free"):
             self.assertNotIn(bad, text.lower())
-        self.assertIn("Wrote trader/journal/weekly-2026-W44.md", out)
+        self.assertIn("Wrote " + os.path.join("trader", "journal", "weekly-2026-W44.md"), out)
         res = journal.review(self.paths, "2026-W45", BARS, True, journal.parse_now(NOW))
         self.assertEqual(res["stats"]["trades"], 1)
         with self.assertRaises(journal.JournalError):
