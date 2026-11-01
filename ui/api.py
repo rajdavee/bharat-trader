@@ -31,7 +31,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 INDICES = [("^NSEI", "NIFTY 50"), ("^NSEBANK", "BANK NIFTY"), ("^INDIAVIX", "INDIA VIX")]
 INTERVALS = {"1m": 60, "5m": 300, "1d": 86400}

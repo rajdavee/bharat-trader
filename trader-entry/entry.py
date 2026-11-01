@@ -76,7 +76,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-UA = "Mozilla/5.0 (compatible; bharat-trader/0.2; +https://github.com/rajdavee/bharat-trader)"
+UA = "Mozilla/5.0 (compatible; bharat-trader/0.3; +https://github.com/rajdavee/bharat-trader)"
 PAUSE = 0.5      # seconds between requests to the free endpoint
 BACKOFF = 5.0    # seconds before the one retry after an HTTP 429
 GRACE = 2        # seconds after a bar closes before watch asks for it
