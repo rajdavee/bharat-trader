@@ -20,7 +20,7 @@ placed without your yes.
   after brokerage, STT, exchange fees, stamp duty and GST. Textbook odds sit
   next to simulated ones. The Strategy Lab rejects most strategies, and says why.
 - **Standard library only.** Python 3.8+, nothing to `pip install`, every tool runs by hand.
-- **Agent-native.** Fifteen [Agent Skills](https://agentskills.io), six agent
+- **Agent-native.** Seventeen [Agent Skills](https://agentskills.io), six agent
   personas, and an [MCP](https://modelcontextprotocol.io/) server with 33 tools
   for any MCP-compatible AI assistant.
 - **Zero-install UI.** `python3 ui/serve.py --open`: a web app on `127.0.0.1`
@@ -43,7 +43,10 @@ block deals and SEBI insider (PIT) disclosures; alerts on the NSE calendar;
 `trader-doctor`, a self-test of every data source with since-when history
 and the fallback in use; and `trader-archive`, years of NSE bhavcopies (equity
 and F&O), index closes, India VIX and broker intraday candles on your own
-disk, split- and bonus-adjusted, read offline by the lab and the time machine.
+disk, split- and bonus-adjusted, read offline by the lab and the time machine;
+and `trader-regime`, the market regime in plain words (trending or ranging,
+the India VIX percentile, the gap, expiry tomorrow, results or RBI policy
+day, the time-of-day bucket), with no look-ahead.
 
 **Options and strategies.** The NSE option chain with our own Black-76 IV and
 Greeks off the put-call-parity forward, PCR, max pain, call and put walls,
@@ -145,6 +148,8 @@ python3 trader-broker/ticket.py preflight upstox       # static IP and today's l
 python3 trader-doctor/doctor.py                        # is every NSE and Yahoo source answering? (exit 1 if not)
 python3 trader-archive/archive.py backfill --years 3    # years of NSE EOD history on your disk, resumable
 python3 trader-archive/archive.py verify                # gaps, duplicates, checksums, survivorship
+python3 trader-regime/regime.py now                    # NIFTY, BANKNIFTY: trend, vol bucket, expiry, events
+python3 trader-regime/regime.py history NIFTY --from 2025-01-01   # every day's regime, stored
 ```
 
 </details>
@@ -201,6 +206,7 @@ Copy one or all into your agent's skills folder; each works on its own:
 | `trader-lab` | Strategy Lab: backtests a JSON strategy bar by bar after Indian charges, then walk-forward, parameter neighbourhood, Monte Carlo, deflated Sharpe and overfitting odds. Pre-registered gates: REJECT, WATCH (paper forward test) or PROMOTE. Six library strategies, no promises. |
 | `trader-doctor` | Self-test of every data source (NSE APIs and archives, Yahoo): ok, slow, changed, down or blocked, since when, which tools it breaks and the fallback in use. Holiday-aware freshness in IST. |
 | `trader-archive` | A local NSE data archive: equity and F&O bhavcopies (UDiFF and legacy), index closes, India VIX, lot sizes, ban lists, settlement prices and split/bonus factors, backfilled politely and resumably; broker intraday candles merged with Yahoo; option-chain snapshots; verify and a data-quality report. Read offline by the lab and the time machine. |
+| `trader-regime` | The market regime for NIFTY, BANKNIFTY or a stock: trend or range (ADX, efficiency ratio, EMA slope, 200-day average), volatility bucket (India VIX percentile, realised vol, IV rank), gap, breadth, expiry today or tomorrow from the exchange's list, results, RBI policy and Budget days, the closing-auction window and the time of day. No look-ahead; the lab splits every backtest by it. |
 
 ## How it compares
 

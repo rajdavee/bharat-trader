@@ -37,13 +37,15 @@ python3 "<skill dir>/regime.py" explain NIFTY               # every input, its v
 python3 "<skill dir>/regime.py" now --data DIR --now "2026-10-30 16:00"   # offline, pinned clock
 ```
 
-A read looks like:
+A read looks like (NIFTY after the close of Friday 30 October 2026):
 
 ```
 NIFTY: no clear trend (ADX 33), high vol (VIX 15.3, 71st pct)
-  close 23,053.10 on 2026-10-30 (archive 2024-01-02 to 2026-10-30); ADX 32.8, ER 0.044, below the 200-day average (-4.11%)
-  vol: high by India VIX percentile; realised 14.96% (20d) vs 13.67% (1y); IV rank 32.8 (India VIX)
+  close 23,053.10 on 2026-10-30 (Yahoo ^NSEI (2 years, unofficial)); ADX 32.8, ER 0.044, below the 200-day average (-4.11%)
+  vol: high by India VIX percentile; realised 14.96% (20d) vs 13.67% (1y); IV rank 32.8 (India VIX (NIFTY 30-day implied vol))
   expiry: next weekly 2026-11-03, 2 sessions away (archive F&O bhavcopy 2026-10-30)
+  closing auction (F&O stocks): 15:15-15:35; DERIV continuous trading ends 15:40
+  breadth 2026-10-30: 618 up, 2058 down (broad decline)
 ```
 
 ## What it measures
