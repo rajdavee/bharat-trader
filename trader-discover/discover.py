@@ -47,6 +47,7 @@ import json
 import math
 import os
 import random
+import statistics
 import sys
 import time
 from decimal import Decimal, ROUND_HALF_UP
@@ -583,6 +584,24 @@ def deflated_sharpe(lab, returns, trial_srs, n_trials):
             "dsr": round(lab.probabilistic_sharpe(sr, star, t, skew, kurt), 4)}
 
 
+def haircut_sharpe(returns, n_trials):
+    """Harvey and Liu (2015) haircut Sharpe ratio, Bonferroni form: the Sharpe's t-statistic as a two-sided
+    p-value, multiplied by the number of trials, turned back into a Sharpe. Shown for information: how
+    much of the Sharpe the multiple testing takes away. -> {"sharpe_annual", "haircut_sharpe_annual", "haircut"}"""
+    t = len(returns)
+    sd = _sd(returns)
+    if t < 3 or sd <= 0:
+        return None
+    sr = _mean(returns) / sd
+    nd = statistics.NormalDist()
+    p = 2 * (1 - nd.cdf(abs(sr) * math.sqrt(t)))
+    padj = min(1.0, p * max(1, int(n_trials)))
+    tadj = nd.inv_cdf(1 - padj / 2.0) if padj < 1 else 0.0
+    hsr = math.copysign(tadj / math.sqrt(t), sr)
+    return {"sharpe_annual": round(sr * math.sqrt(252), 3), "haircut_sharpe_annual": round(hsr * math.sqrt(252), 3),
+            "haircut": round(1 - hsr / sr, 4) if sr else None, "p": round(p, 6), "p_adjusted": round(padj, 6)}
+
+
 # ---------------------------------------------------------------- files
 
 def read_json(path, default=None):
@@ -917,6 +936,7 @@ def finalize(lab, plan, run_dir, data, ctx, fno, lab_out=None, now=None, progres
         comb = rb["combined"]
         pre = [v / cap for v in dense(r["train_pnl"], len(seg["train"])) + dense(r["validation_pnl"], nv)]
         dsr = deflated_sharpe(lab, pre, trial_sr, N) if _sd(pre) > 0 else None
+        hc = haircut_sharpe(pre, N)
         p = pmap.get(r["id"], 1.0)
         cs = rb["costs"].get("%gx" % g["cost_stress"]) or {}
         reg = rb["regimes"]
@@ -949,7 +969,7 @@ def finalize(lab, plan, run_dir, data, ctx, fno, lab_out=None, now=None, progres
         failed = [x for x in rows if not x["pass"]]
         card = {"id": r["id"], "i": r["i"], "family": r["family"], "params": r["params"], "choices": r["choices"],
                 "spec_hash": r["spec_hash"], "train": r["train"], "validation": r["validation"], "combined": comb,
-                "costs": rb["costs"], "neighbours": rb["neighbours"], "regimes": reg, "dsr": dsr, "fdr_p": p,
+                "costs": rb["costs"], "neighbours": rb["neighbours"], "regimes": reg, "dsr": dsr, "haircut": hc, "fdr_p": p,
                 "gates": rows, "holdout": None}
         if failed:
             reject(r, "robustness and multiple testing", "; ".join(x["gate"] for x in failed))
@@ -1115,6 +1135,7 @@ def report_text(res):
         res["fdr"]["q"], res["fdr"]["m"], res["fdr"]["threshold"], "" if res["fdr"]["threshold"] else " (nothing passes)"))
     if c["rejected_by_stage"]:
         L.append("- Rejected by stage: %s" % ", ".join("%s %d" % kv for kv in sorted(c["rejected_by_stage"].items())))
+    L.append("")
     if res["candidates"]:
         L += ["", "## Validation survivors", ""]
         for card in res["candidates"]:
@@ -1127,6 +1148,9 @@ def report_text(res):
                 "not opened" if not card["holdout"] else "%d trades %s" % (card["holdout"]["stats"]["trades"],
                                                                           _r(card["holdout"]["stats"]["expectancy_r"])),
                 card["spec_hash"]))
+            if card.get("haircut"):
+                L.append("Sharpe %.2f a year before multiple testing, %.2f after the Harvey-Liu haircut for %d trials." % (
+                    card["haircut"]["sharpe_annual"], card["haircut"]["haircut_sharpe_annual"], c["counted"]))
             L.append("")
             for g in card["gates"]:
                 L.append("- %s %s: %s (needs %s)" % ("PASS" if g["pass"] else "FAIL", g["gate"], g["got"], g["needs"]))
