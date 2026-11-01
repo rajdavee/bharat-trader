@@ -2799,7 +2799,7 @@ def cmd_list(a):
     print("Built-in library (specs to test, not promises):")
     for n in sorted(lib):
         s = lib[n]
-        print("  %-22s %-3s %s" % (n, s.get("timeframe"), s.get("title")))
+        print("  %-30s %-7s %s" % (n, "options" if s.get("kind") == "options" else s.get("timeframe"), s.get("title")))
     rows = []
     if os.path.isdir(a.out):
         for n in sorted(os.listdir(a.out)):

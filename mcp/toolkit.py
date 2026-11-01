@@ -854,6 +854,7 @@ def t_lab_list(kit, a, call):
     lib = [{"name": n, "title": d.get("title"), "timeframe": d.get("timeframe"),
             "product": d.get("product") or ("MIS" if d.get("timeframe") == "5m" else "CNC"),
             "description": d.get("description"), "symbols": len(d.get("universe") or []),
+            "kind": d.get("kind") or "equity", "underlying": d.get("underlying"), "structure": d.get("structure"),
             "params": d.get("params") or {}, "grid": d.get("grid") or {}} for n, d in sorted(lab.library().items())]
     names = []
     if os.path.isdir(out):
