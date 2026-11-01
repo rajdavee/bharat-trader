@@ -26,6 +26,7 @@ DISCLAIMER = "Education and tooling, not financial advice."
 PAPER_NOTE = "Paper trading only: this server has no way to place a live order."
 URI_PREFIX = "bharat-trader://trader/"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}\.json$")
+REGIME_NAME_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}\.json$")     # trader/regime/NIFTY.json
 SYMBOL_RE = re.compile(r"^[A-Za-z0-9&\-^.]{1,24}$")
 FP_RE = re.compile(r"^[0-9a-f]{16}$")
 
@@ -43,6 +44,7 @@ def _load_api():
         "insider": ("trader-insider", "insider"),
         "analyst": ("trader-analyst", "facts"),
         "lab": ("trader-lab", "lab"),
+        "regime": ("trader-regime", "regime"),
     })
     return mod
 
@@ -321,16 +323,18 @@ class Kit(object):
     def resources(self):
         base = os.path.join(self.workdir, "trader")
         out = []
-        for sub in ("", "state"):
+        for sub in ("", "state", "regime"):
             folder = os.path.join(base, sub) if sub else base
             if not os.path.isdir(folder):
                 continue
             for f in sorted(os.listdir(folder)):
                 p = os.path.join(folder, f)
-                if not (NAME_RE.match(f) and os.path.isfile(p)):
+                if not ((REGIME_NAME_RE if sub == "regime" else NAME_RE).match(f) and os.path.isfile(p)):
                     continue
                 rel = (sub + "/" + f) if sub else f
-                about = RESOURCE_ABOUT.get(rel) or ("trader/%s" % rel)
+                about = RESOURCE_ABOUT.get(rel) or (("the daily market regime of %s, one record a day "
+                                                     "(trader-regime history)" % f[:-5]) if sub == "regime"
+                                                    else "trader/%s" % rel)
                 out.append({"uri": URI_PREFIX + rel, "name": rel, "title": "trader/" + rel,
                             "description": about, "mimeType": "application/json",
                             "size": os.path.getsize(p)})
@@ -342,13 +346,14 @@ class Kit(object):
             return None
         rel = uri[len(URI_PREFIX):]
         parts = rel.split("/")
-        if len(parts) == 2 and parts[0] == "state":
+        if len(parts) == 2 and parts[0] in ("state", "regime"):
             name = parts[1]
         elif len(parts) == 1:
             name = parts[0]
         else:
             return None
-        if not NAME_RE.match(name) or ".." in name:
+        pattern = REGIME_NAME_RE if len(parts) == 2 and parts[0] == "regime" else NAME_RE
+        if not pattern.match(name) or ".." in name:
             return None
         base = os.path.realpath(os.path.join(self.workdir, "trader"))
         p = os.path.realpath(os.path.join(base, *parts))
@@ -389,6 +394,9 @@ RESOURCE_TEMPLATES = [
     {"uriTemplate": URI_PREFIX + "state/{file}", "name": "trader-state-file", "title": "A trader/state/ file",
      "description": "The tools' own records: risk.json (verdicts), broker.json (decisions), trades.json (fills)",
      "mimeType": "application/json"},
+    {"uriTemplate": URI_PREFIX + "regime/{file}", "name": "trader-regime-file", "title": "A trader/regime/ file",
+     "description": "The daily market regime of one symbol from trader-regime history, e.g. NIFTY.json: trend, "
+                    "volatility bucket, gap, expiry and event flags per day", "mimeType": "application/json"},
 ]
 
 
@@ -1013,6 +1021,32 @@ def t_persona_scorecards(kit, a, call):
                   "with the rule's lab scorecard. Read only."]
 
 
+# ---------------------------------------------------------------- tools: market regime
+
+def t_regime_now(kit, a, call):
+    """trader-regime's own `now --json`. Offline: the bundle's saved daily bars, no network."""
+    argv = ["now", "--json", "--workdir", kit.p()]
+    syms = [s.strip().upper() for s in str(a.get("symbols") or "").split(",") if s.strip()]
+    for s in syms[:12]:
+        if not re.match(r"^[A-Z0-9][A-Z0-9&\-]{0,19}$", s):
+            raise ToolError("not an NSE symbol: %r" % s)
+    argv += syms[:12]
+    if a.get("iv"):
+        argv.append("--iv")
+    if kit.offline:
+        dirs = [kit.offline.path("regime_now", "trader-lab")]
+        also = kit.offline.entry("regime_now").get("also")
+        if also:
+            dirs.append(os.path.normpath(os.path.join(kit.offline.dir, also)))
+        argv += ["--data", ",".join(d for d in dirs if d), "--offline"]
+    data, _ = kit.run_json("regime", argv + kit.now_args("regime_now"))
+    notes = list(data.get("errors") or []) + list(data.get("notes") or [])
+    notes.append("A regime describes the market so far; it does not predict the next move. Show the inputs "
+                 "(ADX, VIX percentile) with the label.")
+    data.pop("disclaimer", None)
+    return data, notes
+
+
 # ---------------------------------------------------------------- the tool table
 
 RO = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
@@ -1335,6 +1369,19 @@ def build_tools():
                                 enum=[p["name"] for p in api.personas()])},
                   data=obj({"personas": ANY_LIST, "unattributed": ANY_OBJ}, ["personas", "unattributed"], extra=True),
                   network=False))
+    T.append(tool("regime_now", "Market regime now",
+                  "The market regime in plain words for NIFTY, BANKNIFTY or NSE stocks (trader-regime): trending "
+                  "up or down, ranging or no clear trend (ADX 14, efficiency ratio, 20/50 EMA slope, 200-day "
+                  "average), the volatility bucket (India VIX percentile over a year, realised vol, IV rank), the "
+                  "gap, breadth, weekly or monthly expiry today or next session, results day, RBI policy and Budget "
+                  "days, holidays, the closing-auction window and the time-of-day bucket. Each day uses data up to "
+                  "its own close only. From the local archive when present, else Yahoo daily bars. A description "
+                  "of the market so far, not a forecast. Read only (board meetings are cached a day in "
+                  "trader/regime/board/).", t_regime_now,
+                  {"symbols": S("string", "NIFTY, BANKNIFTY or NSE stocks, comma separated (default NIFTY,BANKNIFTY)",
+                                maxLength=200, pattern=r"^[A-Za-z0-9&\-,\s]{1,200}$"),
+                   "iv": S("boolean", "a stock's IV rank from the archived F&O bhavcopy (slower)")},
+                  data=obj({"regimes": ANY_LIST, "errors": ANY_LIST}, ["regimes"], extra=True)))
     return T
 
 

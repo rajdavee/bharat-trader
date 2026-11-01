@@ -110,7 +110,7 @@ function marketCard(d, doctor) {
       ['NSE', h('span', null, h('span', { class: 'badge ' + (m.open ? 'pass' : m.phase === 'pre-open' ? 'warn' : 'block') },
         m.open ? 'Open' : m.phase === 'pre-open' ? 'Pre-open' : 'Closed'), ' ', why(m.reason, m.why, 'open or closed'))],
       m.nse && !m.nse_agrees ? ['nseindia.com', `says ${m.nse.status}: trust NSE`] : null,
-      ['Regime', h('span', null, h('span', { class: 'badge soon' }, 'Coming in v0.3'), ' ', help('regime'))],
+      ['Regime', h('span', { class: 'today-regime' }, h('span', { class: 'muted' }, 'Reading…'), ' ', help('regime'))],
       vix ? ['India VIX', h('span', null, num(vix.price), ' ', h('span', { class: 'small ' + tone(vix.change) },
         `${signed(vix.change, num)} (${pct(vix.change_pct)})`))] : null,
       ['Data health', h('span', null, bad === null ? h('span', { class: 'badge' }, 'Not checked')
@@ -120,6 +120,24 @@ function marketCard(d, doctor) {
     h('div', { class: 'tiles today-indices', 'aria-label': 'Indices' }, (d.indices || []).filter((q) => q.symbol !== '^INDIAVIX')
       .map(indexTile)),
     m.warning ? note(m.warning, 'warn') : null);
+}
+
+// NIFTY's regime from GET /api/regime (trader-regime), filled in after the page is up: it can take a few seconds.
+function regimeCell(res) {
+  const r = res && (res.regimes || [])[0];
+  if (!r) {
+    const why0 = (res && (res.errors || [])[0]) || 'no daily bars';
+    return h('span', { class: 'today-regime' }, h('span', { class: 'badge' }, 'Not available'), ' ',
+      h('span', { class: 'small muted' }, why0), ' ', help('regime'));
+  }
+  const d = r.daily;
+  const label = { trend_up: 'Trending up', trend_down: 'Trending down', range: 'Ranging', transition: 'No clear trend',
+    unknown: 'Unknown' }[d.trend.label] || d.trend.label;
+  const vol = d.vol.bucket === 'unknown' ? 'vol unknown' : `${d.vol.bucket} vol`;
+  const words = String(r.words || '').replace(/^NIFTY: /, '');
+  return h('span', { class: 'today-regime' }, h('span', { class: 'badge' }, `${label}, ${vol}`), ' ',
+    why(words, res.why, 'the regime'), ' ', h('span', { class: 'small muted' }, `(as of the ${d.date} close)`), ' ',
+    help('regime'));
 }
 
 function indexTile(q) {
@@ -202,6 +220,10 @@ export async function render(root, ctx) {
     h('div', { class: 'stack' }, positionsCard(p), candidatesCard()),
     h('div', { class: 'stack' }, planCard(d.plan, r), alertsCard, marketCard(d, ctx.live.doctor))));
   for (const e of d.index_errors || []) body.appendChild(note(e, 'warn'));
+  settle(get('/api/regime?symbols=NIFTY')).then((g) => {
+    const el = body.querySelector('.today-regime');
+    if (el) el.replaceWith(regimeCell(g.ok ? g.v : { errors: [g.e.message || String(g.e)] }));
+  });
   if (!pr.ok) body.appendChild(note('Portfolio: ' + (pr.e.message || pr.e), 'warn'));
   if (!rr.ok) body.appendChild(note('Risk: ' + (rr.e.message || rr.e), 'warn'));
 

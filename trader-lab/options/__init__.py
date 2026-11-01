@@ -28,7 +28,7 @@ import datetime
 import math
 import os
 
-ENV = {"lab": None, "strategy": None, "archive": None}
+ENV = {"lab": None, "strategy": None, "archive": None, "regime": None}
 TICK = 0.05
 MAX_DTE_LOADED = 100          # expiries further out than this many calendar days are not kept
 STRIKE_BAND = 0.25            # strikes within +/-25% of spot are kept
@@ -50,14 +50,14 @@ class OptionsError(ValueError):
     pass
 
 
-def bind(lab, strategy=None, archive=None):
-    """Point this package at the lab module, trader-strategy's script and trader-archive's (any may be None
-    until needed)."""
+def bind(lab, strategy=None, archive=None, regime=None):
+    """Point this package at the lab module and the sibling skills' scripts it is handed: trader-strategy
+    (legs, Black-76, margin), trader-archive (the chains) and trader-regime (the market regime split and
+    its IV rank formula). Any but the lab may be None until needed."""
     ENV["lab"] = lab
-    if strategy is not None:
-        ENV["strategy"] = strategy
-    if archive is not None:
-        ENV["archive"] = archive
+    for k, v in (("strategy", strategy), ("archive", archive), ("regime", regime)):
+        if v is not None:
+            ENV[k] = v
 
 
 def _L():
@@ -438,6 +438,10 @@ class Chains(object):
         hist = [s[d] for d in self.days[max(0, i - lookback):i] if d in s]
         if len(hist) < max(10, lookback // 2):
             return None, now
+        reg = ENV["regime"]
+        if reg is not None and hasattr(reg, "range_rank"):
+            rank = reg.range_rank(hist, now)            # trader-regime's (and trader-options') IV rank
+            return (50.0 if rank is None else rank), now
         lo, hi = min(hist), max(hist)
         return (100.0 * (now - lo) / (hi - lo) if hi > lo else 50.0), now
 
@@ -1089,11 +1093,13 @@ def run(doc, chains, context=None, extra_trials=0, progress=None):
     pbo = L.pbo_cscv(matrix, nb) if len(runs) > 1 and matrix else None
     mc = L.monte_carlo([t["net"] for t in oos_trades], spec["mc_runs"], spec["seed"])
     regimes = L.regime_split(full_trades, context, spec["vix_edges"])
-    hooked = L.regime_hook(full_trades, context, spec) if hasattr(L, "regime_hook") else None
-    if hooked:
-        regimes.update(hooked)
     regimes["iv_rank"] = _iv_rank_split(full_trades, chains, spec)
+    regs = L.lab_regimes(context)
+    if regs:
+        regimes["market"] = L.market_regimes(full_trades, oos_trades, regs, int(spec["gates"]["min_regime_trades"]))
     gates = L.evaluate_gates(spec["gates"], oos, full, dsr, pbo, cost_oos, pos_share)
+    if spec["gates"]["require_regime_edge"]:
+        gates.append(L.regime_gate(spec["gates"], oos_trades, regs))
     om_full = options_metrics(full_trades, me["res"]["mtm"], days, cap)
     om_oos = options_metrics(oos_trades, _realised_curve(oos_trades, oos_days), oos_days, cap)
     return {

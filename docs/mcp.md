@@ -34,7 +34,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 32 tools and 11 prompts from
+4. Restart the client. It should list 33 tools and 11 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -117,6 +117,7 @@ message.
 | `broker_positions` | **Broker positions.** Today's positions read from the live broker's API: symbol, exchange, product, qty, average, P&L. Read only; needs the user's own token in the server's environment. | `broker`? | read-only; network |
 | `doctor` | **Data sources self-test.** Probe every free data source the tools read (NSE equity list, market status, holidays, announcements, board meetings, results, bulk/block deals, PIT, option chain and contract info, lot sizes, F&O list, India VIX history; Yahoo chart, spark and headlines), one polite request each (about 30 s): ok, slow, changed, down or blocked, since when, the tools affected and the fallback in use. Freshness follows the NSE calendar in IST. Read only. | `only`? | read-only; network |
 | `persona_scorecards` | **Agent persona scorecards.** Each agent persona's paper track record (agents/), rebuilt from trader/state/trades.json: closed trades, wins and losses, net P&L after every charge, profit factor, expectancy, max drawdown, losing streaks, entries per day, yes and no counts, and behaviour flags (overtrading, revenge trades, exits after flat_by, fills with no ticket). Fills are credited through the persona tag on the drafted proposal. Read only. | `persona`? | read-only |
+| `regime_now` | **Market regime now.** The market regime in plain words for NIFTY, BANKNIFTY or NSE stocks (trader-regime): trending up or down, ranging or no clear trend (ADX 14, efficiency ratio, 20/50 EMA slope, 200-day average), the volatility bucket (India VIX percentile over a year, realised vol, IV rank), the gap, breadth, weekly or monthly expiry today or next session, results day, RBI policy and Budget days, holidays, the closing-auction window and the time-of-day bucket. Each day uses data up to its own close only. From the local archive when present, else Yahoo daily bars. A description of the market so far, not a forecast. Read only (board meetings are cached a day in trader/regime/board/). | `symbols`?, `iv`? | read-only; network |
 <!-- tools:end -->
 
 `?` marks an optional argument. Every tool also carries MCP annotations:
@@ -178,10 +179,16 @@ Resources are the JSON files of your `trader/` folder, read only:
 `bharat-trader://trader/plan.json`, `.../watchlist.json`,
 `.../portfolio.json`, `.../options.json`, `.../strategy.json`,
 `.../journal.json` (whichever exist), and `bharat-trader://trader/state/risk.json`,
-`.../broker.json`, `.../trades.json`. Two templates cover the rest:
-`bharat-trader://trader/{file}` and `bharat-trader://trader/state/{file}`.
-Names are checked (`*.json`, no `..`, no subfolders beyond `state/`) and the
-resolved path must stay inside `trader/`.
+`.../broker.json`, `.../trades.json`, and the daily market regimes that
+`trader-regime history` stores: `bharat-trader://trader/regime/NIFTY.json`.
+Three templates cover the rest: `bharat-trader://trader/{file}`,
+`bharat-trader://trader/state/{file}` and `bharat-trader://trader/regime/{file}`.
+Names are checked (`*.json`, no `..`, no subfolders beyond `state/` and
+`regime/`) and the resolved path must stay inside `trader/`.
+
+`regime_now` is the regime read for today (trader-regime `now --json`):
+trend, volatility bucket, gap, expiry and event flags and the time-of-day
+bucket, with every input. See [regime.md](regime.md).
 
 | prompt | arguments | asks the assistant to |
 | --- | --- | --- |
