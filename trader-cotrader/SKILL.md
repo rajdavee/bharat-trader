@@ -172,6 +172,14 @@ anything but unproven. A day with no candidates is a good outcome.
 From an AI assistant, the MCP server (`mcp/server.py`) offers
 `cotrader_candidates`, `cotrader_explain` and `calibration_report`.
 
+## Hinglish
+
+Plain words in Hinglish (Hindi in Roman script, trading words in English): `today` and `explain` take `--lang hi-en` (candidates, odds, the sit-out answer, what the evidence does NOT show), or set `"lang": "hi-en"` in `trader/config.json` for every run. Numbers, ₹, IST, tickers and `--json` output stay the same. See [docs/hinglish.md](../docs/hinglish.md).
+
+```bash
+python3 trader-cotrader/cotrader.py today --lang hi-en
+```
+
 ## Safety
 
 - Education and tooling, not financial advice. Every output here is a rules check, not a recommendation.

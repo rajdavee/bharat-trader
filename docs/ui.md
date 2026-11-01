@@ -128,6 +128,7 @@ free endpoints again.
 | GET | `/api/chart?symbol=&interval=1m\|5m\|1d&ema=9,21` | bars, overlays, opening range, plan levels |
 | GET | `/api/scanner`, `/api/plan`, `/api/alerts` | the scanner, exit and alerts files |
 | GET | `/api/portfolio`, `/api/orders`, `/api/risk`, `/api/config` | account, tickets, verdicts, settings |
+| GET | `/api/lang` | the language of the plain-words text: `en` or `hi-en` (Hinglish) |
 | GET | `/api/fno` | the paper F&O book by strategy: marks, P&L, Greeks, margin, payoff at expiry |
 | GET | `/api/options?symbol=&expiry=&strikes=` | trader-options' analysis of one expiry, the expiry list, why panels |
 | GET | `/api/strategy` | the templates, symbols and the saved `trader/strategy.json` |
@@ -153,6 +154,7 @@ free endpoints again.
 | POST | `/api/fno/adjust` | `ticket.py adjust`: write a roll, close-leg, hedge or close-all PROPOSAL; places nothing |
 | POST | `/api/config/validate` | check a config without saving |
 | POST | `/api/config` | validate and save `trader/config.json` (the old one becomes `config.json.bak`) |
+| POST | `/api/lang` | `{"lang": "en" or "hi-en"}`: the Settings language toggle; only `lang` in `trader/config.json` changes (the old file becomes `config.json.bak`); with no config yet the browser keeps it |
 | POST | `/api/strategy/price` | price a template or custom legs (nothing is written) |
 | POST | `/api/strategy/draft` | write the legs as a paper PROPOSAL to `trader/orders.json` and the strategy to `trader/strategy.json`; refuses other proposals unless `replace`, and a non-paper config |
 | POST | `/api/cotrader/run` | `cotrader.py today`: `{"tier": "validated" or "research"}`; writes `trader/cotrader.json`, the plans and new log lines; places nothing |

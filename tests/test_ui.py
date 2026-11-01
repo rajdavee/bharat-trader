@@ -1418,5 +1418,81 @@ class StaticFiles(unittest.TestCase):
                 self.assertNotRegex(read_text(p), r"attributionLogo\s*:\s*false", p)
 
 
+class Language(unittest.TestCase):
+    """The Settings page's language toggle (POST /api/lang) and the UI's own catalogue (ui/static/js/i18n.js)."""
+
+    def setUp(self):
+        self.dir = workdir()
+        self.ctx = api.Context(self.dir, now="2026-10-29 10:00", offline=UIFIX)
+        self.cfg = os.path.join(self.dir, "trader", "config.json")
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def read_cfg(self):
+        with open(self.cfg, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def test_toggle_saves_only_lang(self):
+        before = self.read_cfg()
+        self.assertEqual(api.dispatch(self.ctx, "GET", "/api/lang")[1]["lang"], "en")
+        self.assertEqual(api.dispatch(self.ctx, "GET", "/api/meta")[1]["lang"], "en")
+        status, res = api.dispatch(self.ctx, "POST", "/api/lang", {}, {"lang": "hi-en"})
+        self.assertEqual((status, res["saved"], res["lang"]), (200, True, "hi-en"))
+        after = self.read_cfg()
+        self.assertEqual(after.pop("lang"), "hi-en")
+        self.assertEqual(after, before)                               # every other key exactly as it was
+        self.assertTrue(os.path.exists(self.cfg + ".bak"))
+        self.assertEqual(api.dispatch(self.ctx, "GET", "/api/meta")[1]["lang"], "hi-en")
+        self.assertFalse(api.dispatch(self.ctx, "POST", "/api/lang", {}, {"lang": "hi-en"})[1]["saved"])   # no-op
+        # the settings page's validator knows the key and its two values
+        ok = api.dispatch(self.ctx, "POST", "/api/config/validate", {}, {"config": self.read_cfg()})[1]
+        self.assertEqual(ok["errors"], [])
+        self.assertFalse(any(w.startswith("lang ") for w in ok["warnings"]), ok["warnings"])
+        bad = api.dispatch(self.ctx, "POST", "/api/config/validate", {}, {"config": dict(before, lang="hindi")})[1]
+        self.assertIn("lang is \"en\" or \"hi-en\" (Hinglish)", bad["errors"])
+        self.assertEqual(api.dispatch(self.ctx, "POST", "/api/lang", {}, {"lang": "en"})[1]["lang"], "en")
+        self.assertEqual(self.read_cfg()["lang"], "en")
+
+    def test_toggle_refuses_anything_else_and_never_makes_a_config(self):
+        status, res = api.dispatch(self.ctx, "POST", "/api/lang", {}, {"lang": "fr"})
+        self.assertEqual(status, 400)
+        os.remove(self.cfg)
+        status, res = api.dispatch(self.ctx, "POST", "/api/lang", {}, {"lang": "hi-en"})
+        self.assertEqual((status, res["saved"]), (200, False))
+        self.assertIn("browser", res["note"])
+        self.assertFalse(os.path.exists(self.cfg))                    # the setup guide still runs first
+
+    def test_hinglish_text_from_the_server(self):
+        api.dispatch(self.ctx, "POST", "/api/lang", {}, {"lang": "hi-en"})
+        risk = api.dispatch(self.ctx, "GET", "/api/risk")[1]
+        self.assertEqual(risk["rule_words"]["loss"],
+                         "Is trade mein aapke max loss per trade se zyada nuksaan ho sakta hai.")
+        self.assertEqual(risk["limits"][0]["key"], api.dispatch(self.ctx, "GET", "/api/risk")[1]["limits"][0]["key"])
+        api.dispatch(self.ctx, "POST", "/api/lang", {}, {"lang": "en"})
+        self.assertIsNone(api.dispatch(self.ctx, "GET", "/api/risk")[1]["rule_words"])
+
+    def test_ui_catalogue_is_complete_in_both_languages(self):
+        text = read_text(os.path.join(UI, "static", "js", "i18n.js"))
+        m = re.search(r"/\* catalogue:start \*/(.*?)/\* catalogue:end \*/", text, re.S)
+        cat = json.loads(m.group(1))
+        self.assertEqual(sorted(cat), ["en", "hi-en"])
+        self.assertEqual(sorted(cat["en"]), sorted(cat["hi-en"]), sorted(set(cat["en"]) ^ set(cat["hi-en"])))
+        for k, v in cat["en"].items():
+            self.assertEqual(sorted(re.findall(r"\{(\w+)\}", v)), sorted(re.findall(r"\{(\w+)\}", cat["hi-en"][k])), k)
+        # every page in the navigation has a label, and every key a page asks for exists
+        for r in re.findall(r"^  (\w+): \{ label:", read_text(os.path.join(UI, "static", "js", "nav.js")), re.M):
+            self.assertIn("nav." + r, cat["en"], r)
+        used = set()
+        for name in ("app.js", "pages/today.js", "pages/cotrader.js", "pages/risk.js", "pages/portfolio.js",
+                     "pages/settings.js"):
+            used |= set(re.findall(r"\btr?\('([a-z]+\.[\w-]+)'", read_text(os.path.join(UI, "static", "js", name))))
+        self.assertTrue(used)
+        self.assertEqual(sorted(k for k in used if k not in cat["en"]), [])
+        # the safety words survive: one order, the English word yes
+        self.assertIn("EK order", cat["hi-en"]["pf.reply_hint"])
+        self.assertIn("yes", cat["hi-en"]["lang.yes_note"])
+
+
 if __name__ == "__main__":
     unittest.main()

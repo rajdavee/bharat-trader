@@ -4,6 +4,7 @@
 import { get, post } from '../api.js';
 import { h, clear, card, note, loading } from '../dom.js';
 import { statusCard, marginCard, status } from '../broker.js';
+import { t, lang, setLang } from '../i18n.js';
 
 const LOCKED = new Set(['paper', 'broker', 'exchange', 'live_enabled']);
 const GROUPS = [
@@ -65,6 +66,31 @@ function readForm(form, base) {
   return [out, errs];
 }
 
+// The language toggle: POST /api/lang sets only "lang" in trader/config.json, then the page redraws in it.
+function langCard(root, current) {
+  const msg = h('p', { class: 'small', 'aria-live': 'polite' });
+  const choose = async (code) => {
+    try {
+      const res = await post('/api/lang', { lang: code });
+      setLang(res.lang);
+      window.dispatchEvent(new CustomEvent('bt-lang', { detail: res.lang }));
+      clear(root);
+      await render(root);
+      const box = root.querySelector('.lang-msg');
+      if (box) box.textContent = res.saved || !res.note ? t('lang.saved', { name: t('lang.' + res.lang) }) : t('lang.browser');
+    } catch (e) {
+      clear(msg).appendChild(note(e.message, 'error'));
+    }
+  };
+  const buttons = ['en', 'hi-en'].map((code) => h('button', { type: 'button', class: 'btn' + (code === current ? ' primary' : ''),
+    'aria-pressed': String(code === current), lang: code === 'hi-en' ? 'hi-Latn' : 'en', onclick: () => choose(code) },
+  t('lang.' + code)));
+  msg.classList.add('lang-msg');
+  return card(t('lang.title'), h('p', { class: 'small muted' }, t('lang.lede')),
+    h('div', { class: 'row', role: 'group', 'aria-label': t('lang.title') }, buttons),
+    h('p', { class: 'small muted' }, t('lang.yes_note')), msg);
+}
+
 function report(res) {
   const box = h('div', { class: 'report', role: 'status' });
   if (res.saved) box.appendChild(note('Saved trader/config.json' + (res.backup ? ' (the previous one is config.json.bak).' : '.'), 'ok'));
@@ -83,6 +109,7 @@ export async function render(root) {
   loading(body);
   const [d, st] = await Promise.all([get('/api/config'), status()]);
   clear(body);
+  body.appendChild(langCard(root, lang()));
   body.appendChild(note(d.help, 'info'));
   body.appendChild(statusCard(st));
   body.appendChild(marginCard(st.broker && st.broker !== 'paper' ? st.broker : 'kite'));

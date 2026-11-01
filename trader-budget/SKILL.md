@@ -228,6 +228,14 @@ It never places, confirms or schedules an order, never raises a limit on its
 own, never shrinks a stop to fit more shares, never uses broker leverage
 (MIS margin), and never sizes F&O or short positions.
 
+## Hinglish
+
+Plain words in Hinglish (Hindi in Roman script, trading words in English): the sizing report, its refusals and price notes take `--lang hi-en`, or set `"lang": "hi-en"` in `trader/config.json` for every run. Numbers, ₹, IST, tickers and `--json` output stay the same. See [docs/hinglish.md](../docs/hinglish.md).
+
+```bash
+python3 trader-budget/size.py --lang hi-en
+```
+
 ## Safety
 
 - Education and tooling, not financial advice. Every output here is a rules check, not a recommendation.

@@ -677,25 +677,24 @@ def size_trade(plan, cfg, capital=None, limit=None, price=None, cash=None, today
         l["binds"] = l["name"] == bound[0]
     gross, charges, total_loss = loss_at_stop(qty)
     value = round_paise(qty * ref)
-    refusal = None
+    why_not = None           # [message key, its values]: the refusal in any language
     if qty == 0:
         if bound[0] == "max loss":
-            g1, ch1, t1 = loss_at_stop(1)
-            refusal = ("one share risks %s at the stop (entry %s minus stop %s%s), more than your %s max loss per "
-                       "trade. No order: it is not shrunk to fit. Skip this trade, or plan a closer stop with "
-                       "trader-exit." % (inr(t1), _p(ref), _p(stop),
-                                         (", plus %s charges" % inr(ch1)) if ch1 else "", inr(max_loss)))
+            g1, ch1, one = loss_at_stop(1)
+            why_not = ["refuse_max_loss", {"loss": inr(one), "entry": _p(ref), "stop": _p(stop),
+                                           "charges": (", plus %s charges" % inr(ch1)) if ch1 else "",
+                                           "limit": inr(max_loss)}]
         else:
             lim = limits[[l["name"] for l in limits].index(bound[0])]
-            refusal = "one share of %s costs %s, more than your %s (%s). No order." % (
-                sym, inr(ref), LIMIT_WORDS[bound[0]], lim["how"])
+            why_not = ["refuse_cost", {"sym": sym, "price": inr(ref), "limit": LIMIT_WORDS[bound[0]],
+                                       "how": lim["how"]}]
     elif _f(c.get("min_reward_risk")) and reward_p < _f(c["min_reward_risk"]) * risk_p - EPS:
-        refusal = ("reward:risk %.2f (target %s, entry %s, stop %s) is under your minimum %s, so trader-risk "
-                   "would block it. No order. Skip it, or make a new plan with trader-exit."
-                   % (reward_p / float(risk_p), _p(target), _p(ref), _p(stop), _num(c["min_reward_risk"])))
+        why_not = ["refuse_rr", {"rr": "%.2f" % (reward_p / float(risk_p)), "target": _p(target), "entry": _p(ref),
+                                 "stop": _p(stop), "min": _num(c["min_reward_risk"])}]
     elif value < float(c.get("min_order_value") or 0) - 0.005:
-        refusal = ("%d share%s of %s is %s, under your %s minimum order. No order."
-                   % (qty, "" if qty == 1 else "s", sym, inr(value), inr(c["min_order_value"])))
+        why_not = ["refuse_min", {"shares": "%d share%s" % (qty, "" if qty == 1 else "s"), "sym": sym,
+                                  "value": inr(value), "min": inr(c["min_order_value"])}]
+    refusal = t(why_not[0], "en", **why_not[1]) if why_not else None
     return {
         "symbol": sym, "side": "BUY", "setup": plan.get("setup", ""), "date": plan.get("date"),
         "entry_time": plan.get("entry_time", ""), "entry_plan": entry_plan,
@@ -707,7 +706,7 @@ def size_trade(plan, cfg, capital=None, limit=None, price=None, cash=None, today
         "bound_by": bound[0], "value": value, "max_loss": gross, "charges": charges,
         "max_loss_with_charges": total_loss, "flat_by": plan.get("flat_by") or c.get("flat_by"),
         "product": str(c.get("product") or "MIS").upper(), "exchange": str(c.get("exchange") or "NSE").upper(),
-        "refusal": refusal,
+        "refusal": refusal, "refusal_msg": why_not,
     }
 
 
@@ -740,47 +739,143 @@ def leg_order(s):
     }
 
 
-def plan_report(s, order, notes=()):
+MSG = {
+    "en": {
+        "head": "{sym} buy, {setup}, entry {entry}{at} IST",
+        "at": " at {time}",
+        "stop_target": "Stop {stop}{sl}. Target {target}{tl}.",
+        "src_plan": "the plan's entry",
+        "src_plan limit": "a LIMIT at the plan's entry",
+        "src_price": "the latest price, above the plan's entry",
+        "src_limit": "your limit price",
+        "sized": "Sized at {entry} ({src}). Risk {risk} a share (entry {entry} minus stop {stop}). Reward:risk {rr}.",
+        "limits": "Limits (whole shares; the smallest one wins):",
+        "binds": "  <- binds",
+        "no_order": "No order: {why}",
+        "size": "Size: {qty} shares of {sym} = {value} at {entry}. At the stop: {qty} x {risk} = {loss}{ch}.",
+        "size_ch": " plus about {charges} charges (brokerage, STT, exchange, SEBI, stamp, GST) = {total}",
+        "stop_promise": "A stop is an order, not a promise: in a fast market it can fill below {stop}.",
+        "proposed": "Proposed order ({exch} {prod}, nothing has been placed):",
+        "legs": "  BUY {qty} {sym}, {how}, DAY; then SL-M stop {stop} and LIMIT target {target} (when one fills, "
+                "cancel the other)",
+        "flat_by": "Flat by {time} IST: anything still open then gets closed (trader-alerts rings, trader-broker "
+                   "flatten), before the broker's own MIS square-off.",
+        "next": "Next: trader-risk checks it, then trader-broker asks you yes or no.",
+        "disclaimer": "Education and tooling, not financial advice.",
+        "wrote": "Wrote 1 proposed order to {path}",
+        "note_market": "{sym} last {price} (at {time} IST) is above the plan's entry {entry}, so the risk is bigger: "
+                       "sized at {price}.",
+        "note_chase": "{sym} last {price} (at {time} IST) is above your LIMIT {limit}: the order may not fill. "
+                      "Do not chase: a higher entry means a bigger loss at the same stop.",
+        "refuse_max_loss": "one share risks {loss} at the stop (entry {entry} minus stop {stop}{charges}), more than "
+                           "your {limit} max loss per trade. No order: it is not shrunk to fit. Skip this trade, or "
+                           "plan a closer stop with trader-exit.",
+        "refuse_cost": "one share of {sym} costs {price}, more than your {limit} ({how}). No order.",
+        "refuse_rr": "reward:risk {rr} (target {target}, entry {entry}, stop {stop}) is under your minimum {min}, so "
+                     "trader-risk would block it. No order. Skip it, or make a new plan with trader-exit.",
+        "refuse_min": "{shares} of {sym} is {value}, under your {min} minimum order. No order.",
+    },
+    "hi-en": {
+        "head": "{sym} buy, {setup}, entry {entry}{at} IST",
+        "at": ", {time}",
+        "stop_target": "Stop {stop} pe hai{sl}. Target {target}{tl}.",
+        "src_plan": "plan ki entry",
+        "src_plan limit": "plan ki entry pe LIMIT",
+        "src_price": "latest price, jo plan ki entry se upar hai",
+        "src_limit": "aapka limit price",
+        "sized": "Size {entry} pe nikala ({src}). Risk {risk} per share hai (entry {entry} minus stop {stop}). "
+                 "Reward:risk {rr} hai.",
+        "limits": "Limits (sirf poore shares; jo sabse chhota hai, wahi lagta hai):",
+        "binds": "  <- yahi lagta hai",
+        "no_order": "Order nahi banega: {why}",
+        "size": "Size: {sym} ke {qty} shares = {value}, {entry} pe. Stop lagne pe nuksaan: {qty} x {risk} = {loss}{ch}.",
+        "size_ch": " plus lagbhag {charges} charges (brokerage, STT, exchange, SEBI, stamp, GST) = {total}",
+        "stop_promise": "Stop ek order hai, guarantee nahi: tez market mein yeh {stop} se neeche bhi fill ho sakta hai.",
+        "proposed": "Proposed order ({exch} {prod}, abhi kuch bhi place nahi hua hai):",
+        "legs": "  BUY {qty} {sym}, {how}, DAY; phir SL-M stop {stop} aur LIMIT target {target} (ek fill ho to "
+                "doosra cancel)",
+        "flat_by": "{time} IST tak flat: tab tak jo bhi open hai woh close hoga (trader-alerts ring karega, "
+                   "trader-broker flatten), broker ke apne MIS square-off se pehle.",
+        "next": "Aage: trader-risk ise check karega, phir trader-broker aapse yes ya no poochega.",
+        "disclaimer": "Yeh education aur tooling hai, financial advice nahi.",
+        "wrote": "1 proposed order {path} mein likh diya",
+        "note_market": "{sym} ka last price {price} ({time} IST) plan ki entry {entry} se upar hai, isliye risk zyada "
+                       "hai: size {price} pe nikala.",
+        "note_chase": "{sym} ka last price {price} ({time} IST) aapke LIMIT {limit} se upar hai: order shayad fill na "
+                      "ho. Peeche mat bhaagiye: oonchi entry matlab usi stop pe bada nuksaan.",
+        "refuse_max_loss": "ek share ka risk hi stop pe {loss} hai (entry {entry} minus stop {stop}{charges}), jo "
+                           "aapke {limit} max loss per trade se zyada hai. Order nahi: ise fit karne ke liye chhota "
+                           "nahi kiya jaata. Yeh trade chhod dijiye, ya trader-exit se paas ka stop plan kijiye.",
+        "refuse_cost": "{sym} ka ek share {price} ka hai, jo aapke {limit} ({how}) se zyada hai. Order nahi.",
+        "refuse_rr": "reward:risk {rr} (target {target}, entry {entry}, stop {stop}) aapke minimum {min} se kam hai, "
+                     "isliye trader-risk ise block karega. Order nahi. Ise chhod dijiye, ya trader-exit se naya plan "
+                     "banaiye.",
+        "refuse_min": "{sym} ke {shares} ki value {value} hai, aapke {min} minimum order se kam. Order nahi.",
+    },
+}
+
+
+# ---------------------------------------------------------------- message catalogue helper (same in every skill with MSG)
+LANGS = ("en", "hi-en")
+
+
+def pick_lang(flag=None, cfg=None):
+    """The output language: --lang beats the config's "lang"; "hi-en" is Hinglish (Roman script), else English."""
+    for v in (flag, cfg.get("lang") if isinstance(cfg, dict) else None):
+        v = str(v or "").strip().lower().replace("_", "-")
+        if v == "hinglish":
+            v = "hi-en"
+        if v in LANGS:
+            return v
+    return "en"
+
+
+def t(key, lang="en", **kw):
+    """MSG[lang][key] filled with kw (str.format); the English text when a language or key is missing."""
+    text = (MSG.get(lang) or {}).get(key)
+    if text is None:
+        text = MSG["en"][key]
+    return text.format(**kw) if kw else text
+# ---------------------------------------------------------------- end of message catalogue helper
+
+
+def plan_report(s, order, notes=(), lang="en"):
     lines = []
     setup = SETUP_WORDS.get(s["setup"], s["setup"] or "setup")
-    lines.append("%s buy, %s, entry %s%s IST" % (s["symbol"], setup, _p(s["entry_plan"]),
-                                                (" at " + s["entry_time"]) if s["entry_time"] else ""))
-    lines.append("Stop %s%s. Target %s%s." % (_p(s["stop"]), (": " + s["stop_label"]) if s["stop_label"] else "",
-                                             _p(s["target"]), (": " + s["target_label"]) if s["target_label"] else ""))
+    lines.append(t("head", lang, sym=s["symbol"], setup=setup, entry=_p(s["entry_plan"]),
+                   at=t("at", lang, time=s["entry_time"]) if s["entry_time"] else ""))
+    lines.append(t("stop_target", lang, stop=_p(s["stop"]), sl=(": " + s["stop_label"]) if s["stop_label"] else "",
+                   target=_p(s["target"]), tl=(": " + s["target_label"]) if s["target_label"] else ""))
     for n in notes:
         lines.append(n)
-    src = {"plan": "the plan's entry", "plan limit": "a LIMIT at the plan's entry",
-           "price": "the latest price, above the plan's entry", "limit": "your limit price"}[s["entry_from"]]
-    lines.append("Sized at %s (%s). Risk %s a share (entry %s minus stop %s). Reward:risk %.2f."
-                 % (_p(s["entry"]), src, _p(s["risk_per_share"]), _p(s["entry"]), _p(s["stop"]), s["reward_risk"]))
+    lines.append(t("sized", lang, entry=_p(s["entry"]), src=t("src_" + s["entry_from"], lang),
+                   risk=_p(s["risk_per_share"]), stop=_p(s["stop"]), rr="%.2f" % s["reward_risk"]))
     lines.append("")
-    lines.append("Limits (whole shares; the smallest one wins):")
+    lines.append(t("limits", lang))
     for l in s["limits"]:
         lines.append("  %-13s %-66s %4d shares%s" % (l["name"], l["how"], l["shares"],
-                                                      "  <- binds" if l["binds"] else ""))
+                                                      t("binds", lang) if l["binds"] else ""))
     lines.append("")
     if order is None:
-        lines.append("No order: " + s["refusal"])
-        lines.append("Education and tooling, not financial advice.")
+        why = s.get("refusal_msg")
+        lines.append(t("no_order", lang, why=t(why[0], lang, **why[1]) if why else s["refusal"]))
+        lines.append(t("disclaimer", lang))
         return "\n".join(lines)
-    lines.append("Size: %d shares of %s = %s at %s. At the stop: %d x %s = %s%s."
-                 % (s["qty"], s["symbol"], inr(s["value"]), _p(s["entry"]), s["qty"], _p(s["risk_per_share"]),
-                    inr(s["max_loss"]),
-                    (" plus about %s charges (brokerage, STT, exchange, SEBI, stamp, GST) = %s"
-                     % (inr(s["charges"]), inr(s["max_loss_with_charges"]))) if s["include_charges"] else ""))
-    lines.append("A stop is an order, not a promise: in a fast market it can fill below %s." % _p(s["stop"]))
+    lines.append(t("size", lang, qty=s["qty"], sym=s["symbol"], value=inr(s["value"]), entry=_p(s["entry"]),
+                   risk=_p(s["risk_per_share"]), loss=inr(s["max_loss"]),
+                   ch=t("size_ch", lang, charges=inr(s["charges"]), total=inr(s["max_loss_with_charges"]))
+                   if s["include_charges"] else ""))
+    lines.append(t("stop_promise", lang, stop=_p(s["stop"])))
     lines.append("")
-    lines.append("Proposed order (%s %s, nothing has been placed):" % (order["exchange"], order["product"]))
+    lines.append(t("proposed", lang, exch=order["exchange"], prod=order["product"]))
     how = "LIMIT %s" % _p(order["price"]) if order["order_type"] == "LIMIT" else "MARKET"
-    lines.append("  BUY %d %s, %s, DAY; then SL-M stop %s and LIMIT target %s (when one fills, cancel the other)"
-                 % (order["qty"], order["symbol"], how, _p(order["stop_loss"]["trigger_price"]),
-                    _p(order["target"]["price"])))
+    lines.append(t("legs", lang, qty=order["qty"], sym=order["symbol"], how=how,
+                   stop=_p(order["stop_loss"]["trigger_price"]), target=_p(order["target"]["price"])))
     if s["flat_by"] and s["product"] == "MIS":
-        lines.append("Flat by %s IST: anything still open then gets closed (trader-alerts rings, trader-broker "
-                     "flatten), before the broker's own MIS square-off." % s["flat_by"])
+        lines.append(t("flat_by", lang, time=s["flat_by"]))
     lines.append("")
-    lines.append("Next: trader-risk checks it, then trader-broker asks you yes or no.")
-    lines.append("Education and tooling, not financial advice.")
+    lines.append(t("next", lang))
+    lines.append(t("disclaimer", lang))
     return "\n".join(lines)
 
 
@@ -1091,6 +1186,7 @@ def write_orders(path, orders, cfg, source="", now=None):
 # ---------------------------------------------------------------- main
 
 def run_plan(a, cfg):
+    lang = pick_lang(getattr(a, "lang", None), cfg)
     now = parse_now(a.now)
     today = now.date().isoformat()
     plan = read_json(a.plan, "plan (run trader-exit first, or use --weights for a split)")
@@ -1106,21 +1202,20 @@ def run_plan(a, cfg):
     ppath = a.prices or ("trader/prices.json" if os.path.exists("trader/prices.json") else None)
     if ppath and sym:
         pdoc = read_json(ppath, "prices")
-        p, t, fresh = fresh_price(pdoc, sym, now)
+        p, at, fresh = fresh_price(pdoc, sym, now)
         entry = _f(plan.get("entry")) or 0
         if p is not None and fresh:
             price = p
             if round_paise(p) > round_paise(entry):
                 if a.market:
-                    notes.append("%s last %s (at %s IST) is above the plan's entry %s, so the risk is bigger: "
-                                 "sized at %s." % (sym, _p(p), t.strftime("%H:%M"), _p(entry), _p(p)))
+                    notes.append(t("note_market", lang, sym=sym, price=_p(p), time=at.strftime("%H:%M"),
+                                   entry=_p(entry)))
                 else:
-                    notes.append("%s last %s (at %s IST) is above your LIMIT %s: the order may not fill. "
-                                 "Do not chase: a higher entry means a bigger loss at the same stop."
-                                 % (sym, _p(p), t.strftime("%H:%M"), _p(limit or entry)))
+                    notes.append(t("note_chase", lang, sym=sym, price=_p(p), time=at.strftime("%H:%M"),
+                                   limit=_p(limit or entry)))
         elif p is not None:
             notes.append("%s in %s is %s: not used (older than %d minutes)."
-                         % (sym, ppath, ("from " + t.strftime("%Y-%m-%d %H:%M") + " IST") if t else "undated",
+                         % (sym, ppath, ("from " + at.strftime("%Y-%m-%d %H:%M") + " IST") if at else "undated",
                             FRESH_MINUTES))
     cash = None
     if a.portfolio and os.path.exists(a.portfolio):
@@ -1139,9 +1234,9 @@ def run_plan(a, cfg):
         print(json.dumps({"sizing": s, "orders": [order] if order else [], "notes": notes}, indent=2,
                          ensure_ascii=False))
     else:
-        print(plan_report(s, order, notes))
+        print(plan_report(s, order, notes, lang))
         if order and a.write:
-            print("Wrote 1 proposed order to %s" % a.write)
+            print(t("wrote", lang, path=a.write))
     return 0 if order else 1
 
 
@@ -1221,6 +1316,8 @@ def main(argv=None):
     ap.add_argument("--write", nargs="?", const="trader/orders.json", metavar="PATH",
                     help="write the proposed order (default trader/orders.json)")
     ap.add_argument("--json", action="store_true", help="print JSON instead of the report")
+    ap.add_argument("--lang", choices=LANGS, metavar="LANG", help="the report's language: en or hi-en (Hinglish); default: the "
+                                                  "config's \"lang\", else en")
     ap.add_argument("--persona", help="tag the proposal with the agent persona drafting it, e.g. intraday-trader "
                                       "(a note for the persona scorecard: it changes no size and is never sent)")
     g = ap.add_argument_group("weights mode (split capital across a list, CNC, whole shares)")

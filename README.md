@@ -171,7 +171,14 @@ python3 trader-timemachine/timemachine.py run --write  # 10,000 replays: the hon
 python3 trader-budget/size.py --write                  # -> trader/orders.json
 python3 trader-risk/check.py                           # PASS / BLOCK
 python3 trader-broker/ticket.py show                   # the paper ticket; then confirm with your yes
+python3 trader-risk/check.py --lang hi-en              # the same verdicts in Hinglish (--lang hi-en)
 ```
+
+Prefer Hinglish? Add `--lang hi-en` to a command, or `"lang": "hi-en"` to
+`trader/config.json` (or the toggle on the web UI's Settings page) for every
+ticket, risk verdict, alert, co-trader answer and daily report. Numbers, ₹,
+IST and tickers stay exactly the same, and the reply that places an order is
+still the word *yes*. See [docs/hinglish.md](docs/hinglish.md).
 
 <details>
 <summary>Every tool, one line each</summary>
@@ -341,6 +348,7 @@ Start at [docs/README.md](docs/README.md). The main pages:
 [MCP server](docs/mcp.md) ·
 [Ask panel (your own LLM)](docs/ai-chat.md) ·
 [agent team](docs/agents.md) ·
+[Hinglish output](docs/hinglish.md) ·
 [data sources](docs/data-sources.md) ·
 [roadmap](docs/roadmap.md).
 

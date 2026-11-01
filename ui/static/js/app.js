@@ -8,6 +8,7 @@ import { icon, brandMark } from './icons.js';
 import { GROUPS, PAGES, BOTTOM, groupOf } from './nav.js';
 import * as palette from './palette.js';
 import { toast } from './ui.js';
+import { t, setLang, storedLang } from './i18n.js';
 import * as today from './pages/today.js';
 import * as chart from './pages/chart.js';
 import * as scanner from './pages/scanner.js';
@@ -53,7 +54,22 @@ function parseHash() {
 function link(route, cls) {
   const p = PAGES[route];
   return h('a', { href: route === 'today' ? '#/' : '#/' + route, dataset: { page: route }, class: cls || null },
-    icon(p.icon), h('span', null, p.label), p.soon ? h('span', { class: 'soon-tag' }, 'v0.3') : null);
+    icon(p.icon), h('span', { class: 'nav-label' }, p.label), p.soon ? h('span', { class: 'soon-tag' }, 'v0.3') : null);
+}
+
+// The sidebar and the phone bar in the chosen language (i18n.js); the pages translate their own words.
+function relabelNav() {
+  for (const a of document.querySelectorAll('#nav a[data-page], #bottom-bar a[data-page]')) {
+    const r = a.dataset.page;
+    const span = a.querySelector('span');
+    if (span) span.textContent = a.closest('#bottom-bar') && r === 'portfolio' ? t('nav.portfolio_short') : t('nav.' + r);
+  }
+  for (const g of GROUPS) {
+    const el = g.name ? document.getElementById('ng-' + g.name.toLowerCase()) : null;
+    if (el) el.textContent = t('group.' + g.name);
+  }
+  const menu = document.querySelector('#bottom-bar button span');
+  if (menu) menu.textContent = t('nav.menu');
 }
 
 function buildNav() {
@@ -369,6 +385,8 @@ async function boot() {
   } catch (e) {
     /* the page itself shows the error */
   }
+  setLang(m && m.config_exists ? m.lang : storedLang() || (m && m.lang) || 'en');
+  relabelNav();
   const { name } = parseHash();
   if (m && !m.config_exists && (name === 'today') && !location.hash.replace(/^#\/?/, '') && stored('bt-setup-skipped') !== '1') {
     location.replace('#/welcome');
@@ -402,6 +420,7 @@ function start() {
     window.matchMedia('(max-width: 1099px)').addEventListener('change', () => drawer(false));
   }
   document.addEventListener('keydown', onKey);
+  window.addEventListener('bt-lang', relabelNav);       // the Settings page switched the language
   window.addEventListener('hashchange', route);
   get('/api/status').then(marketChip).catch(() => marketChip(null));
   document.getElementById('data').addEventListener('click', runDoctor);

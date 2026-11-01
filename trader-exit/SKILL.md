@@ -169,6 +169,14 @@ be 692.70 + 2.80 = ₹695.50.
 It never places an order, never sizes a position, never widens a stop to
 make a plan pass, and never calls a stop a guarantee.
 
+## Hinglish
+
+Plain words in Hinglish (Hindi in Roman script, trading words in English): `plan` and `show` take `--lang hi-en` for the plan summary, or set `"lang": "hi-en"` in `trader/config.json` for every run. Numbers, ₹, IST, tickers and `--json` output stay the same. See [docs/hinglish.md](../docs/hinglish.md).
+
+```bash
+python3 trader-exit/exit.py show --lang hi-en
+```
+
 ## Safety
 
 - Education and tooling, not financial advice. Every output here is a rules check, not a recommendation.

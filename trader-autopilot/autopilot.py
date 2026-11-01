@@ -1781,73 +1781,159 @@ def _strategy_of(st, rows, pid):
     return "?"
 
 
-def report_md(rep):
-    L = ["# Auto-pilot report, %s (%s, paper only)" % (rep["date"], rep["mode"]), ""]
+MSG = {
+    "en": {
+        "title": "# Auto-pilot report, {date} ({mode}, paper only)",
+        "phases": "Pre-open {pre} IST, end of day {eod} IST.",
+        "not_run": "not run",
+        "regime": "- Market regime: {text}",
+        "brief": "- Co-trader brief: {text}",
+        "doctor": "- Data check: {text}",
+        "today": "## Today",
+        "totals": "{fills} fill(s), {closed} trade(s) closed. Realised {realised} after charges; charges paid today "
+                  "{charges}.",
+        "stopped": "New entries stopped: {why}.",
+        "by_head": "| strategy | fills | closed | won | charges | realised after charges |",
+        "closed_head": "## Closed trades",
+        "closed_cols": "| position | stock | qty | entry | exit | why | charges | net | R |",
+        "open_head": "## Open at the close (carried)",
+        "open_row": "- {id} {sym} {product} {qty} from {since}, stop {stop}, target {target}",
+        "fwd_head": "## Forward records (trader-lab)",
+        "skipped": "Skipped: {why}.",
+        "changed": " (CHANGED)",
+        "fwd_row": "- {name}: {before} -> {after}{changed}. {n} forward trade(s), {exp} a trade after charges. {why}",
+        "cal_head": "## Calibration (co-trader)",
+        "demoted": "Demoted for poor calibration: {names}.",
+        "journal": "Journal: {status}{why}.",
+        "timeline": "## Timeline",
+        "dns": "What this does NOT show: a paper fill is a model (fills at the bar's prices, the spec's slippage on "
+               "market and stop orders); a real order can fill worse or not at all. A few days of results prove "
+               "little either way.",
+        "disclaimer": "Paper trading only. Education and tooling, not financial advice. Nothing here can place a "
+                      "live order.",
+    },
+    "hi-en": {
+        "title": "# Auto-pilot report, {date} ({mode}, sirf paper)",
+        "phases": "Pre-open {pre} IST, din ka end {eod} IST.",
+        "not_run": "nahi chala",
+        "regime": "- Market regime: {text}",
+        "brief": "- Co-trader brief: {text}",
+        "doctor": "- Data check: {text}",
+        "today": "## Aaj",
+        "totals": "{fills} fill(s), {closed} trade(s) close hue. Charges ke baad realised {realised}; aaj diye gaye "
+                  "charges {charges}.",
+        "stopped": "Nayi entries band: {why}.",
+        "by_head": "| strategy | fills | closed | jeete | charges | charges ke baad realised |",
+        "closed_head": "## Close hue trades",
+        "closed_cols": "| position | stock | qty | entry | exit | kyun | charges | net | R |",
+        "open_head": "## Close ke waqt open (aage carry)",
+        "open_row": "- {id} {sym} {product} {qty}, {since} se, stop {stop}, target {target}",
+        "fwd_head": "## Forward records (trader-lab)",
+        "skipped": "Skip kiya: {why}.",
+        "changed": " (BADLA)",
+        "fwd_row": "- {name}: {before} -> {after}{changed}. {n} forward trade(s), charges ke baad har trade {exp}. {why}",
+        "cal_head": "## Calibration (co-trader)",
+        "demoted": "Kharab calibration ki wajah se demote: {names}.",
+        "journal": "Journal: {status}{why}.",
+        "timeline": "## Timeline",
+        "dns": "Yeh kya NAHI dikhata: paper fill ek model hai (bar ke prices pe fill, market aur stop orders pe spec "
+               "ki slippage); asli order isse bura fill ho sakta hai ya bilkul nahi. Kuch dinon ke results se kisi "
+               "bhi taraf zyada kuch saabit nahi hota.",
+        "disclaimer": "Sirf paper trading. Yeh education aur tooling hai, financial advice nahi. Yahan se koi live "
+                      "order place nahi ho sakta.",
+    },
+}
+
+
+# ---------------------------------------------------------------- message catalogue helper (same in every skill with MSG)
+LANGS = ("en", "hi-en")
+
+
+def pick_lang(flag=None, cfg=None):
+    """The output language: --lang beats the config's "lang"; "hi-en" is Hinglish (Roman script), else English."""
+    for v in (flag, cfg.get("lang") if isinstance(cfg, dict) else None):
+        v = str(v or "").strip().lower().replace("_", "-")
+        if v == "hinglish":
+            v = "hi-en"
+        if v in LANGS:
+            return v
+    return "en"
+
+
+def t(key, lang="en", **kw):
+    """MSG[lang][key] filled with kw (str.format); the English text when a language or key is missing."""
+    text = (MSG.get(lang) or {}).get(key)
+    if text is None:
+        text = MSG["en"][key]
+    return text.format(**kw) if kw else text
+# ---------------------------------------------------------------- end of message catalogue helper
+
+
+def report_md(rep, lang="en"):
+    L = [t("title", lang, date=rep["date"], mode=rep["mode"]), ""]
     ph = rep.get("phases") or {}
-    L.append("Pre-open %s, end of day %s IST." % (ph.get("pre_open") or "not run", ph.get("eod") or "not run"))
+    L.append(t("phases", lang, pre=ph.get("pre_open") or t("not_run", lang), eod=ph.get("eod") or t("not_run", lang)))
     pre = rep.get("pre_open") or {}
     if pre:
         L.append("")
-        L.append("- Market regime: %s" % pre.get("regime"))
-        L.append("- Co-trader brief: %s" % pre.get("cotrader"))
-        L.append("- Data check: %s" % pre.get("doctor"))
-    t = rep["totals"]
-    L += ["", "## Today", "",
-          "%d fill(s), %d trade(s) closed. Realised %s after charges; charges paid today %s." % (
-              t["fills"], t["closed"], inr(t["realised"]), inr(t["charges"]))]
+        L.append(t("regime", lang, text=pre.get("regime")))
+        L.append(t("brief", lang, text=pre.get("cotrader")))
+        L.append(t("doctor", lang, text=pre.get("doctor")))
+    tot = rep["totals"]
+    L += ["", t("today", lang), "",
+          t("totals", lang, fills=tot["fills"], closed=tot["closed"], realised=inr(tot["realised"]),
+            charges=inr(tot["charges"]))]
     if rep.get("entries_stopped"):
-        L.append("New entries stopped: %s." % rep["entries_stopped"])
+        L.append(t("stopped", lang, why=rep["entries_stopped"]))
     if rep["by_strategy"]:
-        L += ["", "| strategy | fills | closed | won | charges | realised after charges |", "| --- | ---: | ---: | ---: | ---: | ---: |"]
+        L += ["", t("by_head", lang), "| --- | ---: | ---: | ---: | ---: | ---: |"]
         for name, s in sorted(rep["by_strategy"].items()):
             L.append("| %s | %d | %d | %d | %s | %s |" % (name, s["fills"], s["closed"], s["wins"], inr(s["charges"]),
                                                           inr(s["realised"])))
     if rep["closed_trades"]:
-        L += ["", "## Closed trades", "", "| position | stock | qty | entry | exit | why | charges | net | R |",
+        L += ["", t("closed_head", lang), "", t("closed_cols", lang),
               "| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: |"]
         for r in rep["closed_trades"]:
             L.append("| %s | %s %s | %d | %.2f | %.2f | %s | %s | %s | %s |" % (
                 r["position"], r["symbol"], r["product"], r["qty"], r["entry"], r["exit"], r["exit_why"],
                 inr(r["charges"] or 0), inr(r["net"] or 0), "%+.2f" % r["r"] if r.get("r") is not None else "–"))
     if rep["open_positions"]:
-        L += ["", "## Open at the close (carried)", ""]
+        L += ["", t("open_head", lang), ""]
         for p in rep["open_positions"]:
-            L.append("- %s %s %s %d from %s, stop %s, target %s" % (p["id"], p["symbol"], p["product"], p["qty"],
-                                                                   p["since"], p["stop"], p["target"]))
+            L.append(t("open_row", lang, id=p["id"], sym=p["symbol"], product=p["product"], qty=p["qty"],
+                       since=p["since"], stop=p["stop"], target=p["target"]))
     fwd = rep.get("forward") or {}
     if fwd:
-        L += ["", "## Forward records (trader-lab)", ""]
+        L += ["", t("fwd_head", lang), ""]
         if fwd.get("skipped"):
-            L.append("Skipped: %s." % fwd["skipped"])
+            L.append(t("skipped", lang, why=fwd["skipped"]))
         for name, f in sorted((k, v) for k, v in fwd.items() if isinstance(v, dict)):
             if f.get("error"):
                 L.append("- %s: %s" % (name, f["error"]))
                 continue
             fr = f.get("forward") or {}
-            L.append("- %s: %s -> %s%s. %d forward trade(s), %+.3fR a trade after charges. %s" % (
-                name, f.get("before"), f.get("after"), " (CHANGED)" if f.get("changed") else "", fr.get("trades", 0),
-                fr.get("expectancy_r") or 0.0, f.get("why") or ""))
+            L.append(t("fwd_row", lang, name=name, before=f.get("before"), after=f.get("after"),
+                       changed=t("changed", lang) if f.get("changed") else "", n=fr.get("trades", 0),
+                       exp="%+.3fR" % (fr.get("expectancy_r") or 0.0), why=f.get("why") or ""))
     cal = rep.get("calibration") or {}
     if cal:
-        L += ["", "## Calibration (co-trader)", "", cal.get("words") or cal.get("error") or ""]
+        L += ["", t("cal_head", lang), "", cal.get("words") or cal.get("error") or ""]
         if cal.get("demoted"):
-            L.append("Demoted for poor calibration: %s." % ", ".join(cal["demoted"]))
+            L.append(t("demoted", lang, names=", ".join(cal["demoted"])))
     j = rep.get("journal") or {}
     if j:
-        L += ["", "Journal: %s%s." % (j.get("status"), (" (%s)" % j["why"]) if j.get("why") else "")]
-    L += ["", "## Timeline", ""]
+        L += ["", t("journal", lang, status=j.get("status"), why=(" (%s)" % j["why"]) if j.get("why") else "")]
+    L += ["", t("timeline", lang), ""]
     for e in rep.get("timeline") or []:
         L.append("- %s %s" % (e["at"][11:16], e["words"]))
-    L += ["", "What this does NOT show: a paper fill is a model (fills at the bar's prices, the spec's slippage on "
-              "market and stop orders); a real order can fill worse or not at all. A few days of results prove "
-              "little either way.", "", DISCLAIMER, ""]
+    L += ["", t("dns", lang), "", t("disclaimer", lang), ""]
     return "\n".join(L)
 
 
 def save_report(paths, rep):
     write_json(paths.day(rep["date"], "report.json"), rep)
     with open(paths.day(rep["date"], "report.md"), "w", encoding="utf-8") as fh:
-        fh.write(report_md(rep))
+        fh.write(report_md(rep, pick_lang(None, read_json(paths.config))))
 
 
 # ---------------------------------------------------------------- the lock and the loop
@@ -2206,6 +2292,7 @@ def main(argv=None):
     p.add_argument("--date", help="YYYY-MM-DD (default: the last day run)")
     p.add_argument("--replay", help="read the report of this replay (its sandbox name, e.g. 2026-09-21)")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--lang", choices=LANGS, metavar="LANG", help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
     p = sub.add_parser("replay", help="replay past sessions from saved bars on a simulated clock (a sandbox)")
     common(p)
     p.add_argument("--date", required=True, help="the first day, YYYY-MM-DD")
@@ -2242,7 +2329,8 @@ def main(argv=None):
                     raise AutopilotError("no auto-pilot day yet in %s" % paths.ap)
                 day = days[-1]
             rep = read_json(paths.day(day, "report.json")) or build_report(base, day)
-            print(json.dumps(rep, indent=1, ensure_ascii=False) if a.json else report_md(rep))
+            lang = pick_lang(a.lang, read_json(Paths(a.workdir).config))
+            print(json.dumps(rep, indent=1, ensure_ascii=False) if a.json else report_md(rep, lang))
             return 0
         if a.cmd == "replay":
             reps = replay(a.workdir, a.date, a.to, a.data, a.archive, not a.no_relab, a.resume,

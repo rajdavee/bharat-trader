@@ -1,0 +1,30 @@
+ORDER 1 / 1, PAPER account (asli paisa nahi)
+  BUY 42 RELIANCE on NSE, MIS (intraday), LIMIT 1174.30, good for today
+  phir stop-loss: SL-M trigger 1163.30
+  phir target: LIMIT 1196.30 (stop ya target mein se ek fill hote hi doosra cancel)
+  order value lagbhag ₹49,320.60
+  agar stop 1163.30 pe fill ho to nuksaan lagbhag ₹462.00 + ₹52.11 charges = ₹514.11 (tez market mein stop isse bure price pe bhi fill ho sakta hai)
+  kyun: opening-range breakout on RELIANCE: 42 shares, bound by your position cap (50% of ₹1,00,000.00 = ₹50,000.00 / 1174.30). At the stop: 42 x 11.00 = ₹462.00 plus about ₹52.11 charges = ₹514.11, inside your ₹1,000.00 max loss per trade.
+  READY: trader-risk PASS, aapke yes ka intezaar
+  Broker-neutral order:
+    {
+      "symbol": "RELIANCE",
+      "exchange": "NSE",
+      "product": "MIS",
+      "side": "BUY",
+      "qty": 42,
+      "order_type": "LIMIT",
+      "price": 1174.3,
+      "stop_loss": {
+        "order_type": "SL-M",
+        "trigger_price": 1163.3
+      },
+      "target": {
+        "order_type": "LIMIT",
+        "price": 1196.3
+      },
+      "validity": "DAY"
+    }
+  Sirf is EK order ko paper account pe place karne ke liye "yes" likhiye, ya chhodne ke liye "no".
+
+Ek baar mein ek order: ek yes sirf ek ticket ke liye hai, poore batch ke liye kabhi nahi. Yeh education aur tooling hai, financial advice nahi.
