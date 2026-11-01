@@ -426,7 +426,8 @@ textarea { font-family: var(--mono); width: 100%; resize: vertical; }
 /* ---------------------------------------------------------------- session rail (Today) */
 .rail-card { padding-bottom: var(--sp-3); }
 .rail-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-.rail-now { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.01em; }
+.rail-now { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.01em; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.rail-clock { color: var(--marigold); }
 .rail-next { color: var(--muted); font-size: var(--fs-sm); }
 .rail { position: relative; height: 34px; margin: 0 0 26px; }
 .rail-track { position: absolute; inset: 8px 0; display: flex; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
