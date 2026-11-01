@@ -83,8 +83,10 @@ they differ).
 
 ## Adding a broker adapter
 
-Broker support is planned as separate adapters that map the broker-neutral
-order in `trader/orders.json` to a broker's API. Adapters must:
+Each broker is an adapter in `trader-broker/` (Upstox, Zerodha Kite, Dhan
+and Angel One today) that maps the broker-neutral order in
+`trader/orders.json` to the broker's API and declares its capability flags.
+The contract suite in `tests/` runs against every adapter. Adapters must:
 
 - read keys only from environment variables, never from chat or files in the repo;
 - default to the broker's sandbox or paper mode where one exists;
