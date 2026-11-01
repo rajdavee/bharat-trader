@@ -294,13 +294,16 @@ class EventJob(StockJob):
             got = self.mkt.results(s, self.start, until)
             if got:
                 self.results[s] = got
-        m = re.search(r"₹\s?(\d+(?:\.\d+)?)\s*crore", self.doc["universe"].get("rule", ""))
+        rule = self.doc["universe"].get("rule", "")
+        m = re.search(r"₹\s?(\d+(?:\.\d+)?)\s*crore", rule)
         self.floor = float(m.group(1)) * 1e7 if m else None
+        w = re.search(r"(\d+)-session median", rule)
+        self.floor_window = int(w.group(1)) if w else 20
 
     def run(self, p, a, b, m=1.0):
         i, j = self.idx(a, b)
         return events.results_drift(self.panel, self.members_fn(p), self.results, p, i, j, self.capital, self.cfg,
-                                    m, liquidity_floor=self.floor)
+                                    m, liquidity_floor=self.floor, liquidity_window=self.floor_window)
 
 
 class PairsJob(StockJob):
@@ -313,7 +316,7 @@ class PairsJob(StockJob):
         return "F&O"
 
     def blockers(self):
-        out = StockJob.blockers(self)
+        out = []                # the F&O list on a day comes from that day's bhavcopy (or members.json)
         if not self.mkt.sectors():
             out.append("a sector classification (sectors.json: {symbol: sector}, or the archive's sectors())")
         return out

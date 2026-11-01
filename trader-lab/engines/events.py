@@ -116,7 +116,7 @@ def reaction_session(days, event):
 
 
 def results_drift(panel, members_fn, results, params, a, b, capital, cfg=None, cost_mult=1.0, bps=None,
-                  liquidity_floor=None):
+                  liquidity_floor=None, liquidity_window=20):
     """Post-earnings drift on stocks. results: {symbol: [{date, time?}]}. Returns the engine run dict; each
     trade carries its abnormal net return ("abnormal") against the equal-weighted universe."""
     cfg = cfg or {}
@@ -158,10 +158,10 @@ def results_drift(panel, members_fn, results, params, a, b, capital, cfg=None, c
             if k is None or k < 1 or k + 1 >= panel.n:
                 continue
             c0, c1 = panel.cf[sym][k - 1], panel.c[sym][k + 1]
-            if not c0 or c1 is None or sym not in members(k):
-                continue
+            if not c0 or c1 is None or sym not in (members_fn(days[k]) or []):
+                continue                    # a member on the reaction day itself (point in time)
             if liquidity_floor:
-                mv = panel.median_value(sym, k - 1)
+                mv = panel.median_value(sym, k - 1, liquidity_window)
                 if not mv or mv < liquidity_floor:
                     continue
             ar = (c1 / c0 - 1) - ew_between(k - 1, k + 1)

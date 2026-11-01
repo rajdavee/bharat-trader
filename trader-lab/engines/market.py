@@ -184,14 +184,15 @@ class ArchiveMarket(Market):
         return getattr(self.api, "members", None) is not None
 
     def members(self, index, day):
+        key = (index, day)
+        if index == "F&O":
+            if key not in self._members:
+                self._members[key] = self.fno_on(day)
+            return self._members[key]
         fn = getattr(self.api, "members", None)
         if fn is None:
             return None
-        key = (index, day)
         if key not in self._members:
-            if index == "F&O":
-                self._members[key] = self.fno_on(day)
-                return self._members[key]
             try:
                 got = fn(index, day, root=self.root)
             except TypeError:
