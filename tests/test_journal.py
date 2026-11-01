@@ -18,8 +18,9 @@ Fixtures:
                                    (SmartAPI trade book: time only), groww-trades.json (Trade API trade list, UTC,
                                    one REJECTED row), kite-live-trades.json (trader-broker's broker-neutral
                                    `ticket.py orders --broker kite --json` trades)
-  trader-journal/cotrader/log.jsonl  the co-trader's prediction log (schema bharat-trader/cotrader-log/1, #44),
-                                   38 daily candidates the co-trader produced on the lab fixture bars
+  trader-cotrader/log.jsonl        trader-cotrader's own fixture prediction log (schema bharat-trader/cotrader-log/1):
+                                   38 daily candidates the co-trader produced on the lab fixture bars, read through
+                                   trader-cotrader's read_log
 """
 
 import io
@@ -66,7 +67,7 @@ class Workdir(unittest.TestCase):
         shutil.copytree(os.path.join(JF, "paper", "trader"), os.path.join(self.dir, "trader"))
         if self.COTRADER:
             os.makedirs(os.path.join(self.dir, "trader", "cotrader"))
-            shutil.copy(os.path.join(JF, "cotrader", "log.jsonl"), os.path.join(self.dir, "trader", "cotrader"))
+            shutil.copy(os.path.join(FIX, "trader-cotrader", "log.jsonl"), os.path.join(self.dir, "trader", "cotrader"))
         self.paths = journal.Paths(self.dir)
         for f in self.IMPORT:
             self.ok("import", os.path.join(JF, "imports", f))
@@ -382,6 +383,7 @@ class Counterfactual(Workdir):
         p = os.path.join(self.dir, "trader", "cotrader", "log.jsonl")
         rows = [json.loads(l) for l in text_of(p).splitlines() if l.strip()]
         rows[0]["status"] = "blocked"
+        rows[1]["entry"] = rows[1]["stop"] = None          # an options candidate: legs, no share entry or stop
         rows.append({"schema": "bharat-trader/other/1", "id": "x"})
         with open(p, "w") as fh:
             fh.write("\n".join(json.dumps(r) for r in rows) + "\n")
@@ -389,6 +391,8 @@ class Counterfactual(Workdir):
         self.assertEqual(len(plans), 38)
         cf = journal.counterfactual(self.paths, [], journal.config_of(self.paths), BARS, True)
         self.assertEqual(cf["groups"]["co-trader blocked by risk"]["plans"], 1)
+        self.assertEqual(cf["groups"]["co-trader skipped"]["counts"].get("not replayable"), 1)
+        self.assertEqual(journal.cotrader_rows(self.paths)[1], "trader-cotrader read_log")
 
 
 class NoImports(Workdir):

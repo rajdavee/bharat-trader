@@ -1159,16 +1159,34 @@ def breakdown(entries, by):
 
 # ---------------------------------------------------------------- the counterfactual ledger
 
-def read_cotrader_log(path):
+def cotrader_api():
+    return sibling("trader-cotrader", "cotrader.py", "bt_journal_cotrader")
+
+
+def cotrader_rows(paths):
+    """The co-trader's log lines, read by trader-cotrader's own read_log when it is installed next to this
+    skill, else straight from trader/cotrader/log.jsonl (the same documented format)."""
+    ct = cotrader_api()
+    if ct is not None and hasattr(ct, "read_log"):
+        try:
+            return ct.read_log(paths.workdir), "trader-cotrader read_log"
+        except Exception:
+            pass
+    return read_jsonl(paths.t("cotrader", "log.jsonl")), "trader/cotrader/log.jsonl"
+
+
+def read_cotrader_log(path_or_rows):
     """The co-trader's prediction log (schema bharat-trader/cotrader-log/1) -> plans to follow. The adapter
-    keeps only what a replay needs, so a later schema with more fields still reads."""
+    keeps only what a replay needs, so a later schema with more fields still reads. A candidate with no
+    entry or stop (an options basket) is kept as not replayable."""
     out = []
-    for r in read_jsonl(path):
-        if str(r.get("schema") or COTRADER_LOG_SCHEMA).split("/")[1:2] != ["cotrader-log"]:
+    rows = read_jsonl(path_or_rows) if isinstance(path_or_rows, str) else path_or_rows
+    for r in rows:
+        if not isinstance(r, dict) or str(r.get("schema") or COTRADER_LOG_SCHEMA).split("/")[1:2] != ["cotrader-log"]:
             continue
-        need = ("id", "date", "symbol", "entry", "stop", "target")
-        if any(r.get(k) in (None, "") for k in need):
+        if any(r.get(k) in (None, "") for k in ("id", "date", "symbol")):
             continue
+        basket = any(r.get(k) in (None, "") for k in ("entry", "stop"))
         out.append({"source": "co-trader", "id": str(r["id"]), "symbol": str(r["symbol"]).upper(),
                     "date": str(r["date"]), "time": r.get("entry_time") or "09:15", "side": str(r.get("side") or "BUY").upper(),
                     "entry": _f(r["entry"]), "stop": _f(r["stop"]), "target": _f(r["target"]),
@@ -1176,7 +1194,7 @@ def read_cotrader_log(path):
                     "flat_by": r.get("flat_by"), "max_bars": r.get("max_bars"),
                     "status": str(r.get("status") or ""), "strategy": r.get("strategy"), "tier": r.get("tier"),
                     "p": r.get("p"), "p_lo": r.get("p_lo"), "p_hi": r.get("p_hi"), "regime": r.get("regime"),
-                    "product": "MIS" if (r.get("timeframe") == "5m") else "CNC"})
+                    "product": "MIS" if (r.get("timeframe") == "5m") else "CNC", "basket": basket})
     return out
 
 
@@ -1292,7 +1310,8 @@ def replay(plan, bars, cfg, lab):
 def counterfactual(paths, entries, cfg, bars_dir=None, offline=True, since=None, until=None):
     """Every co-trader candidate not taken and every risk BLOCK of your own order, followed to its outcome."""
     lab = lab_api()
-    plans = read_cotrader_log(paths.t("cotrader", "log.jsonl")) + blocked_orders(risk_records(paths))
+    rows, _ = cotrader_rows(paths)
+    plans = read_cotrader_log(rows) + blocked_orders(risk_records(paths))
     if since:
         plans = [p for p in plans if p["date"] >= since]
     if until:
@@ -1311,7 +1330,8 @@ def counterfactual(paths, entries, cfg, bars_dir=None, offline=True, since=None,
             row.update(result="taken", why="you traded %s that day (%s)" % (p["symbol"], taken[0]["id"]),
                        taken=taken[0]["id"])
         elif p.get("basket"):
-            row.update(result="not replayable", why="an F&O basket: option bars are not replayed here")
+            row.update(result="not replayable", why="an F&O basket or options candidate: option bars are not "
+                                                    "replayed here")
         elif lab is None:
             row.update(result="no bars", why="trader-lab is not installed next to trader-journal")
         else:

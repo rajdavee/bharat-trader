@@ -53,7 +53,7 @@ Pages are grouped by the trader's day, so each step's next step is close by
 | --- | --- |
 | Today | the cockpit, the home page |
 | Discover | Chart, Scanner, Option chain |
-| Plan | Strategy builder, Co-trader (coming in v0.3) |
+| Plan | Strategy builder, Co-trader |
 | Trade | Portfolio and orders, Risk, Auto-pilot (coming in v0.3) |
 | Review | Strategy Lab, Journal, Agents |
 | Setup | Settings, Setup guide, About |
@@ -68,16 +68,17 @@ Pages are grouped by the trader's day, so each step's next step is close by
   to a term explains it in plain words.
 - Gains and losses carry a sign and a ▲ or ▼, not only a colour; pass and block
   carry ✓ and ✕.
-- The pages for Co-trader and Auto-pilot are placeholders, labelled
-  "Coming in v0.3", that say what they will show.
+- The page for Auto-pilot is a placeholder, labelled
+  "Coming in v0.3", that says what it will show.
 
 ## Pages
 
 | page | shows | from |
 | --- | --- | --- |
-| Today | The session rail (pre-open to 15:30 IST with your entry window, exits-only time and flat-by, and a now needle), day P&L after charges (realised, open, charges), the daily loss budget used, trades used, risk state (kill switch, circuit-breakers), open positions, the plan and its last risk check, alerts, NSE status, indices, the data self-test, this week from the journal (closed trades, net after charges, win rate with its range, rule breaks), and places for the market regime and co-trader candidates (coming in v0.3) | `/api/dashboard`, `/api/portfolio`, `/api/risk`, `/api/journal?lite=1` |
+| Today | The session rail (pre-open to 15:30 IST with your entry window, exits-only time and flat-by, and a now needle), day P&L after charges (realised, open, charges), the daily loss budget used, trades used, risk state (kill switch, circuit-breakers), open positions, the plan and its last risk check, alerts, NSE status, indices, the data self-test, the market regime, and the co-trader's top ready candidates (tier, odds with range and n, expected R after charges) or its no-edge decision; this week from the journal (closed trades, net after charges, win rate with its range, rule breaks) | `/api/dashboard`, `/api/portfolio`, `/api/risk`, `/api/regime`, `/api/cotrader`, `/api/journal?lite=1` |
 | Journal | trader-journal's record: tiles for closed trades (with the sample-size warning), win rate with its Wilson 95% range, expectancy after charges with its range and the average R, net P&L with the cost drag, profit factor, max drawdown and streaks; the equity curve after charges; a breakdown by strategy, persona, regime, time of day, weekday or instrument; the rule-break log with the overtrading index; the counterfactual ledger (saved / cost per group, with the caveats); every closed trade, whose details (fills, R, MAE/MFE, rule notes) open in a dialog where you add notes and tags. See [journal.md](journal.md) | `trader-journal/journal.py` `summary`, `add_note` |
 | Strategy Lab | Each trader-lab run: the verdict and why, out-of-sample trades (the sample size), expectancy after charges, the Monte Carlo range of the final P&L, max drawdown, the equity curve after charges with the out-of-sample windows shaded, the gates, results by regime, the deflated Sharpe ratio, the probability of overfitting, the paper forward test, and what a backtest does not show | `trader/lab/<name>/results.json`, `status.json`, `equity.csv` from `trader-lab/lab.py run` |
+| Co-trader | Candidate cards from trader-cotrader: the evidence tier badge (PROMOTED, WATCH; RESEARCH only with "Show RESEARCH ideas"), the probability that a similar past trade made money after charges with its 95% range and n, the expected R after charges, the time-machine replay and any disagreement, the plan and size, trader-risk's verdict, why and why not, what would invalidate it, what the evidence does not show, similar past trades and Draft to paper (sized and risk-checked, nothing placed); the no-edge card when nothing qualifies; each strategy's status today; the calibration chart (predicted vs observed) with Brier scores by strategy. See [cotrader.md](cotrader.md) | trader-cotrader `run_today`, `calibration_report`; trader-budget and trader-risk for the draft |
 | Setup guide | The first-run steps above | trader-budget `build_config`, `describe_config`; the settings validator; trader-broker's adapters |
 | Chart | Candles and volume at 1m, 5m or 1d; EMA 9 and 21; session VWAP; the opening-range band; the plan's entry, stop and target; trader-entry's breakout status | Yahoo bars through trader-scanner's `yahoo_get`, parsed and evaluated by trader-entry; `trader/plan.json` |
 | Scanner | `trader/watchlist.json` with setups, RSI, turnover, and delayed quotes for the 10 most traded hits | trader-scanner; trader-alerts quotes |
@@ -133,6 +134,7 @@ free endpoints again.
 | GET | `/api/broker/holdings?broker=`, `/api/broker/positions?broker=` | read only, from the broker's API (cached 30 s; never called offline) |
 | GET | `/api/doctor` | the last data self-test from `trader/doctor.json` (the header's Data badge) |
 | GET | `/api/agents` | the agent personas (`agents/`) and each one's paper scorecard, read only |
+| GET | `/api/cotrader` | the last co-trader run (`trader/cotrader.json`) and the calibration of its logged probabilities; `stale` when the run is not from today |
 | GET | `/api/lab` | Strategy Lab runs from `trader/lab/`: verdict, after-charges numbers, gates, robustness, the equity curve (at most 400 points), why panels and what a backtest does not show |
 | GET | `/api/onboarding` | the setup guide: the MCP entry for this folder, broker variables set (names only); with `?capital=&risk_pct=&max_trades=&product=&broker_profile=` the config `size.py init` would write, checked, without saving |
 | GET | `/api/stream` | Server-Sent Events: `status`, `prices`, `alerts` |
@@ -149,6 +151,8 @@ free endpoints again.
 | POST | `/api/config` | validate and save `trader/config.json` (the old one becomes `config.json.bak`) |
 | POST | `/api/strategy/price` | price a template or custom legs (nothing is written) |
 | POST | `/api/strategy/draft` | write the legs as a paper PROPOSAL to `trader/orders.json` and the strategy to `trader/strategy.json`; refuses other proposals unless `replace`, and a non-paper config |
+| POST | `/api/cotrader/run` | `cotrader.py today`: `{"tier": "validated" or "research"}`; writes `trader/cotrader.json`, the plans and new log lines; places nothing |
+| POST | `/api/cotrader/draft` | `{"id"}`: that candidate's plan becomes `trader/plan.json` (old one kept as `.bak`), trader-budget sizes it into `trader/orders.json`, trader-risk records the verdict; paper config only, on the plan's own day; your typed yes still decides |
 | GET | `/api/journal` | trader-journal's summary, read only: stats with intervals, equity curve, breakdowns, rule breaks, the counterfactual ledger, every closed trade (`?lite=1`: this week only, no bars) |
 | POST | `/api/journal/note` | `{"id", "text", "tags"}`: your note and tags on one journal entry (`trader/journal/notes.json`); touches no order or trade record |
 | POST | `/api/doctor/run` | `doctor.py --json`: probe every data source now (about 30 s) and update `trader/doctor.json`; offline it replays `<offline>/doctor/` |

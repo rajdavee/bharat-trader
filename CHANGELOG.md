@@ -7,6 +7,44 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **`trader-cotrader`** (#44): calibrated, backtested trade candidates for
+  today. `cotrader.py today [--tier research]`, `explain ID`, `calibration`,
+  `log`, `--json`; writes `trader/cotrader.json`, a plan per candidate
+  (`trader/cotrader/plans/`) and a prediction log. Evidence tiers on every
+  candidate: PROMOTED (lab gates + paper forward record), WATCH (gates passed,
+  forward test running: paper only), RESEARCH (lab REJECT/DEMOTE or never run:
+  "unproven, for study/paper only", only with `--tier research`). For each
+  strategy whose regime cell fits today (trader-regime trend x VIX bucket, as
+  of the close before each signal), live triggers from the lab's own signal
+  engine and forward test become complete plans: entry, stop, target, size
+  (trader-budget), charges at the stop and target, trader-risk PASS/BLOCK
+  with reasons. Probability: the cell's after-charges hit rate with its
+  Wilson 95% interval and n, shrunk toward the strategy's overall rate with a
+  Beta prior worth 20 trades (posterior mean and 95% range), plus the shrunk
+  expected R after charges; a trader-timemachine replay as a second opinion,
+  with disagreements flagged. Ranking: expected R per unit risk minus
+  penalties for interval width and for correlation with open positions and
+  higher-ranked candidates; tier first; ties by liquidity. No edge is a
+  first-class answer: "sitting out is the decision", with the reasons (no
+  validated strategy, regime mismatch with numbers, no trigger, risk locks)
+  and what would change them. Explanations: why, invalidation, the evidence,
+  what it does NOT show, the nearest similar past trades. Calibration: every
+  prediction logged once, resolved from paper fills, the lab's forward record
+  or the next bars; Brier score with its base-rate reference, log loss and
+  reliability bins per strategy and tier; an overconfident PROMOTED or WATCH
+  strategy is demoted through trader-lab's status (DEMOTE). Options specs
+  (#57) join through the lab's options forward test: the drafted
+  trader-strategy basket is a candidate (structure, legs, margin, max loss
+  after charges) risk-checked as one position. Method in `docs/cotrader.md`.
+- UI: the **Co-trader** page (candidate cards with the tier badge, odds with
+  range and n, expected R after charges, the replay, the risk verdict, why /
+  why not, Draft to paper through trader-budget and trader-risk, the no-edge
+  card, the calibration chart) and the Today page's candidates card;
+  `GET /api/cotrader`, `POST /api/cotrader/run`, `POST /api/cotrader/draft`.
+- MCP: `cotrader_candidates`, `cotrader_explain` and `calibration_report`
+  (38 tools); `paper_order_draft` takes `candidate: ID`.
+- trader-risk: a co-trader RESEARCH idea (plan setup `cotrader-research:`)
+  is blocked on a live config: unproven ideas are paper only.
 - **`trader-journal`** (#49): the trade journal and the counterfactual
   ledger. `journal.py sync | list | show ID | stats [--by strategy|persona|
   regime|tod|weekday|instrument] | review --week 2026-W44 | counterfactual |
@@ -33,7 +71,7 @@ All notable changes are documented here. The format follows
   trade dialog with notes (`GET /api/journal`, `POST /api/journal/note`); a
   "This week" card on Today.
 - **MCP** (#49): `journal_summary`, `journal_stats`, `counterfactual_report`
-  (read only, 38 tools) and the `trader/journal/` resources (weekly reviews as
+  (read only, 41 tools in all) and the `trader/journal/` resources (weekly reviews as
   markdown, notes); the `weekly_review` prompt and the journal-coach persona
   use them.
 - **`trader-discover`** (#43): strategy discovery with strict overfitting

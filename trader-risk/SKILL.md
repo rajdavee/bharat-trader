@@ -101,6 +101,7 @@ batch that is fine order by order but breaks a limit together is caught.
 | duplicate | (entries) the same symbol and side twice in one batch, or already placed today |
 | daily limit | (entries) `max_orders_per_day` orders already placed today |
 | kill | (entries) the kill switch is on today |
+| research | (entries) with a live config (`"paper": false`), an order from a trader-cotrader RESEARCH idea (plan setup `cotrader-research:...`): unproven ideas are paper only |
 | breaker | (entries) `max_consecutive_losses` (3) losing trades in a row today, or a realised loss today of `max_daily_drawdown_pct` (3%) of capital: locked until tomorrow |
 | cooling-off | (entries) a stop filled less than `cooloff_after_stop_min` (15) minutes ago |
 | revenge | (entries) re-entering a symbol within `revenge_window_min` (15) minutes of a loss on it; `"revenge_trade": "warn"` makes it a warning |
