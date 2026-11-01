@@ -2415,6 +2415,64 @@ def edge_hunt(ctx):
             "how": "Check one with: python3 trader-lab/lab.py hunt run eh-03-index-trend --dry-run"}
 
 
+PORTFOLIO_LIMITS = ("A portfolio of strategies is fitted on the same past the strategies were tested on. Its weights "
+                    "come from earlier sessions only (walk-forward), but correlations change, most of all in a crash, "
+                    "and two or three strategies give little to diversify. The proposals are files: nothing changes "
+                    "your config until you copy them yourself.")
+
+
+def portfolio_mixes(ctx):
+    """trader-lab's strategy portfolios (trader/lab/portfolio/<name>/portfolio.json), slimmed for the Lab page."""
+    base = ctx.path("lab")
+    try:
+        mix = skill("lab").engines_api().portfolio_mix
+        names = [r["name"] for r in mix.listing(base)]
+        cands = mix.candidates(base)
+    except Exception:  # a broken portfolio file must not take the Lab page down
+        return {"mixes": [], "eligible": [], "limits": PORTFOLIO_LIMITS}
+    out = []
+    for n in names:
+        try:
+            doc = mix.view(mix.load(base, n))
+        except Exception:
+            continue
+        schemes = []
+        for k in mix.SCHEMES:
+            e = doc["schemes"].get(k) or {}
+            boot = e.get("bootstrap") or {}
+            schemes.append({"scheme": k, "label": e.get("label"), "chosen": k == doc["chosen"],
+                            "weights": e.get("weights"), "cash": e.get("cash"), "metrics": e.get("metrics"),
+                            "risk_share": e.get("risk_share"), "diversification_ratio": e.get("diversification_ratio"),
+                            "effective_bets": e.get("effective_bets"), "notes": e.get("notes") or [],
+                            "curve": e.get("curve") or [], "bands": boot.get("bands") or [],
+                            "bootstrap": {k2: boot.get(k2) for k2 in ("runs", "block", "final_pct", "max_drawdown_pct",
+                                                                      "prob_loss")} if boot else None})
+        src = "trader-lab portfolio (trader/lab/portfolio/%s/portfolio.json)" % n
+        out.append({
+            "name": n, "built": doc["built"], "strategies": doc["strategies"], "overlap": {
+                k: doc["overlap"][k] for k in ("from", "to", "sessions", "coverage")},
+            "scored": doc["scored"], "correlation": {k: doc["correlation"].get(k) for k in (
+                "pearson", "spearman", "downside", "stress", "weekly")},
+            "stress_days": doc["correlation"].get("stress_days"), "clusters": doc["clusters"],
+            "schemes": schemes, "chosen": doc["chosen"], "chosen_why": doc["chosen_why"],
+            "standalone": doc["standalone"], "notes": doc["notes"], "limits": doc["limits"],
+            "proposals": doc["proposals"], "settings": doc["settings"],
+            "why": {"correlation": why("Pearson correlation of the strategies' daily returns after charges, on the "
+                                       "sessions every one covers (out-of-sample and paper forward days only)",
+                                       {"sessions": doc["overlap"]["sessions"], "from": doc["overlap"]["from"],
+                                        "to": doc["overlap"]["to"]}, src, doc["built"],
+                                       "Strategies that are often flat look uncorrelated until they lose together."),
+                    "bands": why("a stationary block bootstrap of the walk-forward mix's daily returns (mean block "
+                                 "%s sessions): the 5th and 95th percentile equity at each step" %
+                                 doc["settings"]["boot_block"], {"paths": doc["settings"]["boot_runs"],
+                                                                 "seed": doc["settings"]["seed"]}, src, doc["built"],
+                                 "Luck in the order of the same past days, not a forecast.")}})
+    return {"mixes": out, "eligible": [c["name"] for c in cands if c["verdict"] in mix.ELIGIBLE],
+            "limits": PORTFOLIO_LIMITS,
+            "how": "Build one with: python3 trader-lab/lab.py portfolio build my-mix (WATCH and PROMOTE strategies; "
+                   "--strategies A B --research to study others)."}
+
+
 def r_lab(ctx, q, body):
     base = ctx.path("lab")
     runs = []
@@ -2431,6 +2489,7 @@ def r_lab(ctx, q, body):
     runs.sort(key=lambda r: (order.get(str(r["verdict"]).upper(), 3), r["name"]))
     return {"runs": runs, "path": base, "limits": LAB_LIMITS,
             "discovery": discovery_runs(ctx), "discovery_limits": DISCOVER_LIMITS, "edge_hunt": edge_hunt(ctx),
+            "portfolio": portfolio_mixes(ctx),
             "discovery_how": "Search with: python3 trader-discover/discover.py run --budget 200 --universe nifty50 "
                              "--timeframe 1d. Each run writes trader/discover/<run>/.",
             "how": "Run a backtest with: python3 trader-lab/lab.py run orb15-vwap (or any spec in "
@@ -3018,7 +3077,7 @@ ROUTES = [
     ("GET", "/api/strategy", r_strategy, "strategy templates, symbols and the saved trader/strategy.json", False),
     ("GET", "/api/doctor", r_doctor, "the last data self-test (trader/doctor.json), for the header badge", False),
     ("GET", "/api/agents", r_agents, "the agent personas (agents/) and each one's paper scorecard", False),
-    ("GET", "/api/lab", r_lab, "Strategy Lab runs (trader/lab/): verdict, after-charges numbers, gates, equity curve; discovery runs (trader/discover/)",
+    ("GET", "/api/lab", r_lab, "Strategy Lab runs (trader/lab/): verdict, after-charges numbers, gates, equity curve; discovery runs (trader/discover/); strategy portfolios (trader/lab/portfolio/)",
      False),
     ("GET", "/api/onboarding", r_onboarding, "first-run steps; ?capital=&risk_pct=&max_trades=&product=&broker_profile= "
      "previews the config size.py init would write (save it with POST /api/config)", False),

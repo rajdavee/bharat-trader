@@ -1450,6 +1450,32 @@ def t_forward_report(kit, a, call):
     return view, [FORWARD_LIMITS, "Read only."]
 
 
+PORTFOLIO_TOOL_LIMITS = ("A strategy portfolio is fitted on the same past its strategies were tested on: weights from "
+                         "earlier sessions only, but correlations change, most of all in a crash, and two or three "
+                         "strategies give little to diversify. Its proposals (auto-pilot buckets, a trader-risk "
+                         "drawdown limit) are files the user may copy by hand; nothing here applies them.")
+
+
+def t_portfolio_report(kit, a, call):
+    """trader-lab's strategy portfolios, read only: the list, or one built mix without its daily series."""
+    lab = api.skill("lab")
+    out = kit.p("lab")
+    name = str(a.get("name") or "").strip().lower()
+    if name and not LAB_NAME_RE.match(name):
+        raise ToolError("name is a built portfolio's name such as my-mix (call without it to list them)")
+    try:
+        rep = lab.portfolio_report(out, name or None)
+    except lab.LabError as e:
+        raise ToolError(str(e))
+    if not name:
+        rep["how"] = ("The user builds one in a terminal: python3 trader-lab/lab.py portfolio build NAME (WATCH and "
+                      "PROMOTE strategies only; --research to study others, never proposed).")
+        return rep, [PORTFOLIO_TOOL_LIMITS, "Read only."]
+    view = lab.engines_api().portfolio_mix.view(rep)
+    view.pop("disclaimer", None)
+    return view, [PORTFOLIO_TOOL_LIMITS, "Read only."]
+
+
 def t_notify_test(kit, a, call):
     """One test notification (local desktop and/or the user's own webhook) as the config allows it."""
     try:
@@ -2893,6 +2919,20 @@ def build_tools():
                                  pattern=r"^[a-z0-9][a-z0-9\-]{1,47}$")},
                   data=obj({"strategies": ANY_LIST, "decay_alerts": ANY_LIST, "capture": {}, "thresholds": ANY_OBJ,
                             "words": S("string")}, ["strategies", "decay_alerts", "words"], extra=True), network=False))
+    T.append(tool("portfolio_report", "Strategy portfolio: correlation, weights, the walk-forward mix",
+                  "trader-lab's strategy portfolios, read only. Without a name: the portfolios built and the WATCH / "
+                  "PROMOTE strategies that can go in one. With a name: the strategies' out-of-sample and forward "
+                  "daily returns after charges on the sessions they all share (the overlap is reported), their "
+                  "Pearson, Spearman, downside, stress and weekly correlations, near-duplicate clusters (the same bet), "
+                  "the weights of four sizing schemes (equal capital, inverse volatility, risk parity, capped "
+                  "fractional Kelly) under a volatility target and caps, each mix tested walk-forward with weights "
+                  "from earlier sessions only (CAGR, volatility, Sharpe, Sortino, max drawdown, worst month, time in "
+                  "drawdown, diversification ratio, risk shares, block-bootstrap bands), honest notes, and the "
+                  "proposals for the auto-pilot's buckets and a trader-risk drawdown limit, which are never applied.",
+                  t_portfolio_report,
+                  {"name": S("string", "a built portfolio (trader/lab/portfolio/NAME/); omit to list them",
+                             pattern=r"^[a-z0-9][a-z0-9\-]{1,47}$")},
+                  data=obj({}, extra=True), network=False))
     T.append(tool("notify_test", "Notifications: send a test",
                   "Send one test notification through the local notifier as trader/config.json allows it (off by "
                   "default: then it says so and sends nothing): a desktop pop-up on this machine and/or a JSON POST "

@@ -200,6 +200,135 @@ function edgeHuntCard(d) {
     h('p', { class: 'small muted' }, 'Run one: ', h('code', null, 'python3 trader-lab/lab.py hunt run EH-ID --dry-run')));
 }
 
+// Strategy portfolio: the correlation heatmap, weights per sizing scheme, the walk-forward mix with its bands.
+const heatClass = (v) => {
+  const k = Math.max(-3, Math.min(3, Math.round(Number(v) * 3)));
+  return 'heat ' + (k < 0 ? 'heat-n' + -k : 'heat-p' + k);
+};
+
+// Columns are numbered (1, 2, ...) like the rows, so three matrices fit side by side.
+function heatmap(names, m, caption) {
+  if (!m) return null;
+  return table([''].concat(names.map((n, i) => ({ label: String(i + 1), num: true }))),
+    names.map((n, i) => h('tr', null, h('th', { scope: 'row' }, `${i + 1}. ${n}`),
+      m[i].map((v, j) => h('td', { class: 'num ' + (i === j ? 'heat heat-self' : heatClass(v)) }, num(v, 2))))),
+    { dense: true, caption });
+}
+
+function mixCurve(mix) {
+  const sc = mix.schemes.find((x) => x.chosen) || {};
+  const eq = sc.curve || [];
+  if (eq.length < 2) return empty('No walk-forward curve', 'The overlap is too short to test the weights.');
+  const at = {};
+  eq.forEach((p, i) => { at[p.date] = i; });
+  const lo = eq.map(() => null);
+  const hi = eq.map(() => null);
+  for (const b of sc.bands || []) {
+    if (at[b.date] !== undefined) { lo[at[b.date]] = b.p5; hi[at[b.date]] = b.p95; }
+  }
+  const fill = (xs) => { let last = null; return xs.map((v) => { if (v !== null) last = v; return v === null ? last : v; }); };
+  const others = mix.schemes.filter((x) => !x.chosen && (x.curve || []).length === eq.length);
+  const canvas = h('canvas', { class: 'plot', tabindex: '0', role: 'img',
+    'aria-label': `Walk-forward growth of 1 rupee in the ${sc.label} mix from ${eq[0].date} to ${eq[eq.length - 1].date}: ` +
+      `${num(eq[eq.length - 1].equity, 3)} at the end. Use the arrow keys to read values.` });
+  const opts = {
+    x: eq.map((_, i) => i), xlabel: '', xfmt: (i) => (eq[Math.round(i)] || {}).date || '',
+    yfmt: (v) => num(v, 3),
+    series: [{ y: eq.map((p) => p.equity), color: '--accent', width: 2, label: sc.label }]
+      .concat(sc.bands && sc.bands.length ? [
+        { y: fill(lo), color: '--muted', width: 1, dash: [4, 4], label: 'bootstrap 5th percentile' },
+        { y: fill(hi), color: '--muted', width: 1, dash: [4, 4], label: 'bootstrap 95th percentile' }] : [])
+      .concat(others.map((x, k) => ({ y: x.curve.map((p) => p.equity), color: ['--ema1', '--ema2', '--vwap'][k % 3],
+        width: 1, label: x.label }))),
+  };
+  requestAnimationFrame(() => STATE.plots.push(plot(canvas, opts)));
+  return h('div', null,
+    h('ul', { class: 'legend-list' }, h('li', null, h('span', { class: 'swatch accent' }), `${sc.label} (chosen), growth of ₹1`),
+      sc.bands && sc.bands.length ? h('li', null, h('span', { class: 'swatch dashed' }), why('Bootstrap 5th to 95th percentile',
+        mix.why.bands, 'these bands')) : null,
+      others.map((x, k) => h('li', null, h('span', { class: 'swatch ' + ['ema1', 'ema2', 'vwap'][k % 3] }), x.label))),
+    h('div', { class: 'plot-box' }, canvas));
+}
+
+function mixCard(mix) {
+  const names = mix.strategies.map((x) => x.name);
+  const research = mix.strategies.filter((x) => !x.eligible).map((x) => x.name);
+  const ov = mix.overlap || {};
+  const chosen = mix.schemes.find((x) => x.chosen) || {};
+  const m = chosen.metrics || {};
+  const b = chosen.bootstrap || {};
+  const tiles = h('div', { class: 'metrics' },
+    metric({ label: 'Sessions every strategy shares', value: num(ov.sessions, 0), tone: ov.sessions < 252 ? 'warn' : null,
+      sub: `${ov.from || '?'} to ${ov.to || '?'}; weights tested on ${num(mix.scored.sessions, 0)} of them`,
+      explain: 'Only the overlap is used: out-of-sample and paper forward days, never the in-sample ones.' }),
+    metric({ label: 'Walk-forward Sharpe (chosen scheme)', value: num(m.sharpe, 2), tone: tone(m.sharpe) || null,
+      sub: `CAGR ${pct(m.cagr_pct)}, volatility ${pct(m.vol_pct)}, max drawdown ${pct(m.max_drawdown_pct)}`,
+      explain: 'After charges; weights fitted on earlier sessions only.' }),
+    metric({ label: 'Diversification ratio', value: num(chosen.diversification_ratio, 2),
+      sub: `About ${num(chosen.effective_bets, 1)} independent bets from ${names.length} strategies`,
+      explain: 'Weighted volatility of the parts over the volatility of the mix; 1 means no diversification.' }),
+    metric({ label: 'Bootstrap final return (5th to 95th)', tone: 'warn',
+      value: b.final_pct ? `${pct(b.final_pct.p5)} to ${pct(b.final_pct.p95)}` : '–',
+      sub: b.max_drawdown_pct ? `Max drawdown ${pct(b.max_drawdown_pct.p95)} at the 95th percentile; ${share(b.prob_loss)} of paths lost` : '',
+      explain: 'The same past days reshuffled in blocks: luck, not a forecast.' }));
+  const weights = table(['Scheme'].concat(names.map((n) => ({ label: n, num: true })),
+    [{ label: 'Cash', num: true }, { label: 'Sharpe', num: true }, { label: 'Max drawdown', num: true },
+      { label: 'Worst month', num: true }, { label: 'Time in drawdown', num: true }]),
+  mix.schemes.map((x) => {
+    const mm = x.metrics || {};
+    return h('tr', { class: x.chosen ? 'chosen' : null },
+      h('td', null, x.label, x.chosen ? h('span', { class: 'small muted' }, ' (chosen)') : null),
+      names.map((_, i) => h('td', { class: 'num' }, x.weights ? share(x.weights[i]) : '–')),
+      h('td', { class: 'num' }, share(x.cash)), h('td', { class: 'num' }, num(mm.sharpe, 2)),
+      h('td', { class: 'num' }, pct(mm.max_drawdown_pct)),
+      h('td', { class: 'num' }, mm.worst_month ? `${mm.worst_month} ${pct(mm.worst_month_pct)}` : '–'),
+      h('td', { class: 'num' }, pct(mm.time_in_drawdown_pct)));
+  }), { caption: 'Weights per sizing scheme' });
+  const c = mix.correlation || {};
+  const cl = mix.clusters || {};
+  const ap = (mix.proposals || {}).autopilot;
+  const rk = (mix.proposals || {}).risk;
+  const buckets = ap ? Object.entries((ap.autopilot || {}).strategies || {}) : [];
+  return card(h('span', null, 'Portfolio ', h('code', { class: 'muted small' }, mix.name)),
+    research.length ? h('div', { class: 'note warn' }, h('b', null, 'Research only. '),
+      `${research.join(', ')} ${research.length === 1 ? 'is' : 'are'} not WATCH or PROMOTE: studied here, never proposed.`) : null,
+    tiles,
+    h('h3', { class: 'sub' }, 'Correlation of daily returns after charges ', why('(how)', mix.why.correlation, 'this correlation')),
+    h('div', { class: 'heat-grid' },
+      h('div', null, h('p', { class: 'small muted' }, 'Pearson'), heatmap(names, c.pearson, 'Pearson correlation')),
+      h('div', null, h('p', { class: 'small muted' }, 'Downside (losing days)'), heatmap(names, c.downside, 'Downside correlation')),
+      h('div', null, h('p', { class: 'small muted' }, `Stress (the mix's worst ${num(mix.stress_days, 0)} days; biased, read a rise)`),
+        heatmap(names, c.stress, 'Stress correlation'))),
+    (cl.duplicates || []).length ? h('div', { class: 'note warn' }, h('b', null, 'Same bet. '),
+      cl.duplicates.map((g) => g.join(' + ')).join('; ') + ` correlate at ${num(cl.threshold, 2)} or more.`) : null,
+    h('h3', { class: 'sub' }, 'Weights per scheme (latest walk-forward fit) and how each mix did'),
+    weights,
+    h('p', { class: 'small muted' }, mix.chosen_why + '.'),
+    mixCurve(mix),
+    ap ? h('div', null, h('h3', { class: 'sub' }, 'Proposals (files only, never applied)'),
+      kv([['Auto-pilot buckets', buckets.length ? buckets.map(([n, x]) => `${n} ${x.capital ? money(x.capital) : share(x.weight)}`).join(', ')
+        : 'none (no WATCH or PROMOTE lab strategy in this mix)'],
+      ['trader-risk', rk ? `max_daily_drawdown_pct ${num(rk.max_daily_drawdown_pct, 1)}; pause and review at a ${num(rk.portfolio_drawdown_pause_pct, 1)}% portfolio drawdown` : '–'],
+      ['Files', h('code', null, `trader/lab/portfolio/${mix.name}/proposal-autopilot.json, proposal-risk.json`)]]),
+      h('p', { class: 'small muted' }, ap.how)) : null,
+    (mix.notes || []).length ? h('div', { class: 'note warn' }, h('b', null, 'Read this first. '),
+      h('ul', { class: 'plain' }, mix.notes.map((x) => h('li', null, x)))) : null,
+    h('div', { class: 'note warn' }, h('b', null, 'What this does not show. '), (mix.limits || []).join(' ')),
+    h('p', { class: 'small muted' }, 'Full scorecard: ', h('code', null, `python3 trader-lab/lab.py portfolio report ${mix.name}`)));
+}
+
+function portfolioCards(d) {
+  const p = d.portfolio || {};
+  const mixes = p.mixes || [];
+  if (!mixes.length) {
+    return [card('Portfolio', empty('No strategy portfolio yet',
+      (p.eligible || []).length ? `WATCH and PROMOTE strategies that can go in one: ${p.eligible.join(', ')}.`
+        : 'A portfolio combines WATCH and PROMOTE strategies; none yet. Most ideas are REJECT, and that is the lab working.',
+      h('code', null, 'python3 trader-lab/lab.py portfolio build my-mix')))];
+  }
+  return mixes.map(mixCard);
+}
+
 export async function render(root, ctx) {
   clear(root);
   if (ctx && ctx.bus) {
@@ -226,6 +355,7 @@ export async function render(root, ctx) {
       h('code', null, 'python3 trader-lab/lab.py run orb15-vwap'))));
     if (hunt) body.appendChild(hunt);
     if (disc) body.appendChild(disc);
+    for (const c of portfolioCards(d)) body.appendChild(c);
     return;
   }
   const counts = {};
@@ -239,6 +369,7 @@ export async function render(root, ctx) {
   { caption: 'Lab runs' }), h('p', { class: 'explain' }, Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ') +
     '. A REJECT is the lab doing its job: most ideas should fail here, before they cost money.')));
   if (hunt) body.appendChild(hunt);
+  for (const c of portfolioCards(d)) body.appendChild(c);
   if (disc) body.appendChild(disc);
   for (const run of d.runs) {
     const c = runCard(run);

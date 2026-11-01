@@ -728,3 +728,19 @@ ul.plain { list-style: none; margin: 0; padding: 0; }
 .fwd-chart .expect { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 3; }
 .fwd-chart .bound { fill: none; stroke: var(--down); stroke-width: 1.5; stroke-dasharray: 5 4; }
 .fwd-chart .mean { fill: none; stroke: var(--accent); stroke-width: 2; }
+
+/* the strategy portfolio's correlation heatmap: -1 (red) to +1 (blue); the diagonal stays plain */
+.tbl td.heat { font-variant-numeric: tabular-nums; }
+.tbl td.heat-p1 { background: color-mix(in srgb, var(--info) 12%, transparent); }
+.tbl td.heat-p2 { background: color-mix(in srgb, var(--info) 26%, transparent); }
+.tbl td.heat-p3 { background: color-mix(in srgb, var(--info) 42%, transparent); }
+.tbl td.heat-n1 { background: color-mix(in srgb, var(--down) 12%, transparent); }
+.tbl td.heat-n2 { background: color-mix(in srgb, var(--down) 26%, transparent); }
+.tbl td.heat-n3 { background: color-mix(in srgb, var(--down) 42%, transparent); }
+.tbl td.heat-self { color: var(--muted); }
+.tbl tr.chosen td { font-weight: 600; }
+.heat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); margin-bottom: var(--gap); }
+.heat-grid > * { min-width: 0; }
+.swatch.ema1 { border-top-color: var(--ema1); }
+.swatch.vwap { border-top-color: var(--vwap); }
+@media (max-width: 900px) { .heat-grid { grid-template-columns: minmax(0, 1fr); } }

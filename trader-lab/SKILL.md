@@ -29,8 +29,13 @@ description: >-
   the v2 engines (index and stock futures with rolls and margin,
   cross-sectional portfolios on point-in-time universes, calendar and
   results-date events, cointegrated pairs) and opens each sealed holdout once.
+  Combines the WATCH and PROMOTE survivors into a strategy portfolio
+  ("combine my strategies", "portfolio of strategies", "risk parity",
+  "are these strategies correlated", "how much capital to each strategy"):
+  correlation on their out-of-sample days, risk parity and capped Kelly
+  sizing, a walk-forward test of the mix and auto-pilot bucket proposals.
   It never promises profit and never places an order.
-argument-hint: "[list | run NAME | report NAME | compare A B | forward NAME | hunt list | hunt run EH-ID]"
+argument-hint: "[list | run NAME | report NAME | compare A B | forward NAME | hunt list | hunt run EH-ID | portfolio build NAME]"
 ---
 
 # trader-lab
@@ -84,6 +89,7 @@ moves the lab folder (default `trader/lab`).
 | `trader/lab/<name>/forward/<date>/plan-<SYM>.json` | draft plans for trader-budget (`forward`) |
 | `trader/lab/<name>/forward/<date>/orders-<expiry>.json`, `strategy-<expiry>.json` | an options spec's draft paper basket (`forward`) |
 | `trader/lab/data/` | Yahoo bars cached as CSV, refreshed once a day |
+| `trader/lab/portfolio/<name>/` | a strategy portfolio: `portfolio.json`, `scorecard.md`, `equity.csv`, `proposal-autopilot.json`, `proposal-risk.json` (`portfolio build`) |
 
 ## The built-in library
 
@@ -325,6 +331,45 @@ python3 "<skill dir>/lab.py" hunt run EH-ID --data DIR             # a plain dat
 
 From an AI assistant: `edge_hunt_status` and `edge_hunt_run` (time budget,
 progress, resumable, `dry_run`).
+
+## The strategy portfolio
+
+`lab.py portfolio` combines the WATCH and PROMOTE strategies (this skill's
+`engines/portfolio_mix.py`; docs/lab.md has the method):
+
+```bash
+python3 "<skill dir>/lab.py" portfolio list                     # portfolios, and the strategies that can go in one
+python3 "<skill dir>/lab.py" portfolio build my-mix             # every WATCH / PROMOTE strategy
+python3 "<skill dir>/lab.py" portfolio build my-mix --strategies A B C --scheme risk-parity --capital 300000
+python3 "<skill dir>/lab.py" portfolio build study --strategies A B --research   # other verdicts: studied, never proposed
+python3 "<skill dir>/lab.py" portfolio report my-mix [--json]
+```
+
+- **Streams**: each strategy's daily returns after charges on days its
+  parameters never saw: a lab run's out-of-sample days and paper forward
+  record, an edge-hunt finalist's validation and holdout days
+  (`trader/lab/edge-hunt/<id>/returns.json`). Only the sessions they all
+  share are used; the overlap and each stream's coverage are reported.
+- **Correlation**: Pearson, Spearman, downside, stress (the mix's worst
+  days) and weekly; near-duplicates (0.7 or more) are flagged as the same
+  bet.
+- **Sizing**: equal capital, inverse volatility, risk parity and capped
+  quarter Kelly on shrunk means, with a per-strategy cap (0.6), no leverage
+  and a 10% volatility target that only scales down. The proposal uses
+  `--scheme` (default risk parity), chosen before the run.
+- **Walk-forward**: weights fitted on the 252 sessions before each monthly
+  rebalance only; CAGR, volatility, Sharpe, Sortino, max drawdown, worst
+  month, time in drawdown, diversification ratio, risk shares, block
+  bootstrap bands.
+- **Proposals, never applied**: `trader/lab/portfolio/<name>/proposal-autopilot.json`
+  (an `autopilot.strategies` capital-bucket block) and `proposal-risk.json`
+  (trader-risk's `max_daily_drawdown_pct`, never looser than yours, and a
+  portfolio drawdown at which to pause). The user copies them into
+  `trader/config.json` by hand.
+
+Say the overlap and the number of strategies with every number: two or
+three strategies give little diversification, and correlations rise in a
+crash. From an AI assistant: `portfolio_report` (read only).
 
 ## How to talk about results
 

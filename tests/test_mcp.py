@@ -32,7 +32,7 @@ TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit
          "journal_summary", "journal_stats", "counterfactual_report", "tax_summary",
          "archive_status", "strategy_design", "lab_run_spec", "compare_strategies", "best_for_regime", "trade_brief",
          "autopilot_status", "autopilot_replay", "autopilot_start", "autopilot_stop",
-         "forward_report", "notify_test",
+         "forward_report", "portfolio_report", "notify_test",
          "copilot_status", "copilot_proposals"]
 # a variant of the orb15-vwap library spec on two stocks: what an assistant would pass to lab_run_spec
 ORB_SPEC = {"schema": "bharat-trader/lab-spec/1", "name": "t-orb-open-drive", "kind": "equity", "timeframe": "5m",
@@ -93,6 +93,7 @@ CALLS = [
     ("autopilot_replay", {"date": "2026-09-21"}),
     ("autopilot_stop", {"typed": "stop paper"}),
     ("forward_report", {}),
+    ("portfolio_report", {}),
     ("notify_test", {}),
     ("autopilot_start", {"typed": "start paper"}),
     ("copilot_status", {}),
@@ -805,6 +806,36 @@ class EdgeHunt(unittest.TestCase):
                 os.environ.pop("BT_EDGE_HUNT_DIR", None)
             else:
                 os.environ["BT_EDGE_HUNT_DIR"] = old
+            shutil.rmtree(wd, ignore_errors=True)
+
+
+class PortfolioReport(unittest.TestCase):
+    def test_lists_then_reports_a_built_mix_read_only(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("bt_mcp_toolkit_mix", os.path.join(ROOT, "mcp", "toolkit.py"))
+        tk = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tk)
+        wd = workdir_copy()
+        try:
+            kit = tk.Kit(wd, offline=BUNDLE)
+            out = kit.p("lab")
+            shutil.rmtree(out, ignore_errors=True)
+            shutil.copytree(os.path.join(FIX, "ui", "lab"), out)     # three REAL lab runs, all REJECT
+            env = kit.call("portfolio_report", {}, tk.Call())
+            self.assertEqual(env["data"]["portfolios"], [])
+            self.assertIn("portfolio build", env["data"]["how"])
+            lab = tk.api.skill("lab")
+            lab.portfolio_build(out, "real-mix", ["breakout20-swing", "nifty-expiry-iron-fly"], research=True,
+                                now=lab.ist_now("2026-11-01 12:00"), settings={"boot_runs": 100})
+            before = sorted(os.listdir(os.path.join(out, "portfolio", "real-mix")))
+            d = kit.call("portfolio_report", {"name": "real-mix"}, tk.Call())["data"]
+            self.assertEqual([s["name"] for s in d["strategies"]], ["breakout20-swing", "nifty-expiry-iron-fly"])
+            self.assertNotIn("daily", d["schemes"]["risk-parity"])
+            self.assertFalse(d["proposals"]["autopilot"]["applied"])
+            self.assertEqual(sorted(os.listdir(os.path.join(out, "portfolio", "real-mix"))), before)
+            with self.assertRaises(tk.ToolError):
+                kit.call("portfolio_report", {"name": "nope-mix"}, tk.Call())
+        finally:
             shutil.rmtree(wd, ignore_errors=True)
 
 

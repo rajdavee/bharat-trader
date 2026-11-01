@@ -1000,6 +1000,36 @@ class LabAndSetup(unittest.TestCase):
                             for h in hunt))
         self.assertIn("holdout", d["edge_hunt"]["limits"])
 
+    def test_lab_shows_strategy_portfolios(self):
+        wd = tempfile.mkdtemp(prefix="bt-ui-mix-")
+        try:
+            out = os.path.join(wd, "trader", "lab")
+            shutil.copytree(os.path.join(UIFIX, "lab"), out)
+            status, d = api.dispatch(api.Context(wd), "GET", "/api/lab", {}, None)
+            self.assertEqual((status, d["portfolio"]["mixes"], d["portfolio"]["eligible"]), (200, [], []))
+            lab = api.skill("lab")
+            doc = lab.portfolio_build(out, "real-mix", ["breakout20-swing", "nifty-expiry-iron-fly"], research=True,
+                                      now=lab.ist_now("2026-11-01 12:00"), settings={"boot_runs": 100})
+            status, d = api.dispatch(api.Context(wd), "GET", "/api/lab", {}, None)
+        finally:
+            shutil.rmtree(wd, ignore_errors=True)
+        self.assertEqual(status, 200)
+        self.assertEqual(sorted(r["name"] for r in d["runs"]), ["breakout20-swing", "nifty-expiry-iron-fly", "orb15-vwap"])
+        mix = d["portfolio"]["mixes"][0]
+        self.assertEqual(mix["name"], "real-mix")
+        self.assertEqual(mix["correlation"]["pearson"], doc["correlation"]["pearson"])
+        self.assertEqual([x["scheme"] for x in mix["schemes"]], ["equal", "inverse-vol", "risk-parity", "kelly"])
+        rp = [x for x in mix["schemes"] if x["chosen"]][0]
+        self.assertEqual(rp["weights"], doc["schemes"]["risk-parity"]["weights"])
+        self.assertTrue(rp["curve"] and rp["bands"] and all("date" in b for b in rp["bands"]))
+        self.assertNotIn("daily", rp)
+        self.assertIn("formula", mix["why"]["correlation"])
+        self.assertTrue(all(not s["eligible"] for s in mix["strategies"]))
+        self.assertFalse(mix["proposals"]["autopilot"]["applied"])
+        text = json.dumps(d).lower()
+        for word in ("guaranteed", "sure-shot", "risk-free", "sure shot"):
+            self.assertNotIn(word, text)
+
     def test_lab_lists_discovery_runs(self):
         wd = tempfile.mkdtemp(prefix="bt-ui-disc-")
         try:

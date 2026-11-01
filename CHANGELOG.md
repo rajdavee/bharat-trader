@@ -7,6 +7,22 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Strategy portfolio** (#75): `lab.py portfolio build|report|list`, a
+  **Portfolio** section on the Lab page and the `portfolio_report` MCP tool
+  (read only). Combines WATCH and PROMOTE strategies (lab runs and edge-hunt
+  finalists; `--research` studies others, never proposed) on their
+  out-of-sample and paper forward daily returns after charges, over only the
+  sessions they all share (the overlap is reported). Pearson, Spearman,
+  downside, stress and weekly correlation, near-duplicate clusters (the same
+  bet), four sizing schemes (equal capital, inverse volatility, risk parity,
+  capped fractional Kelly on shrunk means) under a volatility target and
+  per-strategy caps, each tested walk-forward with weights from earlier
+  sessions only (CAGR, volatility, Sharpe, Sortino, max drawdown, worst
+  month, time in drawdown, diversification ratio, risk shares) and
+  block-bootstrap bands. Writes an `autopilot.strategies` bucket proposal
+  and a trader-risk drawdown-limit proposal to
+  `trader/lab/portfolio/<name>/`; nothing is applied. The edge-hunt executor
+  now records the finalist's net daily returns per window (`returns.json`).
 - **NSE sector classification** in `trader-archive`: `backfill --datasets
   sectors` stores NSE's own four levels (macro, sector, industry, basic
   industry, from the quote API's `secInfo`) for every F&O stock, today's list

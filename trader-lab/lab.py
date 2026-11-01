@@ -18,6 +18,8 @@ places an order.
     python3 lab.py hunt run eh-03-index-trend --dry-run  # check a hypothesis, its data and its trial count
     python3 lab.py hunt run eh-03-index-trend            # train + validation, then the sealed holdout once
     python3 lab.py hunt status                           # trials, holdout openings, the programme's BH cut
+    python3 lab.py portfolio build my-mix                # combine the WATCH / PROMOTE strategies, walk-forward
+    python3 lab.py portfolio report my-mix               # its scorecard; proposals are files, never applied
 
 What a run does (docs/lab.md has the method and the why):
 
@@ -3251,6 +3253,81 @@ def cmd_hunt(a):
     return 0 if r["state"] in ("decided", "dry-run", "paused", "waiting") else 3
 
 
+def portfolio_build(out, name, names=None, research=False, settings=None, capital=None, workdir=None, now=None,
+                    forward=True, write=True):
+    """Build the strategy portfolio NAME from the WATCH / PROMOTE runs in out (or the named ones; research=True
+    lets other verdicts in, never into a proposal) and write trader/lab/portfolio/NAME/. Returns the document.
+    The auto-pilot and trader-risk proposals are files only: nothing edits trader/config.json."""
+    if not SPEC_NAME.match(str(name or "")):
+        raise LabError("a portfolio name is lowercase letters, digits and dashes, 2 to 48 long")
+    mix = engines_api().portfolio_mix
+    workdir = workdir or os.path.dirname(os.path.dirname(os.path.abspath(out)))
+    wcfg = read_json(os.path.join(workdir, "trader", "config.json"), {}) or {}
+    try:
+        doc = mix.build(name, out, names, research, settings, capital, wcfg, now or ist_now(), forward)
+        if write:
+            mix.write(out, doc, write_json)
+    except mix.MixError as e:
+        raise LabError(str(e))
+    return doc
+
+
+def portfolio_report(out, name=None):
+    """A built portfolio (or the list of them), read only."""
+    mix = engines_api().portfolio_mix
+    if not name:
+        return {"portfolios": mix.listing(out), "candidates": mix.candidates(out)}
+    try:
+        return mix.load(out, name)
+    except mix.MixError as e:
+        raise LabError(str(e))
+
+
+def cmd_portfolio(a):
+    mix = engines_api().portfolio_mix
+    if a.portfolio_cmd in (None, "list"):
+        rep = portfolio_report(a.out)
+        if a.json:
+            print(json.dumps(rep, indent=1, ensure_ascii=False))
+            return 0
+        if not rep["portfolios"]:
+            print("No portfolios in %s yet. Build one: lab.py portfolio build my-mix" % os.path.join(a.out, "portfolio"))
+        for r in rep["portfolios"]:
+            print("  %-22s %s  %s, %d sessions shared, Sharpe %s, max drawdown %s%%%s" % (
+                r["name"], r["built"], r["scheme"], r["overlap"], r["sharpe"], r["max_drawdown_pct"],
+                "  (research only)" if r["research"] else ""))
+            print("    %s" % ", ".join(r["strategies"]))
+        el = [c["name"] for c in rep["candidates"] if c["verdict"] in mix.ELIGIBLE]
+        print("")
+        print("WATCH / PROMOTE strategies a portfolio can use: %s." % (", ".join(el) or "none yet (every run is REJECT "
+                                                                       "or has no verdict)"))
+        print("Education and tooling, not financial advice.")
+        return 0
+    if a.portfolio_cmd == "report":
+        doc = portfolio_report(a.out, a.name)
+        if a.json:
+            print(json.dumps(mix.view(doc, a.daily), indent=1, ensure_ascii=False))
+        else:
+            sys.stdout.write(mix.scorecard(doc))
+        return 0
+    over = {"scheme": a.scheme, "vol_target_pct": a.vol_target, "max_weight": a.max_weight, "fit": a.fit,
+            "refit": a.refit, "lookback": a.lookback, "kelly_fraction": a.kelly_fraction, "seed": a.seed,
+            "boot_runs": a.boot_runs, "min_overlap": a.min_overlap}
+    if a.max_weight is not None and a.max_weight < mix.DEFAULTS["kelly_cap"]:
+        over["kelly_cap"] = a.max_weight
+    doc = portfolio_build(a.out, a.name, a.strategies or None, a.research, over, a.capital, a.workdir,
+                          ist_now(a.now), not a.no_forward)
+    if a.json:
+        print(json.dumps(mix.view(doc), indent=1, ensure_ascii=False))
+        return 0
+    sys.stdout.write(mix.scorecard(doc))
+    d = mix.portfolio_dir(a.out, a.name)
+    print("Wrote %s/{portfolio.json, scorecard.md, equity.csv%s}" % (
+        d, ", proposal-autopilot.json, proposal-risk.json" if doc["proposals"].get("autopilot") else ""))
+    print("The proposals are files only: nothing in trader/config.json was changed.")
+    return 0
+
+
 def utf8_console():
     for s in (sys.stdout, sys.stderr):
         try:
@@ -3311,6 +3388,37 @@ def main(argv=None):
     q.add_argument("--max-seconds", type=int, help="pause after this long (run again to carry on)")
     q.add_argument("--now", help="pretend it is this IST time")
     q.add_argument("--json", action="store_true")
+    p = sub.add_parser("portfolio", help="combine WATCH / PROMOTE strategies: correlation, sizing, a walk-forward "
+                       "mix, proposals for the auto-pilot's buckets and trader-risk (never applied)")
+    p.add_argument("--json", action="store_true")
+    ps = p.add_subparsers(dest="portfolio_cmd")
+    ps.add_parser("list", help="the portfolios built and the strategies that can go in one")
+    q = ps.add_parser("report", help="the plain-words scorecard of a built portfolio")
+    q.add_argument("name")
+    q.add_argument("--daily", action="store_true", help="with --json: keep the daily series and rebalances")
+    q.add_argument("--json", action="store_true")
+    q = ps.add_parser("build", help="collect the return streams, correlate, size, test walk-forward, write proposals")
+    q.add_argument("name", help="the portfolio's name: trader/lab/portfolio/NAME/")
+    q.add_argument("--strategies", nargs="+", metavar="NAME", help="these lab runs or edge-hunt ids (default: every "
+                   "WATCH and PROMOTE one)")
+    q.add_argument("--research", action="store_true", help="let named strategies of any verdict in, to study them "
+                   "(never proposed)")
+    q.add_argument("--scheme", choices=("equal", "inverse-vol", "risk-parity", "kelly"),
+                   help="the scheme the proposal uses (default risk-parity); decide before you look")
+    q.add_argument("--vol-target", type=float, help="the mix's annual volatility target, %% (default 10; scales down only)")
+    q.add_argument("--max-weight", type=float, help="the most one strategy may get, 0 to 1 (default 0.6)")
+    q.add_argument("--kelly-fraction", type=float, help="the Kelly fraction, up to 0.5 (default 0.25)")
+    q.add_argument("--fit", type=int, help="sessions before the first weights (default 126)")
+    q.add_argument("--refit", type=int, help="sessions between rebalances (default 21)")
+    q.add_argument("--lookback", type=int, help="the fitting window in sessions (default 252)")
+    q.add_argument("--min-overlap", type=int, help="sessions every strategy must share (default 60)")
+    q.add_argument("--boot-runs", type=int, help="bootstrap paths (default 1000)")
+    q.add_argument("--seed", type=int, help="the bootstrap seed (default 16)")
+    q.add_argument("--capital", type=float, help="rupees to split into buckets (default: trader/config.json capital)")
+    q.add_argument("--no-forward", action="store_true", help="leave the paper forward records out")
+    q.add_argument("--workdir", help="the folder holding trader/ (default: two levels above --out)")
+    q.add_argument("--now", help="pretend it is this IST time")
+    q.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     if not a.cmd:
         ap.print_help()
@@ -3318,7 +3426,7 @@ def main(argv=None):
     try:
         return {"list": cmd_list, "show": cmd_show, "validate": cmd_validate, "run": cmd_run, "report": cmd_report,
                 "compare": cmd_compare, "forward": cmd_forward, "hunt": cmd_hunt,
-                "forward-report": cmd_forward_report}[a.cmd](a)
+                "forward-report": cmd_forward_report, "portfolio": cmd_portfolio}[a.cmd](a)
     except (LabError, RulesError, ValueError) as e:
         print("lab: %s" % e, file=sys.stderr)
         return 1
