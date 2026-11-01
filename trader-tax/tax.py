@@ -748,8 +748,8 @@ def setoff(cur, bf, y):
     Returns the steps in words, what is taxable, what carries forward and what lapsed."""
     steps = []
     spec, nons = cur["speculative"], cur["non_speculative"]
-    stg = list(cur["stcg_by_rate"])       # [[rate, amount]], gains only
-    ltg = list(cur["ltcg_by_rate"])
+    stg = [[r, a] for r, a in cur["stcg_by_rate"]]       # [[rate, amount]], gains only (copied: mutated below)
+    ltg = [[r, a] for r, a in cur["ltcg_by_rate"]]
     stl, ltl = cur["stcl"], cur["ltcl"]
 
     def take(buckets, amt):
@@ -935,7 +935,7 @@ def advance_schedule(rows, y, as_of):
         out.append({"due": due.isoformat(), "cumulative_pct": pct, "status": "past" if due < as_of else "upcoming",
                     "business_net_to_date": biz, "capital_gains_to_date": cg})
     return {"dates": out, "words": [
-        "Advance tax is due when the year's tax after TDS is Rs 10,000 or more. Pay %s by each date." % (
+        "Advance tax is due when the year's tax after TDS is Rs 10,000 or more: at least %s." % (
             ", ".join("%d%% by %s" % (p, d["due"]) for (m, p), d in zip(ADVANCE, out))),
         "A capital gain (or dividend) that arises after a date can be paid in the remaining instalments without "
         "interest for that date (s.234C proviso); business income from trading has no such relief.",
@@ -1088,11 +1088,19 @@ def report(paths, fy=None, book="live", tradebooks=None, holdings_path=None, now
                                  "which this report does not compute.",
             "advance_tax": advance_schedule(yr, y, as_of), "itr": [{"what": k, "where": v} for k, v in ITR],
             "itr_form": a["form"], "expenses": expenses, "trades": trades,
-            "open": {"delivery_lots": [l for l in open_lots if parse_date(l["buy_date"]) <= end],
-                     "fno": [o for o in open_fno if o["since"] <= end.isoformat()]},
+            "open": open_at_end(fills, holdings, cfg, end, as_of),
             "needs_input": needs, "notes": notes, "rules": rules_for(y),
             "sources": {"fills": len(fills), "holdings": len(holdings), "carry_forward": len(bf),
                         "expenses": len(expenses)}}
+
+
+def open_at_end(fills, holdings, cfg, end, as_of):
+    """What was still held on 31 March: delivery lots (no gain until sold) and F&O positions (they count in
+    the year they are squared off)."""
+    cut = (end + datetime.timedelta(days=1)).isoformat()
+    _, lots, fno, _ = classify([f for f in fills if f["at"] < cut], [dict(h) for h in holdings],
+                               min(as_of, end + datetime.timedelta(days=1)), cfg)
+    return {"delivery_lots": lots, "fno": fno}
 
 
 HEADS = {"intraday": "speculative business", "futures": "non-speculative business",
