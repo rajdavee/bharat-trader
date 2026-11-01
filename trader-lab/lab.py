@@ -2339,6 +2339,8 @@ def _pf(x):
 
 
 def does_not_prove(res):
+    if res.get("kind") == "options":
+        return options_api().does_not_prove(res)
     d = res["data"]
     lines = [
         "It does not predict the future. It shows how these exact rules would have traded %d sessions "
@@ -2484,7 +2486,7 @@ def scorecard(res, status=None):
     L.append("")
     L.append("## What this does NOT prove")
     L.append("")
-    for x in (options_api().does_not_prove(res) if opt else does_not_prove(res)):
+    for x in does_not_prove(res):
         L.append("- " + x)
     L.append("")
     L.append("Education and tooling, not financial advice. Nothing here placed an order.")
