@@ -37,6 +37,10 @@ LIST_URLS = {
 }
 SYMBOL_CHANGES_URL = "https://nsearchives.nseindia.com/content/equities/symbolchange.csv"
 EQUITY_LIST_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+# Announcements a later one cancelled: NSE Indices' press release of May 13, 2020 (ind_prs13052020) made the
+# replacements due on March 27, 2020 "null and void"; NIFTY 50's had already been brought forward to March 19,
+# 2020 by its own announcement (ind_prs16032020), which stays. Indices kept from a voided file are listed.
+VOIDED = {"ind_prs18022020.pdf": (), "ind_prs12032020.pdf": (), "ind_prs19032020.pdf": ()}
 SIZES = {"NIFTY 50": 50, "NIFTY NEXT 50": 50, "NIFTY 100": 100, "NIFTY 200": 200, "NIFTY 500": 500}
 
 # every name an index has carried (S&P branding until 2013, CNX until November 2015), lower case
@@ -58,9 +62,11 @@ _DATE = r"([A-Z][a-z]{2,8})\.?\s+(\d{1,2})\s*,?\s*(\d{4})"
 _SKIP_TITLE = re.compile(r"\bsme\b|\bipo\b|fixed income|bond|g-sec|gsec|\bsdl\b|t-bill|treasury|\besg\b|shariah|"
                          r"forex|\busd\b|launch|methodolog|total return|dividend point|tracking|target maturity|"
                          r"india fpi|mutual fund|commodit|ethical|dissemination", re.I)
-_KEEP_TITLE = re.compile(r"indices|index changes|corporate action adjustment|change in index|changes in index|replacement|exclusion|inclusion|"
-                         r"reconstitut|cnx nifty|cnx 500|cnx 100|cnx 200|nifty 50\b|nifty 100\b|nifty 200\b|"
-                         r"nifty 500\b|nifty next 50|nifty junior|corporate adjustment", re.I)
+_KEEP_TITLE = re.compile(r"indices|index changes?\b|corporate action adjustment|change in index|changes in index|"
+                         r"replacement|exclusion|inclusion|reconstitut|re-?balancing|cnx nifty|cnx 500|cnx 100|cnx 200|"
+                         r"nifty 50\b|nifty 100\b|nifty 200\b|nifty 500\b|nifty next 50|nifty junior|"
+                         r"corporate adjustment", re.I)
+_ALWAYS = re.compile(r"replacements? in (?:the )?indices|changes? in indices|index changes?\b|re-?balancing", re.I)
 _SYMBOL = re.compile(r"^[A-Z0-9][A-Z0-9&\-]{0,19}$")
 _NOT_SYMBOL = {"LTD", "LTD.", "LIMITED", "INDIA", "(INDIA)", "BANK", "CO.", "CORP.", "INC.", "PLC", "AG", "REIT",
                "TRUST", "SYMBOL", "NAME", "COMPANY", "NO.", "&", "-", "ETF"}
@@ -110,7 +116,7 @@ def parse_listing(page):
 def wanted(item):
     """Is this press release one that can change NIFTY 50/Next 50/100/200/500 membership?"""
     t = item.get("title", "")
-    return bool(_KEEP_TITLE.search(t)) and not _SKIP_TITLE.search(t)
+    return bool(_KEEP_TITLE.search(t)) and (not _SKIP_TITLE.search(t) or bool(_ALWAYS.search(t)))
 
 
 # ---------------------------------------------------------------- one announcement -> changes
@@ -147,6 +153,14 @@ def _heading(line):
 
 
 _INDEX_IN_TEXT = re.compile(r"((?:S&P\s+)?(?:CNX|Nifty|NIFTY)(?:\s?[A-Za-z0-9]+){0,2})\s+[Ii]ndex\b")
+
+
+def _bare_heading(line, nxt):
+    """'S&P CNX 500 Index' on a line of its own, right before 'The following company is being ...'."""
+    s = line.replace("\t", " ").strip().rstrip(":")
+    if not re.search(r"(?i)\bindex$", s) or "following" not in nxt.lower():
+        return None
+    return index_key(re.sub(r"\s+index$", "", s, flags=re.I))
 
 
 def _sentence_index(text):
@@ -190,6 +204,8 @@ def _row(line):
         return None
     rest = m.group(2)
     cells = [c.strip() for c in rest.split("\t") if c.strip()]
+    if len(cells) >= 3 and re.match(r"^-[A-Z0-9]{1,3}$", cells[-1]):
+        cells[-2:] = [cells[-2] + cells[-1]]              # "MCDOWELL\t-N": one symbol in two pieces
     sym = ""
     last = cells[-1].replace(" ", "") if len(cells) >= 2 and cells[-1].upper() == cells[-1] else ""
     if last and _SYMBOL.match(last) and last not in _NOT_SYMBOL:
@@ -214,15 +230,16 @@ def parse_announcement(lines, title="", announced=None):
     out = []
     eff = eff_doc
     joined_prev = ""
-    for raw in lines:
+    for n, raw in enumerate(lines):
         if raw == "\f":
             continue
         line = raw.strip()
+        nxt = next((l for l in lines[n + 1:n + 3] if l.strip() and l != "\f"), "")
         flat = line.replace("\t", " ")
         e = _effective(joined_prev + " " + flat)
         if e and not eff_doc:
             eff = e
-        h = _heading(line)
+        h = _heading(line) or _bare_heading(line, nxt)
         if h:
             current, action, table = h, None, False
             joined_prev = flat
@@ -244,14 +261,18 @@ def parse_announcement(lines, title="", announced=None):
                             "effective": (eff or announced or "") and str(eff or announced)})
             elif _SYMBOL.match(flat) and flat not in _NOT_SYMBOL and out and not out[-1]["symbol"]:
                 out[-1]["symbol"] = flat                      # the symbol cell fell on its own line
+            elif re.match(r"^[A-Z0-9&]+\s*-[A-Z0-9]{1,3}$", flat) and out:
+                whole = flat.replace(" ", "")                 # "MCDOWELL -N" after a row that said MCDOWELL
+                for o in reversed(out):
+                    if o["symbol"] and whole.startswith(o["symbol"]) and o["symbol"] != whole:
+                        o["symbol"] = whole
+                        break
             elif out and re.search(r"[a-z]", flat) and len(flat.split()) >= 2:
                 words = flat.split()
                 same = [o for o in out if o["index"] == current and o["action"] == action and
                         _norm_name(o["name"]) == _norm_name(" ".join(words[:-1]))]
                 if same and _SYMBOL.match(words[-1]) and not same[-1]["symbol"]:
                     same[-1]["symbol"] = words[-1]           # a second copy of the row, with its symbol
-                elif not re.match(r"^(company|sr\.)", low) and not same:
-                    table = flat.endswith(("Ltd.", "Ltd", "Limited", "Bank")) and table
         if low.startswith(("note", "the above", "no inclusion", "no exclusion", "no change", "place:", "date:")):
             table = False
         joined_prev = flat
@@ -428,6 +449,31 @@ class Symbols(object):
 
 
 # ---------------------------------------------------------------- reconstruction
+
+def revised_dates(lines):
+    """'... shall be effective November 18, 2013 instead of November 15, 2013' -> (new, old) ISO dates or None."""
+    text = " ".join(l.replace("\t", " ") for l in lines)
+    m = re.search(r"effective\s+(?:from\s+)?" + _DATE + r"\s+instead\s+of\s+" + _DATE, text, re.I)
+    if not m:
+        return None
+    new, old = month_day(" ".join(m.group(1, 2, 3))), month_day(" ".join(m.group(4, 5, 6)))
+    return (new.isoformat(), old.isoformat()) if new and old else None
+
+
+def drop_superseded(changes, revisions):
+    """Drop the changes a later announcement moved to another day: revisions is [(source, new, old)]."""
+    out = changes
+    for source, new, old in revisions:
+        moved = set((c["index"], c["action"], c["symbol"]) for c in changes if c.get("source") == source)
+        out = [c for c in out if not (c["effective"] == old and c.get("source") != source and
+                                      (c["index"], c["action"], c["symbol"]) in moved)]
+    return out
+
+
+def drop_voided(changes):
+    """Changes minus those a later announcement cancelled (VOIDED), by their "source" PDF name."""
+    return [c for c in changes if c.get("source") not in VOIDED or c["index"] in VOIDED[c["source"]]]
+
 
 def resolve_names(changes, names):
     """Fill missing symbols from {normalized name: symbol}. Returns the names still unresolved."""

@@ -81,7 +81,25 @@ What NSE serves, probed live on 2026-11-01:
 Days before a dataset exists cost no call. Weekdays without a session (older
 holidays) are learned from the missing equity file, as before.
 
-SIZE_ESTIMATE
+Measured on the live sites on 2026-11-01 at the default 1.5 s pace, into a
+scratch folder:
+
+| sample | calls | downloaded | time | stored |
+| --- | --- | --- | --- | --- |
+| June 2012, eq + fo + index + ban + settle (21 sessions) | 105 | 8.0 MB | 157 s | 7.0 MB |
+| June 2018, the same | 105 | 10.7 MB | 159 s | 9.5 MB |
+| India VIX 2010-07 to 2026-10 plus corporate actions 2010-2026 | 83 | 11.6 MB | 124 s | 1.3 MB |
+| index history Jan 2010 to Feb 2012, 3 indices | 27 | 0.4 MB | 39 s | 72 KB |
+| results dates, 2 months | 4 | 1.2 MB | 5 s | 48 KB |
+| index-change announcements since 2010 (277 PDFs) and the lists | 286 | 64.5 MB | 468 s | 1.6 MB |
+
+So a full 2010 to 2026 backfill of everything (about 4,200 sessions) is about
+**9 to 10 hours** and **2 to 2.5 GB** on disk: the F&O bhavcopy is most of it
+(0.3 MB a day in 2012, 0.4 MB in 2018, 0.6 MB now). The long-history extras
+add about 25 minutes (22 indices before 2012, about 400 results calls, the
+announcements). Going back to 1994 for equities and 2000 for F&O adds roughly
+another 4,000 sessions of much smaller files. Run it overnight; stop and
+start it as often as you like.
 
 ### Continuous futures
 
@@ -116,7 +134,23 @@ then takes today's list and undoes every later change, newest first, and
 maps each stock back to the symbol it traded under that day (SESAGOA, then
 SSLT, now VEDL).
 
-How good is it? `members --report` (and `verify`) count, per index: the
+On the live announcements (277 PDFs from 2010 to October 2026, rebuilt on
+2026-11-01):
+
+| index | compositions | exactly the index's size | largest miss | notes |
+| --- | --- | --- | --- | --- |
+| NIFTY 50 | 42 | 35 | 1 | the 7 others really had 51 members (Tata Motors DVR in 2016-2017, demerged companies held at zero price); no inconsistencies; 2 names from 2010 unmatched (ABB Ltd., Sesa Goa Ltd.) |
+| NIFTY NEXT 50 | 53 | 17 | 3 | the misses are mostly before 2016 and during the 2026 Vedanta demerger |
+| NIFTY 100 | 61 | 21 | 4 | |
+| NIFTY 200 | 76 | 15 | 5 | the largest misses are 2016-2018 |
+| NIFTY 500 | 159 | 23 | 4 | 87 of 159 within one member; 18 old names unmatched |
+
+So NIFTY 50 is exact; the broader indices are close but not exact, mostly
+because of corporate events handled without a parseable announcement. Treat
+results on NIFTY 200 and NIFTY 500 universes before about 2018 as
+approximately survivorship-free, not exactly.
+
+How good is it on your copy? `members --report` (and `verify`) count, per index: the
 compositions whose size is not 50, 100, 200 or 500, the changes whose company
 name could not be matched to a symbol (announcements before about 2012 give
 names only; renamed companies are the usual miss), the "included then but not

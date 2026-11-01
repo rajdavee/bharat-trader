@@ -1943,7 +1943,7 @@ def _members_inputs(root):
     if not man:
         raise ArchiveError("no index membership data in %s: python3 archive.py backfill --from 2010-01-01 "
                            "--datasets members" % root)
-    changes, aliases = [], {}
+    changes, aliases, revisions = [], {}, []
     for name, e in sorted(man.get("announcements", {}).items(), key=lambda kv: kv[1].get("date", "")):
         try:
             with open(os.path.join(root, e["text"]), "rb") as fh:
@@ -1954,6 +1954,9 @@ def _members_inputs(root):
             c["source"] = name
             changes.append(c)
         aliases.update(mem.parse_index_list(lines, e.get("title", ""), e.get("date"))[1])
+        rev = mem.revised_dates(lines)
+        if rev:
+            revisions.append((name, rev[0], rev[1]))
     lists = {}
     snaps = sorted((man.get("lists") or {}).get("snapshots", {}).keys())
     for day in reversed(snaps):
@@ -1965,6 +1968,7 @@ def _members_inputs(root):
                 with open(p, encoding="utf-8-sig", errors="replace") as fh:
                     rows = mem.parse_constituents(fh.read())
                 lists[key] = (day, rows)
+    changes = mem.drop_superseded(mem.drop_voided(changes), revisions)
     sym_changes = []
     p = os.path.join(base, "ref", "symbolchange.csv.gz")
     if os.path.exists(p):
