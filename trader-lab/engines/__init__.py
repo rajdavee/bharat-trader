@@ -12,11 +12,12 @@ trader-regime, trader-strategy's SPAN figures). Nothing here imports another ski
     pairs      pair selection on train only (correlation + Engle-Granger) and z-score trading
     jobs       a registered hypothesis -> engine runs, per family
     executor   train + validation for every grid point, the gates, the sealed holdout opened once
+    fwdtest    the forward-test dashboard: the paper forward record against the backtest's predicted range
 
 Education and research tooling, not financial advice. Nothing here places an order.
 """
 
-from . import core, events, executor, futures, jobs, market, pairs, portfolio  # noqa: F401
+from . import core, events, executor, futures, fwdtest, jobs, market, pairs, portfolio  # noqa: F401
 
 
 def bind(lab, archive=None, regime=None, strategy=None):

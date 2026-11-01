@@ -720,3 +720,11 @@ ul.plain { list-style: none; margin: 0; padding: 0; }
 .ask-steps summary { cursor: pointer; color: var(--muted); font-size: var(--fs-sm); }
 .ask-steps ul { margin: 6px 0; padding-left: 18px; }
 .ask-form textarea { font-family: inherit; }
+
+/* Forward tests: the running forward mean against the predicted lower bound */
+.fwd-figure { margin: 12px 0; max-width: 420px; }
+.fwd-chart { width: 100%; height: auto; display: block; }
+.fwd-chart .zero { stroke: var(--grid); stroke-width: 1; }
+.fwd-chart .expect { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 3; }
+.fwd-chart .bound { fill: none; stroke: var(--down); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.fwd-chart .mean { fill: none; stroke: var(--accent); stroke-width: 2; }

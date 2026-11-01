@@ -32,6 +32,7 @@ TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit
          "journal_summary", "journal_stats", "counterfactual_report", "tax_summary",
          "archive_status", "strategy_design", "lab_run_spec", "compare_strategies", "best_for_regime", "trade_brief",
          "autopilot_status", "autopilot_replay", "autopilot_start", "autopilot_stop",
+         "forward_report", "notify_test",
          "copilot_status", "copilot_proposals"]
 # a variant of the orb15-vwap library spec on two stocks: what an assistant would pass to lab_run_spec
 ORB_SPEC = {"schema": "bharat-trader/lab-spec/1", "name": "t-orb-open-drive", "kind": "equity", "timeframe": "5m",
@@ -91,6 +92,8 @@ CALLS = [
     ("autopilot_status", {}),
     ("autopilot_replay", {"date": "2026-09-21"}),
     ("autopilot_stop", {"typed": "stop paper"}),
+    ("forward_report", {}),
+    ("notify_test", {}),
     ("autopilot_start", {"typed": "start paper"}),
     ("copilot_status", {}),
     ("copilot_proposals", {}),

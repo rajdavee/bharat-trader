@@ -5,7 +5,7 @@ export const GROUPS = [
   { name: 'Discover', pages: ['chart', 'scanner', 'options'] },
   { name: 'Plan', pages: ['strategy', 'cotrader', 'ask'] },
   { name: 'Trade', pages: ['portfolio', 'risk', 'autopilot', 'copilot'] },
-  { name: 'Review', pages: ['lab', 'journal', 'tax', 'agents'] },
+  { name: 'Review', pages: ['lab', 'forward', 'journal', 'tax', 'agents'] },
   { name: 'Setup', pages: ['settings', 'welcome', 'about'] },
 ];
 
@@ -23,6 +23,7 @@ export const PAGES = {
   copilot: { label: 'Co-pilot (live)', title: 'Co-pilot', icon: 'copilot', key: 'v', words: 'live real money approve approval kill caps' },
   autopilot: { label: 'Auto-pilot', title: 'Auto-pilot', icon: 'autopilot', key: 'u', words: 'automatic paper loop replay forward record' },
   lab: { label: 'Strategy Lab', title: 'Strategy Lab', icon: 'lab', key: 'l', words: 'backtest scorecard equity walk-forward' },
+  forward: { label: 'Forward tests', title: 'Forward tests', icon: 'forward', key: 'f', words: 'paper record backtest range decay demote promote calibration brier capture chain notifications' },
   journal: { label: 'Journal', title: 'Journal', icon: 'journal', key: 'j', words: 'review notes mistakes trades win rate expectancy counterfactual' },
   tax: { label: 'Tax', title: 'Tax estimate', icon: 'tax', key: 'x', words: 'income tax itr itr-3 f&o turnover audit capital gains stcg ltcg speculative carry forward advance tax ca' },
   agents: { label: 'Agents', title: 'Agent team', icon: 'agents', key: 't', words: 'personas scorecards team' },

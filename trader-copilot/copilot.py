@@ -531,7 +531,22 @@ def kill_on(paths, now, reason, auto=False):
     log.append({"at": stamp(now), "action": "kill", "reason": reason, "auto": bool(auto)})
     k.update(active=True, date=now.date().isoformat(), at=stamp(now), reason=reason, auto=bool(auto), log=log[-50:])
     write_json(paths.kill, k)
+    notify_event(paths.workdir, "kill", "LIVE kill switch ON", "The co-pilot's live kill switch is on for %s%s: no "
+                 "new live proposals today." % (k["date"], " (the daily live loss cap)" if auto else ""),
+                 key="copilot-kill:" + k["date"])
     return k
+
+
+def notify_event(workdir, event, title, text, key=None):
+    """Best effort: one local notification through trader-alerts when it is installed next to this folder (off
+    unless trader/config.json turns notifications on). Never the approval phrase, never a position list."""
+    try:
+        al = _sibling("trader-alerts", "alerts", required=False)
+        if al is not None and hasattr(al, "notify"):
+            return al.notify(workdir, event, title, text, key=key)
+    except Exception:  # noqa: BLE001 - a notification must never stop the co-pilot
+        return None
+    return None
 
 
 def kill_lift(paths, now, typed):
@@ -969,6 +984,10 @@ def propose(workdir, now=None, run=False, data=None, log=None, positions=None):
             pending_risk += loss              # waiting proposals count against the caps until they expire
             pending_n += 1
             notify(s, WORDS["waiting"] % (p["id"], p["phrase"]))
+            notify_event(paths.workdir, "copilot_proposal", "LIVE proposal waiting",
+                         "LIVE proposal %s (%s, %s) is waiting for your approval in your terminal or the local UI. "
+                         "It expires in %d minutes." % (p["id"], p.get("symbol"), name, int(s["expire_min"])),
+                         key="proposal:" + p["id"])
     save_state(paths, st)
     return out
 

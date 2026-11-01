@@ -48,7 +48,7 @@ class Screens(unittest.TestCase):
                     self.assertEqual(fh.read(8), b"\x89PNG\r\n\x1a\n")
                 self.assertLessEqual(probe["overflow"], 0, "the page scrolls sideways")
                 self.assertEqual(probe["errors"], [])
-                self.assertEqual(probe["nav"], 18)
+                self.assertEqual(probe["nav"], 19)
 
     def test_key_pages_at_desktop_and_phone_widths(self):
         self.check(screenshots.run(self.out, KEY_PAGES, WIDTHS))

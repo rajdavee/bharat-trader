@@ -14,6 +14,35 @@ All notable changes are documented here. The format follows
   resumable. `sectors(symbol, date=None)` and `archive.py sectors` read them
   offline. trader-lab's pairs engine reads them, so eh-11's dry run is no
   longer blocked on a hand-made `sectors.json` (which still wins when given).
+- **Forward-test dashboard** (#76): `lab.py forward-report`, the UI's
+  **Forward tests** page (Review) and the `forward_report` MCP tool (read
+  only). Each strategy's paper forward record against the range its
+  backtest's out-of-sample trades predicted (mean R and win rate, prediction
+  intervals, the record's own 95% ranges), inside / below / above, a lower
+  CUSUM control chart (k 0.5, h 4), decay alerts (10+ trades and the running
+  mean below the range for 5 in a row, or the chart alarms) with a DEMOTE
+  recommendation applied only by `--demote NAME`, the co-trader's Brier
+  score, the promote / demote timeline, and trades and sessions to PROMOTE.
+  The auto-pilot adds it to its end-of-day report (`decay_demote`, off by
+  default, applies the recommendation). Thresholds in `"forward_tests"`.
+- **Intraday option-chain capture job**: the auto-pilot starts and
+  supervises trader-archive's `capture-chains` in market hours (default
+  NIFTY and BANKNIFTY, nearest two expiries, every 5 minutes): heartbeat
+  staleness, restarts of its own capture only (at most 3 a day), gaps,
+  strikes per snapshot and the 16 Nov 2026 holdout deadline of
+  eh-14-trend-day-buying. `autopilot.py capture [--tick]`; launchd, systemd
+  and Task Scheduler examples in docs/forward-tests.md.
+- **Local notifications**, off by default (trader-alerts `notify/`,
+  `alerts.py notify status|test|send`, the `notify_test` MCP tool and
+  `POST /api/notify/test`): desktop pop-ups (macOS `osascript`, Linux
+  `notify-send`, Windows toast) and an optional JSON POST to your own
+  webhook from `BT_NOTIFY_WEBHOOK`, for co-trader candidates, auto-pilot
+  fills and exits, co-pilot proposals waiting, risk locks and kill switches,
+  decay alerts and capture failures. Per-event toggles, quiet hours, a
+  per-event gap, a daily key and an hourly cap; the webhook gets only a short
+  redacted summary (never secrets, positions or approval phrases), and the
+  URL is never written anywhere. docs/notifications.md.
+- MCP: 59 tools (`forward_report`, `notify_test`).
 - **Long-history archive** (#71) in `trader-archive`: legacy equity
   bhavcopies back to 1994-11-03 and F&O back to 2000-06-12 (formats checked
   year by year; the old `OPTIONTYPE` header, files without ISIN, ban titles
