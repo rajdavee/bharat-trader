@@ -1,0 +1,60 @@
+{
+ "schema": "bharat-trader/lab-spec/1",
+ "kind": "options",
+ "timeframe": "1d",
+ "name": "nifty-weekly-condor-16d",
+ "title": "NIFTY weekly iron condor, 16 delta with 100-point wings",
+ "description": "Sell the 16-delta call and put of the next NIFTY weekly expiry 6 calendar days before it and buy wings 100 points beyond each: defined risk. Take profit at half the credit, stop at twice the credit (at the close), else cash settlement.",
+ "underlying": "NIFTY",
+ "structure": "iron-condor",
+ "expiry": "weekly",
+ "params": {
+  "delta": 0.16,
+  "wing": 100,
+  "target": 50,
+  "stop": 2
+ },
+ "strikes": {
+  "by": "delta",
+  "value": "$delta"
+ },
+ "wings": {
+  "points": "$wing"
+ },
+ "entry": {
+  "days_to_expiry": 6
+ },
+ "exit": {
+  "profit_target_pct": "$target",
+  "stop_loss_mult": "$stop"
+ },
+ "grid": {
+  "delta": [
+   0.12,
+   0.16,
+   0.2
+  ],
+  "wing": [
+   100,
+   200
+  ],
+  "target": [
+   50,
+   75
+  ]
+ },
+ "lots": 1,
+ "capital": 500000,
+ "costs": {
+  "slippage_pct": 2,
+  "slippage_ticks": 1
+ },
+ "walk_forward": {
+  "in_sample": 120,
+  "out_of_sample": 60
+ },
+ "seed": 16,
+ "references": [
+  "The 16-delta strangle and managing winners at 50% are practitioner habits, not evidence: this spec tests them on NSE data"
+ ]
+}

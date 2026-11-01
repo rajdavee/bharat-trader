@@ -15,12 +15,12 @@ from _load import ROOT, load  # noqa: E402
 SELF = os.path.abspath(__file__)
 # the standard library modules a helper module may import (Python 3.8 has no sys.stdlib_module_names)
 STDLIB = set(getattr(sys, "stdlib_module_names", ())) | {
-    "abc", "argparse", "ast", "base64", "binascii", "calendar", "collections", "contextlib", "copy", "csv",
+    "abc", "argparse", "array", "ast", "base64", "binascii", "bisect", "bz2", "cmath", "calendar", "collections", "contextlib", "copy", "csv",
     "dataclasses", "datetime", "decimal", "email", "enum", "functools", "getpass", "glob", "gzip", "hashlib",
-    "hmac", "html", "http", "importlib", "io", "ipaddress", "itertools", "json", "logging", "math", "os",
-    "pathlib", "random", "re", "secrets", "shlex", "shutil", "socket", "ssl", "statistics", "string", "struct",
+    "fractions", "heapq", "hmac", "html", "http", "importlib", "io", "ipaddress", "itertools", "json", "logging", "math", "os",
+    "operator", "pathlib", "pickle", "queue", "random", "re", "secrets", "shlex", "shutil", "socket", "ssl", "statistics", "string", "struct",
     "sys", "tempfile", "textwrap", "threading", "time", "typing", "unicodedata", "urllib", "uuid", "webbrowser",
-    "zipfile", "zlib"}
+    "warnings", "weakref", "zipfile", "zlib"}
 
 SKILLS = ["trader-scanner", "trader-news", "trader-entry", "trader-exit", "trader-timemachine",
           "trader-risk", "trader-budget", "trader-broker", "trader-alerts", "trader-analyst",

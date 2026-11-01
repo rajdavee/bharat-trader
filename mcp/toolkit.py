@@ -831,9 +831,22 @@ def _lab_now(kit, tool, lab):
     return lab.ist_now(str(n)) if n else lab.ist_now()
 
 
+def _lab_archive(kit, tool):
+    """The trader-archive folder an options spec reads: the offline bundle's trader-lab/archive, else
+    $BT_ARCHIVE, else trader/archive."""
+    if kit.offline:
+        p = os.path.join(kit.offline.path(tool, "trader-lab"), "archive")
+        if os.path.isdir(p):
+            return p
+    return os.environ.get("BT_ARCHIVE") or kit.p("archive")
+
+
 def _lab_data(kit, tool, lab, spec, now):
     """The spec's bars (offline: the bundle's saved bars, as seen at the tool's pinned clock), the regime
-    context, the F&O list and notes."""
+    context, the F&O list and notes. An options spec gets its EOD chains from the local archive."""
+    if spec.get("kind") == "options":
+        data, ctx, notes = lab.load_data(spec, None, None, False, now, _lab_archive(kit, tool))
+        return data, ctx, None, notes
     data_dir = kit.offline.path(tool, "trader-lab") if kit.offline else None
     data, ctx, notes = lab.load_data(spec, data_dir, os.path.join(kit.p("lab"), "data"), not kit.offline, now)
     fno, fnote = lab.load_fno_stocks(spec["cfg"], kit.p("fno_stocks.json"), fetch=not kit.offline)
@@ -856,6 +869,7 @@ def t_lab_list(kit, a, call):
     lib = [{"name": n, "title": d.get("title"), "timeframe": d.get("timeframe"),
             "product": d.get("product") or ("MIS" if d.get("timeframe") == "5m" else "CNC"),
             "description": d.get("description"), "symbols": len(d.get("universe") or []),
+            "kind": d.get("kind") or "equity", "underlying": d.get("underlying"), "structure": d.get("structure"),
             "params": d.get("params") or {}, "grid": d.get("grid") or {}} for n, d in sorted(lab.library().items())]
     names = []
     if os.path.isdir(out):
@@ -891,7 +905,11 @@ def t_lab_run(kit, a, call):
     try:
         doc, src = lab.resolve_spec(name, out)
         if a.get("symbols"):
-            doc["universe"] = [x.strip().upper() for x in a["symbols"].split(",") if x.strip()]
+            syms = [x.strip().upper() for x in a["symbols"].split(",") if x.strip()]
+            if doc.get("kind") == "options":
+                doc["underlying"] = syms[0]
+            else:
+                doc["universe"] = syms
         if a.get("seed") is not None:
             doc["seed"] = int(a["seed"])
         spec = lab.validate_spec(doc)
@@ -939,7 +957,10 @@ def t_lab_forward(kit, a, call):
     except (lab.LabError, lab.RulesError) as e:
         raise ToolError(str(e))
     drafted = None
-    if want:
+    if want and r.get("kind") == "options":
+        drafted, dnotes = _lab_draft_basket(kit, lab, r, want, a.get("persona"))
+        notes += dnotes
+    elif want:
         plan = [p for p in r["plans"] if p["symbol"] == want]
         if not plan:
             raise ToolError("no fresh %s signal to draft (today's lab plans: %s)"
@@ -951,6 +972,12 @@ def t_lab_forward(kit, a, call):
                                  % want]
     if drafted:
         step = drafted["next_step"]
+    elif r.get("baskets"):
+        step = ("A fresh options basket for %s. To paper trade it, call lab_forward again with draft: %s. It "
+                "becomes trader/strategy.json and trader/orders.json and trader-risk checks the legs as ONE "
+                "basket; the user then confirms the one basket ticket with their own typed yes (local UI or "
+                "ticket.py)." % (", ".join(b["expiry"] for b in r["baskets"]),
+                                         r["baskets"][0]["strategy"]["underlying"]))
     elif r["plans"]:
         step = ("Fresh signals: %s. To paper trade one, call lab_forward again with draft: SYMBOL. It becomes "
                 "trader/plan.json and goes through paper_order_draft (trader-budget sizes it, trader-risk checks "
@@ -960,6 +987,41 @@ def t_lab_forward(kit, a, call):
         step = "No paper plans to draft."
     return {"forward": r, "drafted": drafted, "next_step": step}, \
         notes + ["The forward record is the lab's simulated fills on bars the backtest never saw. Nothing was placed."]
+
+
+def _lab_draft_basket(kit, lab, r, want, persona=None):
+    """An options forward basket -> trader/strategy.json and trader/orders.json (the old ones kept as .bak),
+    then trader-risk's check of the basket. Places nothing."""
+    pick = [b for b in r["baskets"] if b["strategy"]["underlying"] == want]
+    if not pick:
+        raise ToolError("no fresh %s basket to draft (today's lab baskets: %s)" % (
+            want, ", ".join(b["strategy"]["underlying"] for b in r["baskets"]) or "none"))
+    b = pick[0]
+    body = dict(b["orders"])
+    if persona:
+        strat = lab.strategy_api()
+        try:
+            tag = strat.persona_name(persona)
+        except ValueError as e:
+            raise ToolError(str(e))
+        body["orders"] = [dict(o) for o in body["orders"]]
+        strat.tag_orders(body["orders"], tag)
+    kit.backup("strategy.json")
+    kit.backup("orders.json")
+    lab.write_json(kit.p("strategy.json"), b["strategy"])
+    lab.write_json(kit.p("orders.json"), body)
+    risk, rerr = _risk_record(kit)
+    view = api.tickets(kit.ctx)
+    bv = view.get("basket") or {}
+    step = ("Show the user the basket leg by leg in plain words (side, qty, strike, type, expiry, the limit price, "
+            "the margin estimate and the max loss). It is ONE basket ticket: the user confirms it themselves "
+            "with their own typed yes in the local UI (Orders) or trader-broker's ticket.py; every leg or none, "
+            "paper only."
+            if bv.get("ready") else "trader-risk did not pass the basket (%s); nothing can be confirmed."
+            % (bv.get("status") or "no verdict"))
+    notes = [rerr or None, "The lab's %s basket is now trader/strategy.json and trader/orders.json (the old ones "
+                           "kept as .bak); trader-risk recorded its verdicts." % want]
+    return {"risk": risk, "basket_ticket": bv, "next_step": step, "basket": b}, notes
 
 
 # ---------------------------------------------------------------- tools: strategy discovery
@@ -1456,7 +1518,8 @@ def build_tools():
                   data=obj({"library": ANY_LIST, "runs": ANY_LIST}, ["library", "runs"], extra=True), network=False))
     T.append(tool("lab_run", "Strategy lab: run a backtest",
                   "Backtest a strategy spec bar by bar on NSE bars after Indian charges and slippage, with no "
-                  "look-ahead; then walk-forward out of sample, the parameter neighbourhood, Monte Carlo, the "
+                  "look-ahead (an options spec, kind options: day by day on the local archive's end-of-day F&O "
+                  "chains, with margin, return on margin and tail losses); then walk-forward out of sample, the parameter neighbourhood, Monte Carlo, the "
                   "deflated Sharpe ratio, the probability of backtest overfitting, regimes and 1.5x/2x costs. "
                   "Pre-registered gates give REJECT, WATCH (paper forward test next) or PROMOTE. Writes "
                   "trader/lab/<name>/. Sends progress and stops at max_seconds. Expect most strategies to be "
@@ -1507,7 +1570,9 @@ def build_tools():
                   "Run a WATCH or PROMOTE strategy on the latest bars: settle its signals since the backtest into "
                   "the rolling forward record (a decayed PROMOTE is demoted) and list today's fresh signals as draft "
                   "plans. draft: SYMBOL makes that plan trader/plan.json (keeps a .bak) and runs paper_order_draft "
-                  "(trader-budget sizes it, trader-risk checks it). Places nothing: a paper order still needs the "
+                  "(trader-budget sizes it, trader-risk checks it). For an options spec, draft: UNDERLYING makes "
+                  "today's basket trader/strategy.json and trader/orders.json and runs trader-risk on it as one "
+                  "basket. Places nothing: a paper order still needs the "
                   "user's own yes through paper_order_confirm.", t_lab_forward,
                   {"strategy": lab_name, "draft": SYMBOL, "persona": PERSONA}, ["strategy"],
                   data=obj({"forward": ANY_OBJ, "drafted": {}, "next_step": S("string")},
