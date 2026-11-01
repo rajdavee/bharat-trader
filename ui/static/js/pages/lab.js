@@ -62,6 +62,7 @@ function regimes(run) {
       h('td', { class: 'num' }, h('span', { class: tone(x.net) }, signed(x.net))))), { dense: true, caption: 'Results by regime' }));
 }
 
+const money = (x) => (x === null || x === undefined ? '–' : inr(Math.round(Number(x))).replace(/\.00$/, ''));
 const pct = (x) => (x === null || x === undefined ? '–' : num(x, 2) + '%');
 
 // An options run: return on margin, tail losses, streaks, time in drawdown and short-strike breaches.
@@ -73,7 +74,7 @@ function optionsBlock(run) {
   const tiles = h('div', { class: 'metrics' },
     metric({ label: 'Return on margin, a year', value: why(pct(w.return_on_margin_annual_pct), o.why.return_on_margin,
       'return on margin'), tone: tone(w.return_on_margin_annual_pct) || null,
-    sub: `${pct(w.return_on_margin_pct)} in all on ${rupees(w.avg_margin)} average margin; out of sample ${pct(s.return_on_margin_annual_pct)} a year`,
+    sub: `${pct(w.return_on_margin_pct)} in all on ${money(w.avg_margin)} average margin; out of sample ${pct(s.return_on_margin_annual_pct)} a year`,
     explain: 'Net after charges over the estimated margin blocked (SPAN-style), not over the premium.' }),
     metric({ label: 'Tail loss (5% / 1%)', value: why(`${rupees(w.tail_loss_5pct)} / ${rupees(w.tail_loss_1pct)}`,
       o.why.tail, 'the tail loss'), tone: 'warn',
@@ -85,7 +86,7 @@ function optionsBlock(run) {
     metric({ label: 'Time in drawdown', value: pct(w.time_in_drawdown_pct),
       sub: `Max drawdown ${num(w.max_drawdown_mtm_pct, 2)}% of capital, marked to market daily`,
       explain: 'Share of sessions the marked-to-market equity sat below its previous high.' }));
-  const rows = [['Positions', 'positions', (x) => num(x, 0)], ['Average margin blocked', 'avg_margin', rupees],
+  const rows = [['Positions', 'positions', (x) => num(x, 0)], ['Average margin blocked', 'avg_margin', money],
     ['Return on margin, a position', 'avg_return_on_margin_pct', pct], ['Worst week', 'worst_week', rupees],
     ['Average of the worst 5%', 'tail_avg_worst_5pct', rupees], ['Max consecutive losses', 'max_consecutive_losses', (x) => num(x, 0)],
     ['Short strike breached', 'breach_pct', pct]];

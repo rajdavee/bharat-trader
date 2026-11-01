@@ -1,0 +1,1599 @@
+{
+ "schema": "bharat-trader/lab-results/1",
+ "kind": "options",
+ "name": "nifty-expiry-iron-fly",
+ "title": "NIFTY expiry-day iron fly",
+ "spec_hash": "4709a8071c44abc6",
+ "timeframe": "1d",
+ "product": "NRML",
+ "underlying": "NIFTY",
+ "structure": "iron-fly",
+ "expiry_kind": "weekly",
+ "data": {
+  "symbols": [
+   "NIFTY"
+  ],
+  "missing": [],
+  "from": "2024-01-01",
+  "to": "2026-10-30",
+  "sessions": 703,
+  "warmup_sessions": 0,
+  "tested_from": "2024-01-01",
+  "source": "archive 2024-01-01 to 2026-10-30 (703 EOD chains)",
+  "context": [
+   "nifty",
+   "vix"
+  ]
+ },
+ "params": {
+  "wing": 200
+ },
+ "config": {
+  "capital": 500000.0,
+  "lots": 1,
+  "max_loss_per_trade": null,
+  "rate": 0.0557
+ },
+ "costs": {
+  "slippage_pct": 2.0,
+  "slippage_ticks": 1.0
+ },
+ "rules": "iron-fly the ATM strike on NIFTY weekly expiries, 1 lot; wings 200 points beyond the shorts; enter at the open on expiry day; else held to cash settlement",
+ "full": {
+  "trades": 148,
+  "days": 703,
+  "wins": 85,
+  "win_rate": 0.5743,
+  "gross": 56861.14,
+  "charges": 16250.61,
+  "net": 40610.55,
+  "avg_net": 274.4,
+  "expectancy_r": 0.0025,
+  "avg_win_r": 0.0269,
+  "avg_loss_r": -0.0303,
+  "profit_factor": 1.175,
+  "max_drawdown": 33025.59,
+  "max_drawdown_pct": 6.605,
+  "sharpe_daily": 0.0295,
+  "sharpe_annual": 0.468,
+  "longest_losing_streak": 5,
+  "avg_bars": 0.0
+ },
+ "skipped": {
+  "no legs: no chain for 2025-09-25 on 2025-09-24": 1
+ },
+ "walk_forward": {
+  "in_sample": 120,
+  "out_of_sample": 60,
+  "folds": [
+   {
+    "in_sample_days": [
+     "2024-01-01",
+     "2024-06-25"
+    ],
+    "out_of_sample_days": [
+     "2024-06-26",
+     "2024-09-19"
+    ],
+    "params": {
+     "wing": 300.0
+    },
+    "in_sample_net": 19308.03,
+    "stats": {
+     "trades": 13,
+     "days": 60,
+     "wins": 7,
+     "win_rate": 0.5385,
+     "gross": 2751.13,
+     "charges": 1294.28,
+     "net": 1456.85,
+     "avg_net": 112.07,
+     "expectancy_r": 0.0022,
+     "avg_win_r": 0.0259,
+     "avg_loss_r": -0.0255,
+     "profit_factor": 1.171,
+     "max_drawdown": 5260.05,
+     "max_drawdown_pct": 1.052,
+     "sharpe_daily": 0.028,
+     "sharpe_annual": 0.445,
+     "longest_losing_streak": 3,
+     "avg_bars": 0.0
+    }
+   },
+   {
+    "in_sample_days": [
+     "2024-03-27",
+     "2024-09-19"
+    ],
+    "out_of_sample_days": [
+     "2024-09-20",
+     "2024-12-17"
+    ],
+    "params": {
+     "wing": 300.0
+    },
+    "in_sample_net": -8481.05,
+    "stats": {
+     "trades": 12,
+     "days": 60,
+     "wins": 6,
+     "win_rate": 0.5,
+     "gross": -3023.54,
+     "charges": 1206.85,
+     "net": -4230.39,
+     "avg_net": -352.53,
+     "expectancy_r": -0.0059,
+     "avg_win_r": 0.0369,
+     "avg_loss_r": -0.0487,
+     "profit_factor": 0.739,
+     "max_drawdown": 6553.35,
+     "max_drawdown_pct": 1.311,
+     "sharpe_daily": -0.0553,
+     "sharpe_annual": -0.877,
+     "longest_losing_streak": 2,
+     "avg_bars": 0.0
+    }
+   },
+   {
+    "in_sample_days": [
+     "2024-06-26",
+     "2024-12-17"
+    ],
+    "out_of_sample_days": [
+     "2024-12-18",
+     "2025-03-12"
+    ],
+    "params": {
+     "wing": 100.0
+    },
+    "in_sample_net": -1020.12,
+    "stats": {
+     "trades": 12,
+     "days": 60,
+     "wins": 5,
+     "win_rate": 0.4167,
+     "gross": 3608.52,
+     "charges": 1342.79,
+     "net": 2265.73,
+     "avg_net": 188.81,
+     "expectancy_r": 0.0008,
+     "avg_win_r": 0.017,
+     "avg_loss_r": -0.0108,
+     "profit_factor": 1.228,
+     "max_drawdown": 6734.05,
+     "max_drawdown_pct": 1.347,
+     "sharpe_daily": 0.0357,
+     "sharpe_annual": 0.566,
+     "longest_losing_streak": 4,
+     "avg_bars": 0.0
+    }
+   },
+   {
+    "in_sample_days": [
+     "2024-09-20",
+     "2025-03-12"
+    ],
+    "out_of_sample_days": [
+     "2025-03-13",
+     "2025-06-12"
+    ],
+    "params": {
+     "wing": 300.0
+    },
+    "in_sample_net": 15326.55,
+    "stats": {
+     "trades": 14,
+     "days": 60,
+     "wins": 7,
+     "win_rate": 0.5,
+     "gross": -23.76,
+     "charges": 1591.86,
+     "net": -1615.62,
+     "avg_net": -115.4,
+     "expectancy_r": -0.0005,
+     "avg_win_r": 0.0415,
+     "avg_loss_r": -0.0424,
+     "profit_factor": 0.966,
+     "max_drawdown": 22471.77,
+     "max_drawdown_pct": 4.494,
+     "sharpe_daily": -0.0068,
+     "sharpe_annual": -0.108,
+     "longest_losing_streak": 3,
+     "avg_bars": 0.0
+    }
+   },
+   {
+    "in_sample_days": [
+     "2024-12-18",
+     "2025-06-12"
+    ],
+    "out_of_sample_days": [
+     "2025-06-13",
+     "2025-09-08"
+    ],
+    "params": {
+     "wing": 300.0
+    },
+    "in_sample_net": 17941.32,
+    "stats": {
+     "trades": 12,
+     "days": 60,
+     "wins": 6,
+     "win_rate": 0.5,
+     "gross": -16995.37,
+     "charges": 1285.59,
+     "net": -18280.96,
+     "avg_net": -1523.41,
+     "expectancy_r": -0.0088,
+     "avg_win_r": 0.0182,
+     "avg_loss_r": -0.0358,
+     "profit_factor": 0.499,
+     "max_drawdown": 28090.82,
+     "max_drawdown_pct": 5.618,
+     "sharpe_daily": -0.1165,
+     "sharpe_annual": -1.849,
+     "longest_losing_streak": 3,
+     "avg_bars": 0.0
+    }
+   },
+   {
+    "in_sample_days": [
+     "2025-03-13",
+     "2025-09-08"
+    ],
+    "out_of_sample_days": [
+     "2025-09-09",
+     "2025-12-04"
+    ],
+    "params": {
+     "wing": 100.0
+    },
+    "in_sample_net": -11012.32,
+    "stats": {
+     "trades": 13,
+     "days": 60,
+     "wins": 6,
+     "win_rate": 0.4615,
+     "gross": -2644.65,
+     "charges": 1419.41,
+     "net": -4064.06,
+     "avg_net": -312.62,
+     "expectancy_r": -0.002,
+     "avg_win_r": 0.0146,
+     "avg_loss_r": -0.0162,
+     "profit_factor": 0.775,
+     "max_drawdown": 8165.19,
+     "max_drawdown_pct": 1.633,
+     "sharpe_daily": -0.054,
+     "sharpe_annual": -0.857,
+     "longest_losing_streak": 4,
+     "avg_bars": 0.0
+    }
+   },
+   {
+    "in_sample_days": [
+     "2025-06-13",
+     "2025-12-04"
+    ],
+    "out_of_sample_days": [
+     "2025-12-05",
+     "2026-03-02"
+    ],
+    "params": {
+     "wing": 300.0
+    },
+    "in_sample_net": 10.06,
+    "stats": {
+     "trades": 13,
+     "days": 60,
+     "wins": 9,
+     "win_rate": 0.6923,
+     "gross": -2804.79,
+     "charges": 1472.29,
+     "net": -4277.08,
+     "avg_net": -329.01,
+     "expectancy_r": -0.0025,
+     "avg_win_r": 0.0266,
+     "avg_loss_r": -0.0679,
+     "profit_factor": 0.901,
+     "max_drawdown": 33438.27,
+     "max_drawdown_pct": 6.688,
+     "sharpe_daily": -0.0192,
+     "sharpe_annual": -0.306,
+     "longest_losing_streak": 2,
+     "avg_bars": 0.0
+    }
+   },
+   {
+    "in_sample_days": [
+     "2025-09-09",
+     "2026-03-02"
+    ],
+    "out_of_sample_days": [
+     "2026-03-04",
+     "2026-06-03"
+    ],
+    "params": {
+     "wing": 300.0
+    },
+    "in_sample_net": 14013.94,
+    "stats": {
+     "trades": 13,
+     "days": 60,
+     "wins": 8,
+     "win_rate": 0.6154,
+     "gross": 34823.56,
+     "charges": 1568.3,
+     "net": 33255.25,
+     "avg_net": 2558.1,
+     "expectancy_r": 0.0187,
+     "avg_win_r": 0.0521,
+     "avg_loss_r": -0.0347,
+     "profit_factor": 2.412,
+     "max_drawdown": 8438.35,
+     "max_drawdown_pct": 1.688,
+     "sharpe_daily": 0.1741,
+     "sharpe_annual": 2.763,
+     "longest_losing_streak": 3,
+     "avg_bars": 0.0
+    }
+   },
+   {
+    "in_sample_days": [
+     "2025-12-05",
+     "2026-06-03"
+    ],
+    "out_of_sample_days": [
+     "2026-06-04",
+     "2026-08-27"
+    ],
+    "params": {
+     "wing": 300.0
+    },
+    "in_sample_net": 28978.17,
+    "stats": {
+     "trades": 12,
+     "days": 60,
+     "wins": 9,
+     "win_rate": 0.75,
+     "gross": 28608.01,
+     "charges": 1326.73,
+     "net": 27281.28,
+     "avg_net": 2273.44,
+     "expectancy_r": 0.0163,
+     "avg_win_r": 0.0351,
+     "avg_loss_r": -0.0403,
+     "profit_factor": 2.607,
+     "max_drawdown": 12835.14,
+     "max_drawdown_pct": 2.567,
+     "sharpe_daily": 0.18,
+     "sharpe_annual": 2.857,
+     "longest_losing_streak": 2,
+     "avg_bars": 0.0
+    }
+   }
+  ],
+  "stats": {
+   "trades": 114,
+   "days": 540,
+   "wins": 63,
+   "win_rate": 0.5526,
+   "gross": 44299.11,
+   "charges": 12508.1,
+   "net": 31791.0,
+   "avg_net": 278.87,
+   "expectancy_r": 0.0021,
+   "avg_win_r": 0.0309,
+   "avg_loss_r": -0.0336,
+   "profit_factor": 1.144,
+   "max_drawdown": 40733.6,
+   "max_drawdown_pct": 8.147,
+   "sharpe_daily": 0.0233,
+   "sharpe_annual": 0.37,
+   "longest_losing_streak": 4,
+   "avg_bars": 0.0
+  },
+  "latest_params": {
+   "wing": 300.0
+  }
+ },
+ "grid": {
+  "params": [
+   "wing"
+  ],
+  "points": [
+   {
+    "params": {
+     "wing": 100.0
+    },
+    "trades": 148,
+    "net": 8107.1,
+    "expectancy_r": 0.0003,
+    "profit_factor": 1.06,
+    "max_drawdown_pct": 4.804,
+    "return_on_margin_pct": 6.96,
+    "home": false
+   },
+   {
+    "params": {
+     "wing": 150.0
+    },
+    "trades": 148,
+    "net": 21179.98,
+    "expectancy_r": 0.0013,
+    "profit_factor": 1.107,
+    "max_drawdown_pct": 6.325,
+    "return_on_margin_pct": 18.02,
+    "home": false
+   },
+   {
+    "params": {
+     "wing": 200.0
+    },
+    "trades": 148,
+    "net": 40610.55,
+    "expectancy_r": 0.0025,
+    "profit_factor": 1.175,
+    "max_drawdown_pct": 6.605,
+    "return_on_margin_pct": 34.04,
+    "home": true
+   },
+   {
+    "params": {
+     "wing": 300.0
+    },
+    "trades": 148,
+    "net": 70037.18,
+    "expectancy_r": 0.0041,
+    "profit_factor": 1.242,
+    "max_drawdown_pct": 6.688,
+    "return_on_margin_pct": 56.54,
+    "home": false
+   }
+  ],
+  "neighbourhood": [
+   {
+    "wing": 150.0
+   },
+   {
+    "wing": 200.0
+   },
+   {
+    "wing": 300.0
+   }
+  ],
+  "neighbourhood_positive": 1.0,
+  "grid_positive": 1.0,
+  "neighbourhood_median_expectancy_r": 0.0025
+ },
+ "costs_sensitivity": {
+  "whole_sample": {
+   "1x": {
+    "trades": 148,
+    "net": 40610.55,
+    "expectancy_r": 0.0025,
+    "profit_factor": 1.175
+   },
+   "1.5x": {
+    "trades": 148,
+    "net": 16027.43,
+    "expectancy_r": 0.001,
+    "profit_factor": 1.066
+   },
+   "2x": {
+    "trades": 148,
+    "net": -8538.02,
+    "expectancy_r": -0.0004,
+    "profit_factor": 0.966
+   }
+  },
+  "out_of_sample": {
+   "1x": {
+    "trades": 114,
+    "net": 31791.0,
+    "expectancy_r": 0.0021,
+    "profit_factor": 1.144
+   },
+   "1.5x": {
+    "trades": 114,
+    "net": 12424.56,
+    "expectancy_r": 0.0007,
+    "profit_factor": 1.054
+   },
+   "2x": {
+    "trades": 114,
+    "net": -6927.24,
+    "expectancy_r": -0.0007,
+    "profit_factor": 0.971
+   }
+  }
+ },
+ "monte_carlo": {
+  "runs": 1000,
+  "seed": 16,
+  "trades": 114,
+  "drawdown_actual": 40733.6,
+  "drawdown_p50": 49798.15,
+  "drawdown_p95": 79578.05,
+  "drawdown_worst": 106170.92,
+  "actual_drawdown_rank": 0.231,
+  "final_p5": -71903.52,
+  "final_p50": 31179.37,
+  "final_p95": 122391.15,
+  "prob_loss": 0.298,
+  "bands": [
+   {
+    "trade": 3,
+    "p5": -14495.49,
+    "p50": 1354.64,
+    "p95": 15784.86
+   },
+   {
+    "trade": 6,
+    "p5": -20679.57,
+    "p50": 1509.96,
+    "p95": 22904.42
+   },
+   {
+    "trade": 9,
+    "p5": -25326.25,
+    "p50": 2650.73,
+    "p95": 27586.91
+   },
+   {
+    "trade": 11,
+    "p5": -27939.15,
+    "p50": 3603.5,
+    "p95": 30822.46
+   },
+   {
+    "trade": 14,
+    "p5": -30433.91,
+    "p50": 4131.07,
+    "p95": 36481.33
+   },
+   {
+    "trade": 17,
+    "p5": -32405.5,
+    "p50": 5329.54,
+    "p95": 39919.56
+   },
+   {
+    "trade": 20,
+    "p5": -36141.55,
+    "p50": 5833.41,
+    "p95": 44102.48
+   },
+   {
+    "trade": 23,
+    "p5": -37352.4,
+    "p50": 6291.91,
+    "p95": 47174.01
+   },
+   {
+    "trade": 26,
+    "p5": -41351.9,
+    "p50": 7177.53,
+    "p95": 51200.95
+   },
+   {
+    "trade": 28,
+    "p5": -40058.85,
+    "p50": 8037.25,
+    "p95": 54166.31
+   },
+   {
+    "trade": 31,
+    "p5": -42996.69,
+    "p50": 7945.82,
+    "p95": 56754.95
+   },
+   {
+    "trade": 34,
+    "p5": -42163.63,
+    "p50": 7927.62,
+    "p95": 61200.93
+   },
+   {
+    "trade": 37,
+    "p5": -42255.91,
+    "p50": 8263.99,
+    "p95": 63392.32
+   },
+   {
+    "trade": 40,
+    "p5": -46082.59,
+    "p50": 10322.35,
+    "p95": 66789.89
+   },
+   {
+    "trade": 43,
+    "p5": -49141.39,
+    "p50": 11733.94,
+    "p95": 69553.98
+   },
+   {
+    "trade": 46,
+    "p5": -48257.99,
+    "p50": 11997.41,
+    "p95": 74776.42
+   },
+   {
+    "trade": 48,
+    "p5": -50554.55,
+    "p50": 13508.31,
+    "p95": 76142.87
+   },
+   {
+    "trade": 51,
+    "p5": -51236.1,
+    "p50": 14079.34,
+    "p95": 76236.67
+   },
+   {
+    "trade": 54,
+    "p5": -53500.05,
+    "p50": 13013.19,
+    "p95": 81950.56
+   },
+   {
+    "trade": 57,
+    "p5": -52170.21,
+    "p50": 13524.84,
+    "p95": 85696.59
+   },
+   {
+    "trade": 60,
+    "p5": -53430.54,
+    "p50": 14083.38,
+    "p95": 87501.33
+   },
+   {
+    "trade": 63,
+    "p5": -54636.6,
+    "p50": 15122.57,
+    "p95": 88955.43
+   },
+   {
+    "trade": 66,
+    "p5": -56664.69,
+    "p50": 17062.8,
+    "p95": 89607.87
+   },
+   {
+    "trade": 68,
+    "p5": -55772.11,
+    "p50": 17933.64,
+    "p95": 92547.71
+   },
+   {
+    "trade": 71,
+    "p5": -60269.05,
+    "p50": 18696.02,
+    "p95": 96298.99
+   },
+   {
+    "trade": 74,
+    "p5": -58884.3,
+    "p50": 19930.32,
+    "p95": 95930.6
+   },
+   {
+    "trade": 77,
+    "p5": -59499.75,
+    "p50": 20998.85,
+    "p95": 99558.35
+   },
+   {
+    "trade": 80,
+    "p5": -60671.18,
+    "p50": 21345.87,
+    "p95": 98438.02
+   },
+   {
+    "trade": 83,
+    "p5": -61500.22,
+    "p50": 23657.5,
+    "p95": 101404.85
+   },
+   {
+    "trade": 86,
+    "p5": -64770.1,
+    "p50": 23624.9,
+    "p95": 104185.34
+   },
+   {
+    "trade": 88,
+    "p5": -66616.95,
+    "p50": 24047.81,
+    "p95": 106457.81
+   },
+   {
+    "trade": 91,
+    "p5": -65761.52,
+    "p50": 25224.66,
+    "p95": 110614.69
+   },
+   {
+    "trade": 94,
+    "p5": -69988.65,
+    "p50": 26405.36,
+    "p95": 111783.56
+   },
+   {
+    "trade": 97,
+    "p5": -70994.53,
+    "p50": 26776.29,
+    "p95": 111480.53
+   },
+   {
+    "trade": 100,
+    "p5": -67433.75,
+    "p50": 26762.38,
+    "p95": 112523.16
+   },
+   {
+    "trade": 103,
+    "p5": -69548.28,
+    "p50": 27735.62,
+    "p95": 116450.78
+   },
+   {
+    "trade": 105,
+    "p5": -65741.37,
+    "p50": 28068.28,
+    "p95": 117651.66
+   },
+   {
+    "trade": 108,
+    "p5": -66761.99,
+    "p50": 27486.45,
+    "p95": 117672.51
+   },
+   {
+    "trade": 111,
+    "p5": -71131.67,
+    "p50": 30784.78,
+    "p95": 118597.47
+   },
+   {
+    "trade": 114,
+    "p5": -71903.52,
+    "p50": 31179.37,
+    "p95": 122391.15
+   }
+  ]
+ },
+ "dsr": {
+  "sharpe": 0.02949,
+  "observations": 703,
+  "skew": 0.0299,
+  "kurtosis": 14.444,
+  "trials": 4,
+  "trial_sharpe_variance": 0.00015696,
+  "sharpe_hurdle": 0.01318,
+  "psr": 0.7825,
+  "dsr": 0.667
+ },
+ "pbo": {
+  "pbo": 0.2571,
+  "splits": 70,
+  "blocks": 8,
+  "trials": 4,
+  "median_logit": 1.3863
+ },
+ "regimes": {
+  "vix": [
+   {
+    "regime": "VIX 13 to 16",
+    "trades": 63,
+    "net": -6262.02,
+    "expectancy_r": 0.0011,
+    "win_rate": 0.5556,
+    "profit_factor": 0.932
+   },
+   {
+    "regime": "VIX 16 to 20",
+    "trades": 23,
+    "net": 30109.34,
+    "expectancy_r": 0.0123,
+    "win_rate": 0.6522,
+    "profit_factor": 2.064
+   },
+   {
+    "regime": "VIX 20 and up",
+    "trades": 9,
+    "net": 30419.13,
+    "expectancy_r": 0.0205,
+    "win_rate": 0.6667,
+    "profit_factor": 6.444
+   },
+   {
+    "regime": "VIX under 13",
+    "trades": 53,
+    "net": -13655.9,
+    "expectancy_r": -0.0031,
+    "win_rate": 0.5472,
+    "profit_factor": 0.871
+   }
+  ],
+  "trend": [
+   {
+    "regime": "NIFTY ranging",
+    "trades": 24,
+    "net": -643.98,
+    "expectancy_r": -0.0011,
+    "win_rate": 0.5417,
+    "profit_factor": 0.985
+   },
+   {
+    "regime": "NIFTY trending down",
+    "trades": 50,
+    "net": 11238.66,
+    "expectancy_r": 0.0023,
+    "win_rate": 0.52,
+    "profit_factor": 1.126
+   },
+   {
+    "regime": "NIFTY trending up",
+    "trades": 62,
+    "net": 7303.25,
+    "expectancy_r": 0.0008,
+    "win_rate": 0.5806,
+    "profit_factor": 1.078
+   },
+   {
+    "regime": "trend unknown",
+    "trades": 12,
+    "net": 22712.62,
+    "expectancy_r": 0.0199,
+    "win_rate": 0.8333,
+    "profit_factor": 4.568
+   }
+  ],
+  "iv_rank": [
+   {
+    "regime": "IV rank 33 to 66",
+    "trades": 27,
+    "net": 29340.52,
+    "expectancy_r": 0.0074,
+    "win_rate": 0.6296,
+    "profit_factor": 1.979
+   },
+   {
+    "regime": "IV rank 66 and up",
+    "trades": 6,
+    "net": 33027.13,
+    "expectancy_r": 0.0396,
+    "win_rate": 0.8333,
+    "profit_factor": 13.89
+   },
+   {
+    "regime": "IV rank under 33",
+    "trades": 89,
+    "net": -33384.29,
+    "expectancy_r": -0.0021,
+    "win_rate": 0.5169,
+    "profit_factor": 0.806
+   },
+   {
+    "regime": "IV rank unknown",
+    "trades": 26,
+    "net": 11627.19,
+    "expectancy_r": 0.005,
+    "win_rate": 0.6538,
+    "profit_factor": 1.431
+   }
+  ],
+  "market": {
+   "whole_sample": [
+    {
+     "regime": "range · low vol · expiry day",
+     "key": "range|low|expiry day",
+     "trend": "range",
+     "vol": "low",
+     "expiry": "expiry day",
+     "trades": 23,
+     "net": -8395.67,
+     "expectancy_r": -0.0021,
+     "ci95_r": [
+      -0.0136,
+      0.0093
+     ],
+     "win_rate": 0.5652,
+     "enough": true
+    },
+    {
+     "regime": "trend · high vol · expiry day",
+     "key": "trend|high|expiry day",
+     "trend": "trend",
+     "vol": "high",
+     "expiry": "expiry day",
+     "trades": 19,
+     "net": 17643.7,
+     "expectancy_r": 0.008,
+     "ci95_r": [
+      -0.0081,
+      0.024
+     ],
+     "win_rate": 0.6842,
+     "enough": true
+    },
+    {
+     "regime": "range · high vol · expiry day",
+     "key": "range|high|expiry day",
+     "trend": "range",
+     "vol": "high",
+     "expiry": "expiry day",
+     "trades": 17,
+     "net": -7169.35,
+     "expectancy_r": -0.0029,
+     "ci95_r": [
+      -0.0191,
+      0.0134
+     ],
+     "win_rate": 0.4706,
+     "enough": true
+    },
+    {
+     "regime": "trend · low vol · expiry day",
+     "key": "trend|low|expiry day",
+     "trend": "trend",
+     "vol": "low",
+     "expiry": "expiry day",
+     "trades": 15,
+     "net": -20.87,
+     "expectancy_r": 0.0006,
+     "ci95_r": [
+      -0.0145,
+      0.0157
+     ],
+     "win_rate": 0.5333,
+     "enough": true
+    },
+    {
+     "regime": "range · normal vol · expiry day",
+     "key": "range|normal|expiry day",
+     "trend": "range",
+     "vol": "normal",
+     "expiry": "expiry day",
+     "trades": 14,
+     "net": 13754.71,
+     "expectancy_r": 0.0076,
+     "ci95_r": [
+      -0.0119,
+      0.0271
+     ],
+     "win_rate": 0.7143,
+     "enough": true
+    },
+    {
+     "regime": "trend · normal vol · expiry day",
+     "key": "trend|normal|expiry day",
+     "trend": "trend",
+     "vol": "normal",
+     "expiry": "expiry day",
+     "trades": 12,
+     "net": -5769.66,
+     "expectancy_r": -0.0051,
+     "ci95_r": [
+      -0.0223,
+      0.012
+     ],
+     "win_rate": 0.4167,
+     "enough": true
+    },
+    {
+     "regime": "unknown · unknown vol · expiry unknown",
+     "key": "unknown|unknown|expiry unknown",
+     "trend": "unknown",
+     "vol": "unknown",
+     "expiry": "expiry unknown",
+     "trades": 10,
+     "net": 19665.48,
+     "expectancy_r": 0.0206,
+     "ci95_r": [
+      0.003,
+      0.0382
+     ],
+     "win_rate": 0.9,
+     "enough": true
+    },
+    {
+     "regime": "range · high vol · expiry unknown",
+     "key": "range|high|expiry unknown",
+     "trend": "range",
+     "vol": "high",
+     "expiry": "expiry unknown",
+     "trades": 6,
+     "net": 122.81,
+     "expectancy_r": -0.0005,
+     "ci95_r": [
+      -0.0397,
+      0.0386
+     ],
+     "win_rate": 0.3333,
+     "enough": false
+    },
+    {
+     "regime": "range · low vol · expiry unknown",
+     "key": "range|low|expiry unknown",
+     "trend": "range",
+     "vol": "low",
+     "expiry": "expiry unknown",
+     "trades": 5,
+     "net": -7112.39,
+     "expectancy_r": -0.0118,
+     "ci95_r": [
+      -0.0426,
+      0.0189
+     ],
+     "win_rate": 0.4,
+     "enough": false
+    },
+    {
+     "regime": "trend · low vol · expiry unknown",
+     "key": "trend|low|expiry unknown",
+     "trend": "trend",
+     "vol": "low",
+     "expiry": "expiry unknown",
+     "trades": 5,
+     "net": -890.32,
+     "expectancy_r": 0.0027,
+     "ci95_r": [
+      -0.0283,
+      0.0338
+     ],
+     "win_rate": 0.8,
+     "enough": false
+    },
+    {
+     "regime": "trend · normal vol · expiry unknown",
+     "key": "trend|normal|expiry unknown",
+     "trend": "trend",
+     "vol": "normal",
+     "expiry": "expiry unknown",
+     "trades": 5,
+     "net": -1541.42,
+     "expectancy_r": -0.0057,
+     "ci95_r": [
+      -0.0228,
+      0.0115
+     ],
+     "win_rate": 0.4,
+     "enough": false
+    },
+    {
+     "regime": "range · normal vol · no expiry",
+     "key": "range|normal|no expiry",
+     "trend": "range",
+     "vol": "normal",
+     "expiry": "no expiry",
+     "trades": 3,
+     "net": 2207.39,
+     "expectancy_r": 0.0141,
+     "ci95_r": [
+      -0.0438,
+      0.072
+     ],
+     "win_rate": 0.6667,
+     "enough": false
+    },
+    {
+     "regime": "trend · high vol · no expiry",
+     "key": "trend|high|no expiry",
+     "trend": "trend",
+     "vol": "high",
+     "expiry": "no expiry",
+     "trades": 3,
+     "net": 446.37,
+     "expectancy_r": 0.0034,
+     "ci95_r": [
+      -0.0518,
+      0.0585
+     ],
+     "win_rate": 0.3333,
+     "enough": false
+    },
+    {
+     "regime": "range · low vol · no expiry",
+     "key": "range|low|no expiry",
+     "trend": "range",
+     "vol": "low",
+     "expiry": "no expiry",
+     "trades": 2,
+     "net": -1775.33,
+     "expectancy_r": -0.0166,
+     "ci95_r": [
+      -0.0758,
+      0.0425
+     ],
+     "win_rate": 0.5,
+     "enough": false
+    },
+    {
+     "regime": "range · unknown vol · expiry unknown",
+     "key": "range|unknown|expiry unknown",
+     "trend": "range",
+     "vol": "unknown",
+     "expiry": "expiry unknown",
+     "trades": 2,
+     "net": 3047.14,
+     "expectancy_r": 0.016,
+     "ci95_r": [
+      -0.0484,
+      0.0804
+     ],
+     "win_rate": 0.5,
+     "enough": false
+    },
+    {
+     "regime": "trend · high vol · day before expiry",
+     "key": "trend|high|day before expiry",
+     "trend": "trend",
+     "vol": "high",
+     "expiry": "day before expiry",
+     "trades": 2,
+     "net": 18443.86,
+     "expectancy_r": 0.0618,
+     "ci95_r": [
+      0.0013,
+      0.1224
+     ],
+     "win_rate": 1.0,
+     "enough": false
+    },
+    {
+     "regime": "trend · low vol · no expiry",
+     "key": "trend|low|no expiry",
+     "trend": "trend",
+     "vol": "low",
+     "expiry": "no expiry",
+     "trades": 2,
+     "net": -2766.88,
+     "expectancy_r": -0.0249,
+     "ci95_r": [
+      -0.0698,
+      0.0201
+     ],
+     "win_rate": 0.0,
+     "enough": false
+    },
+    {
+     "regime": "range · normal vol · expiry unknown",
+     "key": "range|normal|expiry unknown",
+     "trend": "range",
+     "vol": "normal",
+     "expiry": "expiry unknown",
+     "trades": 1,
+     "net": 948.6,
+     "expectancy_r": 0.0187,
+     "ci95_r": null,
+     "win_rate": 1.0,
+     "enough": false
+    },
+    {
+     "regime": "trend · high vol · expiry unknown",
+     "key": "trend|high|expiry unknown",
+     "trend": "trend",
+     "vol": "high",
+     "expiry": "expiry unknown",
+     "trades": 1,
+     "net": 417.67,
+     "expectancy_r": 0.0085,
+     "ci95_r": null,
+     "win_rate": 1.0,
+     "enough": false
+    },
+    {
+     "regime": "trend · normal vol · no expiry",
+     "key": "trend|normal|no expiry",
+     "trend": "trend",
+     "vol": "normal",
+     "expiry": "no expiry",
+     "trades": 1,
+     "net": -645.29,
+     "expectancy_r": -0.0119,
+     "ci95_r": null,
+     "win_rate": 0.0,
+     "enough": false
+    }
+   ],
+   "out_of_sample": [
+    {
+     "regime": "range · low vol · expiry day",
+     "key": "range|low|expiry day",
+     "trend": "range",
+     "vol": "low",
+     "expiry": "expiry day",
+     "trades": 22,
+     "net": -16192.63,
+     "expectancy_r": -0.0041,
+     "ci95_r": [
+      -0.0166,
+      0.0084
+     ],
+     "win_rate": 0.5,
+     "enough": true
+    },
+    {
+     "regime": "range · high vol · expiry day",
+     "key": "range|high|expiry day",
+     "trend": "range",
+     "vol": "high",
+     "expiry": "expiry day",
+     "trades": 17,
+     "net": -6847.82,
+     "expectancy_r": -0.0026,
+     "ci95_r": [
+      -0.0252,
+      0.0201
+     ],
+     "win_rate": 0.5294,
+     "enough": true
+    },
+    {
+     "regime": "range · normal vol · expiry day",
+     "key": "range|normal|expiry day",
+     "trend": "range",
+     "vol": "normal",
+     "expiry": "expiry day",
+     "trades": 14,
+     "net": 11420.24,
+     "expectancy_r": 0.006,
+     "ci95_r": [
+      -0.0166,
+      0.0287
+     ],
+     "win_rate": 0.7143,
+     "enough": true
+    },
+    {
+     "regime": "trend · high vol · expiry day",
+     "key": "trend|high|expiry day",
+     "trend": "trend",
+     "vol": "high",
+     "expiry": "expiry day",
+     "trades": 14,
+     "net": 23716.14,
+     "expectancy_r": 0.0141,
+     "ci95_r": [
+      -0.013,
+      0.0412
+     ],
+     "win_rate": 0.6429,
+     "enough": true
+    },
+    {
+     "regime": "trend · low vol · expiry day",
+     "key": "trend|low|expiry day",
+     "trend": "trend",
+     "vol": "low",
+     "expiry": "expiry day",
+     "trades": 13,
+     "net": 1534.57,
+     "expectancy_r": 0.0011,
+     "ci95_r": [
+      -0.0141,
+      0.0163
+     ],
+     "win_rate": 0.5385,
+     "enough": true
+    },
+    {
+     "regime": "trend · normal vol · expiry day",
+     "key": "trend|normal|expiry day",
+     "trend": "trend",
+     "vol": "normal",
+     "expiry": "expiry day",
+     "trades": 11,
+     "net": -145.47,
+     "expectancy_r": -0.0037,
+     "ci95_r": [
+      -0.0222,
+      0.0148
+     ],
+     "win_rate": 0.4545,
+     "enough": true
+    },
+    {
+     "regime": "trend · normal vol · expiry unknown",
+     "key": "trend|normal|expiry unknown",
+     "trend": "trend",
+     "vol": "normal",
+     "expiry": "expiry unknown",
+     "trades": 4,
+     "net": -2784.44,
+     "expectancy_r": -0.0125,
+     "ci95_r": [
+      -0.0339,
+      0.0088
+     ],
+     "win_rate": 0.25,
+     "enough": false
+    },
+    {
+     "regime": "range · normal vol · no expiry",
+     "key": "range|normal|no expiry",
+     "trend": "range",
+     "vol": "normal",
+     "expiry": "no expiry",
+     "trades": 3,
+     "net": 1202.92,
+     "expectancy_r": 0.0078,
+     "ci95_r": [
+      -0.078,
+      0.0935
+     ],
+     "win_rate": 0.6667,
+     "enough": false
+    },
+    {
+     "regime": "trend · high vol · no expiry",
+     "key": "trend|high|no expiry",
+     "trend": "trend",
+     "vol": "high",
+     "expiry": "no expiry",
+     "trades": 3,
+     "net": -243.03,
+     "expectancy_r": -0.0007,
+     "ci95_r": [
+      -0.0807,
+      0.0793
+     ],
+     "win_rate": 0.3333,
+     "enough": false
+    },
+    {
+     "regime": "range · high vol · expiry unknown",
+     "key": "range|high|expiry unknown",
+     "trend": "range",
+     "vol": "high",
+     "expiry": "expiry unknown",
+     "trades": 2,
+     "net": 3054.81,
+     "expectancy_r": 0.0283,
+     "ci95_r": [
+      -0.0147,
+      0.0713
+     ],
+     "win_rate": 1.0,
+     "enough": false
+    },
+    {
+     "regime": "range · low vol · expiry unknown",
+     "key": "range|low|expiry unknown",
+     "trend": "range",
+     "vol": "low",
+     "expiry": "expiry unknown",
+     "trades": 2,
+     "net": 1519.31,
+     "expectancy_r": 0.0135,
+     "ci95_r": [
+      -0.031,
+      0.058
+     ],
+     "win_rate": 0.5,
+     "enough": false
+    },
+    {
+     "regime": "range · low vol · no expiry",
+     "key": "range|low|no expiry",
+     "trend": "range",
+     "vol": "low",
+     "expiry": "no expiry",
+     "trades": 2,
+     "net": -3591.04,
+     "expectancy_r": -0.0322,
+     "ci95_r": [
+      -0.1364,
+      0.072
+     ],
+     "win_rate": 0.5,
+     "enough": false
+    },
+    {
+     "regime": "trend · high vol · day before expiry",
+     "key": "trend|high|day before expiry",
+     "trend": "trend",
+     "vol": "high",
+     "expiry": "day before expiry",
+     "trades": 2,
+     "net": 19557.45,
+     "expectancy_r": 0.0634,
+     "ci95_r": [
+      -0.0019,
+      0.1287
+     ],
+     "win_rate": 1.0,
+     "enough": false
+    },
+    {
+     "regime": "trend · low vol · expiry unknown",
+     "key": "trend|low|expiry unknown",
+     "trend": "trend",
+     "vol": "low",
+     "expiry": "expiry unknown",
+     "trades": 2,
+     "net": 3254.94,
+     "expectancy_r": 0.0295,
+     "ci95_r": [
+      0.0218,
+      0.0373
+     ],
+     "win_rate": 1.0,
+     "enough": false
+    },
+    {
+     "regime": "trend · low vol · no expiry",
+     "key": "trend|low|no expiry",
+     "trend": "trend",
+     "vol": "low",
+     "expiry": "no expiry",
+     "trades": 2,
+     "net": -3270.95,
+     "expectancy_r": -0.0282,
+     "ci95_r": [
+      -0.0713,
+      0.015
+     ],
+     "win_rate": 0.0,
+     "enough": false
+    },
+    {
+     "regime": "trend · normal vol · no expiry",
+     "key": "trend|normal|no expiry",
+     "trend": "trend",
+     "vol": "normal",
+     "expiry": "no expiry",
+     "trades": 1,
+     "net": -394.0,
+     "expectancy_r": -0.007,
+     "ci95_r": null,
+     "win_rate": 0.0,
+     "enough": false
+    }
+   ],
+   "current": {
+    "date": "2026-10-30",
+    "key": "range|high",
+    "words": "NIFTY: no clear trend (ADX 33), high vol (VIX 15.3, 71st pct)"
+   },
+   "basis": "NIFTY 50 trend or range x India VIX bucket x expiry flag (trader-regime), as of the close before each signal day"
+  }
+ },
+ "gates": [
+  {
+   "gate": "enough out-of-sample trades",
+   "needs": ">= 30",
+   "got": 114,
+   "pass": true
+  },
+  {
+   "gate": "out-of-sample expectancy after charges",
+   "needs": "> 0R",
+   "got": "0.002R",
+   "pass": true
+  },
+  {
+   "gate": "out-of-sample profit factor",
+   "needs": ">= 1.2",
+   "got": 1.144,
+   "pass": false
+  },
+  {
+   "gate": "max drawdown (whole sample)",
+   "needs": "<= 10% of capital",
+   "got": "6.61%",
+   "pass": true
+  },
+  {
+   "gate": "deflated Sharpe ratio",
+   "needs": ">= 0.95",
+   "got": 0.667,
+   "pass": false
+  },
+  {
+   "gate": "probability of backtest overfitting",
+   "needs": "< 0.5",
+   "got": 0.2571,
+   "pass": true
+  },
+  {
+   "gate": "survives 1.5x costs",
+   "needs": "out-of-sample expectancy > 0R",
+   "got": "0.001R",
+   "pass": true
+  },
+  {
+   "gate": "parameter neighbourhood",
+   "needs": ">= 50% of nearby grid points make money",
+   "got": "100%",
+   "pass": true
+  }
+ ],
+ "gates_set": {
+  "min_oos_trades": 30,
+  "min_oos_expectancy_r": 0.0,
+  "min_oos_profit_factor": 1.2,
+  "max_drawdown_pct": 10.0,
+  "min_dsr": 0.95,
+  "max_pbo": 0.5,
+  "survive_cost_multiplier": 1.5,
+  "min_neighbourhood_positive": 0.5,
+  "min_forward_trades": 20,
+  "demote_window": 30,
+  "demote_below_r": 0.0,
+  "demote_drawdown_mult": 1.5,
+  "require_regime_edge": 0,
+  "min_regime_trades": 10
+ },
+ "options": {
+  "whole_sample": {
+   "positions": 148,
+   "avg_margin": 119303.06,
+   "max_margin": 169079.42,
+   "return_on_margin_pct": 34.04,
+   "return_on_margin_annual_pct": 12.2,
+   "avg_return_on_margin_pct": 0.254,
+   "worst_week": -12853.19,
+   "best_week": 13539.16,
+   "tail_loss_5pct": -6859.64,
+   "tail_loss_1pct": -8196.21,
+   "tail_avg_worst_5pct": -8265.08,
+   "worst_trade": -12853.19,
+   "max_consecutive_losses": 5,
+   "time_in_drawdown_pct": 82.36,
+   "max_drawdown_mtm": 33025.59,
+   "max_drawdown_mtm_pct": 6.605,
+   "breach_pct": 41.22,
+   "expiries": 148,
+   "exits": {
+    "expiry settlement": 148
+   },
+   "model_priced_marks": 0,
+   "credit_positions": 148,
+   "avg_premium": 6322.69
+  },
+  "out_of_sample": {
+   "positions": 114,
+   "avg_margin": 129404.18,
+   "max_margin": 176012.89,
+   "return_on_margin_pct": 24.57,
+   "return_on_margin_annual_pct": 11.46,
+   "avg_return_on_margin_pct": 0.205,
+   "worst_week": -18960.34,
+   "best_week": 14564.73,
+   "tail_loss_5pct": -9073.91,
+   "tail_loss_1pct": -14234.25,
+   "tail_avg_worst_5pct": -13583.15,
+   "worst_trade": -18960.34,
+   "max_consecutive_losses": 4,
+   "time_in_drawdown_pct": 87.22,
+   "max_drawdown_mtm": 40733.6,
+   "max_drawdown_mtm_pct": 8.147,
+   "breach_pct": 43.86,
+   "expiries": 114,
+   "exits": {
+    "expiry settlement": 114
+   },
+   "model_priced_marks": 0,
+   "credit_positions": 114,
+   "avg_premium": 6949.86
+  },
+  "open": []
+ },
+ "verdict": "REJECT",
+ "verdict_why": "2 of 8 gates failed: out-of-sample profit factor; deflated Sharpe ratio",
+ "forward": {
+  "trades": 0,
+  "net": 0.0,
+  "expectancy_r": 0.0,
+  "profit_factor": null
+ },
+ "earlier_versions": 0,
+ "run_at": "2026-11-01 12:00",
+ "notes": [
+  "NIFTY EOD chains from a local trader-archive backfill (2024-01-01 to 2026-10-30)"
+ ]
+}

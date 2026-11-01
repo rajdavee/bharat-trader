@@ -1210,7 +1210,10 @@ def _rules_text(spec):
                                                      spec["lots"], "" if spec["lots"] == 1 else "s")]
     if spec["wing"]:
         parts.append("wings %g points beyond the shorts" % spec["wing"])
-    parts.append("enter at the %s %d calendar day%s before expiry" % (en["fill"], en["dte"], "" if en["dte"] == 1 else "s"))
+    if en["dte"]:
+        parts.append("enter at the %s %d calendar day%s before expiry" % (en["fill"], en["dte"], "" if en["dte"] == 1 else "s"))
+    else:
+        parts.append("enter at the %s on expiry day" % en["fill"])
     if en["weekdays"]:
         parts.append("on %s" % "/".join(en["weekdays"]))
     if en["iv_rank_min"] is not None:

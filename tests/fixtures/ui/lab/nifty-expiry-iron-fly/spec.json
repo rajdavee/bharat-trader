@@ -1,0 +1,44 @@
+{
+ "schema": "bharat-trader/lab-spec/1",
+ "kind": "options",
+ "timeframe": "1d",
+ "name": "nifty-expiry-iron-fly",
+ "title": "NIFTY expiry-day iron fly",
+ "description": "On a NIFTY weekly expiry day, sell the ATM straddle at the day's opening prices (strikes centred on the index's open) and buy wings 200 points away; hold to the 15:30 cash settlement. End-of-day data cannot see an intraday stop, so there is none: the wings are the risk limit.",
+ "underlying": "NIFTY",
+ "structure": "iron-fly",
+ "expiry": "weekly",
+ "params": {
+  "wing": 200
+ },
+ "strikes": {
+  "by": "atm"
+ },
+ "wings": {
+  "points": "$wing"
+ },
+ "entry": {
+  "days_to_expiry": 0,
+  "fill": "open"
+ },
+ "exit": {},
+ "grid": {
+  "wing": [
+   100,
+   150,
+   200,
+   300
+  ]
+ },
+ "lots": 1,
+ "capital": 500000,
+ "costs": {
+  "slippage_pct": 2,
+  "slippage_ticks": 1
+ },
+ "walk_forward": {
+  "in_sample": 120,
+  "out_of_sample": 60
+ },
+ "seed": 16
+}

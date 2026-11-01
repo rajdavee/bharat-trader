@@ -105,7 +105,7 @@ All notable changes are documented here. The format follows
   (`draft: NIFTY` writes the basket and runs trader-risk on it).
 
 ### Changed
-- The offline demo copies `tests/fixtures/ui/lab/` (two real lab runs) into
+- The offline demo copies `tests/fixtures/ui/lab/` (three real lab runs, one options) into
   its `trader/lab/`.
 - Every page now follows the design system and opens with a one-line
   description of its step in the trader's day (hidden in expert detail).

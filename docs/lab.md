@@ -265,6 +265,32 @@ fires on the latest session, prices the basket through trader-strategy
 proposal to `trader/lab/NAME/forward/<date>/`. trader-risk checks the legs as
 one basket; trader-broker asks for the user's yes. The lab places nothing.
 
+**The library on real data (honestly).** All five built-in specs, run on a
+local backfill of NSE's F&O bhavcopies from 1 Jan 2024 to 30 Oct 2026 (703
+sessions, the June 2024 election day and the April 2025 tariff fall
+included), one lot, ₹5,00,000 capital, default costs (2% of the premium and
+a tick a leg), `--now "2026-11-01 12:00"`. Net is after charges and
+slippage; RoM is return on the average margin blocked; OOS is the
+walk-forward's unseen windows.
+
+| spec | positions (OOS) | net | RoM a year (OOS) | win rate | OOS profit factor | worst position | worst week | max drawdown, MTM | breached | DSR | PBO | gates | verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| nifty-weekly-strangle-16d | 147 (114) | ₹53,881 | 11.1% (-4.8%) | 82% | 0.92 | -₹44,482 | -₹42,819 | 13.7% | 23% | 0.62 | 0.47 | 3/8 | REJECT |
+| nifty-weekly-condor-16d | 147 (114) | -₹48,894 | -21.6% (-8.3%) | 76% | 0.88 | -₹6,583 | -₹6,430 | 11.7% | 29% | 0.00 | 0.11 | 2/8 | REJECT |
+| nifty-expiry-iron-fly | 148 (114) | ₹40,611 | 12.2% (11.5%) | 57% | 1.14 | -₹12,853 | -₹12,853 | 6.6% | 41% | 0.67 | 0.26 | 6/8 | REJECT |
+| banknifty-monthly-put-spread | 33 (26) | -₹11,693 | -9.4% (-24.4%) | 73% | 0.59 | -₹12,130 | -₹10,203 | 3.7% | 36% | 0.03 | 0.31 | 2/8 | REJECT |
+| nifty-ivr-strangle | 26 (43) | ₹44,165 | 9.9% (-6.9%) | 92% | 0.81 | -₹31,895 | -₹31,895 | 6.6% | 12% | 0.65 | 0.47 | 4/8 | REJECT |
+
+Every one is REJECTED. The strangles win four or five times in six and still
+lose out of sample: a single close past the stop (7 April 2025: a ₹5,046
+credit became a ₹44,482 loss, because the stop is only seen at the close)
+erases months of premium. The condor's 100-point wings cost more than they
+save after charges. The expiry-day fly comes closest (6 of 8 gates) but
+fails the out-of-sample profit factor and the deflated Sharpe ratio. The
+monthly spread has too few trades to judge. The IV-rank strangle's
+out-of-sample count is higher than its whole-sample count because the
+walk-forward chose lower IV-rank thresholds in some windows.
+
 **Limits, plainly.**
 
 - End-of-day only. A stop is seen once a day at the close: the intraday loss

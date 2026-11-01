@@ -11,8 +11,10 @@ offline.json             the pinned clock (2026-10-29 14:30 IST) and a note for 
 trader/                  a working folder built by the skills themselves on those fixtures: size.py init,
                          a paper BUY of 5 TCS, the trader-alerts plan fixture as plan.json, scan.py daily,
                          alerts.py quote --write, size.py --write, alerts.py add --from-plan, check.py.
-lab/                     two REAL trader-lab runs, copied to the demo's trader/lab/ (lab.py run orb15-vwap and breakout20-swing --data
-                         tests/fixtures/trader-lab --now "2026-11-01 12:00"); results.json without the trade lists.
+lab/                     three REAL trader-lab runs, copied to the demo's trader/lab/ (lab.py run orb15-vwap and breakout20-swing --data
+                         tests/fixtures/trader-lab --now "2026-11-01 12:00"; nifty-expiry-iron-fly --archive on a local
+                         backfill of NSE F&O bhavcopies 2024-01-01 to 2026-10-30); results.json without the trade
+                         lists (and the options run without its equity rows, which equity.csv holds).
 """
 
 import contextlib
@@ -942,10 +944,22 @@ class LabAndSetup(unittest.TestCase):
         cls.s.close()
 
     def test_lab_runs_are_trader_labs_own_numbers(self):
+        def run_of(d, n):
+            return [r for r in d["runs"] if r["name"] == n][0]
+
         status, d = self.s.get("/api/lab")
         self.assertEqual(status, 200)
         names = [r["name"] for r in d["runs"]]
-        self.assertEqual(sorted(names), ["breakout20-swing", "orb15-vwap"])
+        self.assertEqual(sorted(names), ["breakout20-swing", "nifty-expiry-iron-fly", "orb15-vwap"])
+        fly = [r for r in d["runs"] if r["name"] == "nifty-expiry-iron-fly"][0]
+        fres = json.loads(read_text(os.path.join(UIFIX, "lab", "nifty-expiry-iron-fly", "results.json")))
+        self.assertEqual(fly["kind"], "options")
+        self.assertEqual(fly["options"]["whole_sample"]["return_on_margin_annual_pct"],
+                         fres["options"]["whole_sample"]["return_on_margin_annual_pct"])
+        self.assertEqual(fly["options"]["whole_sample"]["tail_loss_5pct"], fres["options"]["whole_sample"]["tail_loss_5pct"])
+        self.assertIn("formula", fly["options"]["why"]["return_on_margin"])
+        self.assertIn("end-of-day only", fly["limits"])
+        self.assertIsNone(run_of(d, "orb15-vwap")["options"])
         res = json.loads(read_text(os.path.join(UIFIX, "lab", "orb15-vwap", "results.json")))
         run = [r for r in d["runs"] if r["name"] == "orb15-vwap"][0]
         self.assertEqual(run["verdict"], "REJECT")
