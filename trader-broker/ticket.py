@@ -848,8 +848,8 @@ def kind_of(order, rv):
     return "entry" if str(order.get("side", "")).upper() == "BUY" else "exit"
 
 
-LIVE_BROKERS = ("upstox", "kite", "dhan")
-BROKER_ALIASES = {"zerodha": "kite"}
+LIVE_BROKERS = ("upstox", "kite", "dhan", "angel")
+BROKER_ALIASES = {"zerodha": "kite", "angelone": "angel"}
 
 
 def broker_name(name):
@@ -909,7 +909,7 @@ def account_words(cfg):
     return "LIVE at %s (real money)" % BROKER_TITLES.get(b, b), b
 
 
-BROKER_TITLES = {"upstox": "Upstox", "kite": "Zerodha Kite", "dhan": "Dhan"}
+BROKER_TITLES = {"upstox": "Upstox", "kite": "Zerodha Kite", "dhan": "Dhan", "angel": "Angel One"}
 
 
 def render(order, idx, total, cfg, risk, state, today):
@@ -3235,43 +3235,75 @@ def cmd_orders(a):
     return 0
 
 
+ASK_CODE = None          # tests replace how the user's one-time code is asked for (default: getpass, not echoed)
+
+
+def ask_code(prompt):
+    if ASK_CODE is not None:
+        return ASK_CODE(prompt)
+    import getpass
+    return getpass.getpass(prompt)
+
+
+def login_totp(a, ad, b):
+    """Angel One: client code + PIN from your shell, a 6-digit TOTP code from BT_ANGEL_TOTP_SECRET or typed by you."""
+    code = None
+    try:
+        code = ad.totp_code()
+    except adapters().base.BrokerError as e:
+        raise TicketError(e.message)
+    if code:
+        print("Using %s to make the 6-digit code. Anyone who can read your shell environment can log in as you with "
+              "it and your PIN; typing the code from your authenticator app instead is safer (unset %s)." % (
+                  ad.env_names["totp_secret"], ad.env_names["totp_secret"]), file=sys.stderr)
+    else:
+        code = ask_code("6-digit code from your authenticator app for %s (not shown): " % ad.title)
+    try:
+        return ad.login_direct(code)
+    except adapters().base.BrokerError as e:
+        raise TicketError(e.message)
+
+
 def cmd_login(a):
     cfg = read_json(a.config, "config", required=False) or {}
     b = which_broker(a, cfg)
     ad = get_adapter(b, cfg)
     au = adapters().auth
-    state = au.new_state()
-    try:
-        url, want, state_param = ad.login_start(state)
-        port, path = au.parse_redirect(ad.redirect())
-    except adapters().base.BrokerError as e:
-        raise TicketError(e.message)
+    if getattr(ad, "login_kind", None) == "totp":
+        token = login_totp(a, ad, b)
+    else:
+        state = au.new_state()
+        try:
+            url, want, state_param = ad.login_start(state)
+            port, path = au.parse_redirect(ad.redirect())
+        except adapters().base.BrokerError as e:
+            raise TicketError(e.message)
 
-    def ready(local):
-        print("Waiting for %s's login to come back to %s (one time, %d seconds)." % (ad.title, local, a.timeout),
-              file=sys.stderr)
-        if a.no_browser:
-            print("Open this in your browser and log in:\n  %s" % url, file=sys.stderr)
-        else:
-            import webbrowser
-            print("Opening %s's login page in your browser (2FA there)." % ad.title, file=sys.stderr)
-            if not webbrowser.open(url):
-                print("Could not open a browser. Open this yourself:\n  %s" % url, file=sys.stderr)
+        def ready(local):
+            print("Waiting for %s's login to come back to %s (one time, %d seconds)." % (ad.title, local, a.timeout),
+                  file=sys.stderr)
+            if a.no_browser:
+                print("Open this in your browser and log in:\n  %s" % url, file=sys.stderr)
+            else:
+                import webbrowser
+                print("Opening %s's login page in your browser (2FA there)." % ad.title, file=sys.stderr)
+                if not webbrowser.open(url):
+                    print("Could not open a browser. Open this yourself:\n  %s" % url, file=sys.stderr)
 
-    try:
-        params = au.wait_for_callback(port, path, want, state if state_param else None, state_param or "state",
-                                      timeout=a.timeout, on_ready=ready)
-        token = ad.login_finish(params)
-    except adapters().base.BrokerError as e:
-        raise TicketError(e.message)
+        try:
+            params = au.wait_for_callback(port, path, want, state if state_param else None, state_param or "state",
+                                          timeout=a.timeout, on_ready=ready)
+            token = ad.login_finish(params)
+        except adapters().base.BrokerError as e:
+            raise TicketError(e.message)
     now, _ = _clock(a)
     var = ad.env_names["access_token"]
     print("export %s=%s" % (var, shell_quote(token)))
     print("export %s=%s" % (ad.env_names["token_date"], ist_iso(now)))
+    ends = {"00:00": "at midnight IST tonight"}.get(ad.token_cutoff, ("at %s IST tomorrow" % ad.token_cutoff)
+                                                   if ad.token_cutoff else "24 hours from now")
     print("Logged in to %s. The lines above are for your shell only (eval \"$(python3 ticket.py login %s)\"): the "
-          "token is not saved anywhere by this tool. It stops working %s." % (
-              ad.title, b, ("at %s IST tomorrow" % ad.token_cutoff) if ad.token_cutoff else "24 hours from now"),
-          file=sys.stderr)
+          "token is not saved anywhere by this tool. It stops working %s." % (ad.title, b, ends), file=sys.stderr)
     return 0
 
 
@@ -3349,6 +3381,32 @@ def cmd_preflight(a):
     return 0 if passed else 1
 
 
+LINKED_LEGS = ("oco", "bracket")
+LINKED_WORDS = {"oco": "the stop and the target as ONE linked order", "bracket": "the entry with its stop and target "
+                "as ONE order"}
+
+
+def _gate_refused(e, what="Not sent"):
+    print("%s. Closed gates:" % what, file=sys.stderr)
+    for g, why in e.failed:
+        print("  %s: %s" % (g, why), file=sys.stderr)
+    return 1
+
+
+def _entry_fill(ad, state, fp, today, b, index, leg):
+    """The live entry of this ticket, filled at the broker (its order-book row), or TicketError."""
+    entry = [r for r in records(state, fp, today, "placed") if r.get("live") and r.get("broker") == b
+             and (r.get("leg") or "entry") == "entry"]
+    if not entry:
+        raise TicketError("send the entry first: ticket.py place --index %d" % index)
+    book = {o["broker_order_id"]: o for o in _broker_call(ad.orders)}
+    got = book.get(str(entry[-1].get("broker_order_id")))
+    if not got or got["status"] != "filled":
+        raise TicketError("the entry %s is %s at %s, not filled: the %s goes out after the fill" % (
+            entry[-1].get("broker_order_id"), (got or {}).get("status", "not in the order book"), ad.title, leg))
+    return got, book
+
+
 def cmd_place(a):
     orders, cfg, risk, state, today, now = _load(a)
     mode, b = mode_of(cfg)
@@ -3360,74 +3418,116 @@ def cmd_place(a):
     leg = a.leg or "entry"
     fp = fingerprint(ticket)
     ad = get_adapter(b, cfg)
+    if leg in LINKED_LEGS and ad.linked_leg() != leg:
+        other = ad.linked_leg()
+        raise TicketError("%s has no %s leg here (%s)%s. Nothing was sent" % (
+            ad.title, leg, ad.linked_words, (": use --leg %s" % other) if other else
+            ": send the entry, then the stop or the target leg by leg"))
     pre = read_json(a.preflight, "preflight", required=False) or {}
     try:
         single = base.leg_order(ticket, leg)
         gp = base.open_gate(b, cfg, ticket, risk, state, pre, ad.token(), today, now, leg=leg)
     except base.GateClosed as e:
-        print("Not sent. Closed gates:", file=sys.stderr)
-        for g, why in e.failed:
-            print("  %s: %s" % (g, why), file=sys.stderr)
-        return 1
+        return _gate_refused(e)
     except base.BrokerError as e:
         raise TicketError(e.message)
     approved = [r for r in records(state, fp, today, "approved") if r.get("broker") == b][-1]
     if approved.get("actor", "user") != "user":
         raise TicketError("this yes was recorded by %s, not typed by you: a live order needs your own yes. Nothing "
                           "was sent" % approved.get("actor"))
-    if leg != "entry":
-        entry = [r for r in records(state, fp, today, "placed") if r.get("live") and r.get("broker") == b]
-        if not entry:
-            raise TicketError("send the entry first: ticket.py place --index %d" % a.index)
-        book = {o["broker_order_id"]: o for o in _broker_call(ad.orders)}
-        got = book.get(str(entry[-1].get("broker_order_id")))
-        if not got or got["status"] != "filled":
-            raise TicketError("the entry %s is %s at %s, not filled: the %s goes out after the fill" % (
-                entry[-1].get("broker_order_id"), (got or {}).get("status", "not in the order book"), ad.title, leg))
-        other = "target" if leg == "stop" else "stop"
-        for r in records(state, fp, today, ("leg_sent", "unknown")):
-            if r.get("leg") == other and r.get("broker") == b:
-                o = book.get(str(r.get("broker_order_id")))
-                if not o or o["status"] == "open":
-                    raise TicketError("the %s (%s) is still working at %s. In this version only one exit leg works "
-                                      "at the broker at a time (no broker-side OCO yet): cancel it first with "
-                                      "ticket.py cancel --index %d --leg %s" % (other, r.get("broker_order_id"),
-                                                                                  ad.title, a.index, other))
+    last_price = getattr(a, "last_price", None)
+    if leg in ("stop", "target", "oco"):
+        got, book = _entry_fill(ad, state, fp, today, b, a.index, leg)
+        if leg == "oco" and last_price is None:
+            last_price = got.get("avg_price") or None
+        if leg != "oco":
+            other = "target" if leg == "stop" else "stop"
+            for r in records(state, fp, today, ("leg_sent", "unknown")):
+                if r.get("leg") == other and r.get("broker") == b:
+                    o = book.get(str(r.get("broker_order_id")))
+                    if not o or o["status"] == "open":
+                        hint = (" or send both as one linked order next time: --leg %s" % ad.linked_leg()
+                                if ad.linked_leg() == "oco" else "")
+                        raise TicketError("the %s (%s) is still working at %s. Leg by leg, only one exit leg works at the "
+                                          "broker at a time: cancel it first with ticket.py cancel --index %d --leg "
+                                          "%s%s" % (other, r.get("broker_order_id"), ad.title, a.index, other, hint))
+    inst = None
+    try:
+        inst = ad.resolve(single["symbol"], single.get("exchange") or "NSE")
+    except base.BrokerError:
+        pass
     rec = {"at": ist_iso(now), "date": today, "index": a.index, "fingerprint": fp, "leg": leg, "broker": b,
            "live": True, "paper": False, "symbol": approved["symbol"], "side": str(single.get("side")).upper(),
            "qty": single.get("qty"), "product": approved.get("product"), "kind": approved.get("kind"),
            "max_loss": approved.get("max_loss"), "stop": approved.get("stop"), "target": approved.get("target"),
            "has_legs": approved.get("has_legs"), "yes_text": approved.get("yes_text"), "order": single,
-           "tag": gp.tag, "plain": plain(single, cfg)}
+           "tag": gp.tag, "plain": plain(base.leg_order(ticket, "entry") if leg == "bracket" else
+                                         single if leg != "oco" else base.leg_order(ticket, "stop"), cfg)}
+    if leg in LINKED_LEGS:
+        rec.update(linked=ad.linked_style, ticket=neutral(ticket),
+                   broker_symbol=(inst or {}).get("broker_symbol"), last_price=last_price)
     try:
-        oid = ad.place_order(single, gp)
+        if leg in LINKED_LEGS:
+            oid = ad.place_linked(single, gp, last_price)
+        else:
+            oid = ad.place_order(single, gp)
     except base.BrokerDown as e:
         rec.update(status="unknown", error=e.message)
         state.setdefault("orders", []).append(rec)
         write_json(a.state, state)
-        raise TicketError("%s. It may or may not have reached %s: check ticket.py orders for tag %s before "
-                          "anything else. Not retried." % (e.message, ad.title, gp.tag))
+        raise TicketError("%s. It may or may not have reached %s: run ticket.py reconcile (or check ticket.py orders "
+                          "for tag %s) before anything else. Not retried." % (e.message, ad.title, gp.tag))
     except base.BrokerError as e:
         rec.update(status="send_failed", error=e.message)
         state.setdefault("orders", []).append(rec)
         write_json(a.state, state)
         raise TicketError("%s refused it: %s" % (ad.title, e.message))
-    rec.update(status="placed" if leg == "entry" else "leg_sent", broker_order_id=oid)
+    rec.update(status={"entry": "placed", "bracket": "placed", "oco": "linked_sent"}.get(leg, "leg_sent"),
+               broker_order_id=oid)
     state.setdefault("orders", []).append(rec)
     write_json(a.state, state)
-    if merged_config(cfg).get("shadow") is True:
+    if merged_config(cfg).get("shadow") is True and leg in ("entry", "bracket"):
         try:
-            twin = record_shadow(a, cfg, single, rec, now)
+            twin = record_shadow(a, cfg, base.leg_order(ticket, "entry"), rec, now)
             print("Shadow: paper twin recorded in %s (%s)." % (a.shadow, ("paper would fill at %s" % _p(twin["price"]))
                                                                if twin.get("filled") else twin.get("why")))
         except Exception as e:          # the live order is out already: the twin never changes that
             print("Shadow: could not record the paper twin (%s); the live order is unaffected." % e, file=sys.stderr)
+    if leg in LINKED_LEGS:
+        st, tg = single["stop"], single["target"]
+        what = (plain(base.leg_order(ticket, "entry"), cfg) if leg == "bracket" else
+                "exit %s %s %s" % (single["side"], single["qty"], single["symbol"]))
+        print("SENT to %s (real money): %s (%s): %s; stop trigger %s, target %s. %s id %s." % (
+            ad.title, LINKED_WORDS[leg], "after the fill" if leg == "oco" else "with the entry", what,
+            _p(st.get("trigger_price")), _p(tg.get("price")), ad.title, oid))
+        print("When one exit fills, %s cancels the other. Cancel it: ticket.py cancel --index %d --leg %s. A new stop "
+              "or target: a new ticket, trader-risk, your yes, then ticket.py modify-exits." % (ad.title, a.index, leg))
+        return 0
     print("SENT to %s (real money): %s. %s order id %s, tag %s." % (ad.title, plain(single, cfg), ad.title, oid,
                                                                    gp.tag))
     if leg == "entry" and approved.get("has_legs"):
-        print("The stop and the target are NOT at the broker yet. When the entry fills, send the stop: "
-              "ticket.py place --index %d --leg stop" % a.index)
+        nl = ad.linked_leg()
+        if nl == "oco":
+            print("The stop and the target are NOT at the broker yet. When the entry fills, send both as one linked "
+                  "order: ticket.py place --index %d --leg oco (or leg by leg: --leg stop)" % a.index)
+        else:
+            print("The stop and the target are NOT at the broker yet. When the entry fills, send the stop: "
+                  "ticket.py place --index %d --leg stop%s" % (a.index, (" (next time, %s can carry them with the "
+                                                                          "entry: --leg bracket)" % ad.title)
+                                                                         if nl == "bracket" else ""))
     return 0
+
+
+def _linked_record(state, b, linked_id):
+    """This tool's latest record of a linked order (any day), unless a cancel was sent for it since."""
+    hit = None
+    for r in state.get("orders", []):
+        if r.get("broker") == b and r.get("live") and str(r.get("broker_order_id")) == str(linked_id):
+            if r.get("status") == "cancel_sent":
+                hit = None
+            elif r.get("leg") in LINKED_LEGS and r.get("status") in ("placed", "linked_sent") and not r.get("modify"):
+                hit = r
+    return hit
 
 
 def cmd_cancel(a):
@@ -3436,29 +3536,285 @@ def cmd_cancel(a):
     if mode != "live":
         raise TicketError("cancel is for a live order; the config is paper")
     base = adapters().base
-    ticket = _pick(orders, a.index)
-    fp, leg = fingerprint(ticket), a.leg or "entry"
-    sent = [r for r in records(state, fp, today, ("placed", "leg_sent")) if r.get("live") and r.get("broker") == b
-            and (r.get("leg") or "entry") == leg]
+    leg = a.leg or "entry"
     ad = get_adapter(b, cfg)
+    if getattr(a, "linked_id", None):
+        rec = _linked_record(state, b, a.linked_id)
+        sent = [rec] if rec else []
+        fp, leg = (rec or {}).get("fingerprint"), (rec or {}).get("leg") or "oco"
+    else:
+        if a.index is None:
+            raise TicketError("say which order: --index N --leg LEG, or --linked-id ID")
+        ticket = _pick(orders, a.index)
+        fp = fingerprint(ticket)
+        sent = [r for r in records(state, fp, today, ("placed", "leg_sent", "linked_sent")) if r.get("live")
+                and r.get("broker") == b and (r.get("leg") or "entry") == leg]
     pre = read_json(a.preflight, "preflight", required=False) or {}
     try:
         gp = base.open_cancel_gate(b, cfg, (sent[-1] if sent else {}).get("broker_order_id"),
                                    sent[-1] if sent else None, state, pre, ad.token(), today, now)
-        ad.cancel_order(sent[-1]["broker_order_id"], gp)
+        if leg in LINKED_LEGS:
+            ad.cancel_linked(sent[-1]["broker_order_id"], gp, sent[-1])
+        else:
+            ad.cancel_order(sent[-1]["broker_order_id"], gp)
     except base.GateClosed as e:
-        print("Not cancelled. Closed gates:", file=sys.stderr)
-        for g, why in e.failed:
-            print("  %s: %s" % (g, why), file=sys.stderr)
-        return 1
+        return _gate_refused(e, "Not cancelled")
     except base.BrokerError as e:
         raise TicketError(e.message)
-    state.setdefault("orders", []).append({"at": ist_iso(now), "date": today, "index": a.index, "fingerprint": fp,
-                                           "leg": leg, "broker": b, "live": True, "status": "cancel_sent",
-                                           "broker_order_id": sent[-1]["broker_order_id"]})
+    state.setdefault("orders", []).append({"at": ist_iso(now), "date": today, "index": getattr(a, "index", None),
+                                           "fingerprint": fp, "leg": leg, "broker": b, "live": True,
+                                           "status": "cancel_sent", "broker_order_id": sent[-1]["broker_order_id"]})
     write_json(a.state, state)
-    print("Cancel sent to %s for order %s (the %s of order %d)." % (ad.title, sent[-1]["broker_order_id"], leg,
-                                                                  a.index))
+    print("Cancel sent to %s for %s %s (the %s%s)." % (
+        ad.title, "linked order" if leg in LINKED_LEGS else "order", sent[-1]["broker_order_id"],
+        {"oco": "linked stop and target", "bracket": "bracket: the entry if open, and its stop and target"}.get(
+            leg, leg), (" of order %d" % a.index) if getattr(a, "index", None) else ""))
+    return 0
+
+
+def cmd_modify_exits(a):
+    """A new stop and target for a working linked order: the new ticket (--index) needs its own trader-risk PASS
+    and your typed yes; the linked order keeps its id."""
+    orders, cfg, risk, state, today, now = _load(a)
+    mode, b = mode_of(cfg)
+    if mode != "live":
+        raise TicketError("modify-exits changes a LIVE linked order and the config is paper. Nothing was sent")
+    base = adapters().base
+    ad = get_adapter(b, cfg)
+    if not ad.linked_leg():
+        raise TicketError("%s: %s. Nothing was sent" % (ad.title, ad.linked_words))
+    new = _pick(orders, a.index)
+    fp = fingerprint(new)
+    rec = _linked_record(state, b, a.linked_id)
+    pre = read_json(a.preflight, "preflight", required=False) or {}
+    try:
+        gp = base.open_modify_gate(b, cfg, new, rec, risk, state, pre, ad.token(), today, now)
+        exits = base.leg_order(new, "oco")
+    except base.GateClosed as e:
+        return _gate_refused(e)
+    except base.BrokerError as e:
+        raise TicketError(e.message)
+    approved = [r for r in records(state, fp, today, "approved") if r.get("broker") == b][-1]
+    last_price = a.last_price
+    if last_price is None and ad.linked_style == "exit_oco":
+        try:
+            inst = ad.resolve(exits["symbol"], exits.get("exchange") or "NSE")
+            last_price = ad.ltp([inst]).get(inst["symbol"])
+        except base.BrokerError as e:
+            raise TicketError("%s needs the last price for the change (%s): pass --last-price P. Nothing was sent"
+                              % (ad.title, e.message))
+    out = {"at": ist_iso(now), "date": today, "index": a.index, "fingerprint": fp, "leg": rec.get("leg"),
+           "broker": b, "live": True, "paper": False, "broker_order_id": a.linked_id, "modify": True,
+           "of_fingerprint": rec.get("fingerprint"), "order": exits, "yes_text": approved.get("yes_text"),
+           "symbol": approved.get("symbol"), "last_price": last_price}
+    try:
+        ad.modify_linked(a.linked_id, exits, gp, record=rec, last_price=last_price)
+    except base.BrokerDown as e:
+        out.update(status="modify_unknown", error=e.message)
+        state.setdefault("orders", []).append(out)
+        write_json(a.state, state)
+        raise TicketError("%s. The change may or may not have reached %s: run ticket.py reconcile. Not retried."
+                          % (e.message, ad.title))
+    except base.BrokerError as e:
+        out.update(status="modify_failed", error=e.message)
+        state.setdefault("orders", []).append(out)
+        write_json(a.state, state)
+        raise TicketError("%s refused the change: %s" % (ad.title, e.message))
+    out["status"] = "modify_sent"
+    state.setdefault("orders", []).append(out)
+    write_json(a.state, state)
+    print("CHANGE SENT to %s (real money): linked order %s now has the stop at %s and the target %s (ticket %d, your "
+          "yes \"%s\")." % (ad.title, a.linked_id, _p(exits["stop"].get("trigger_price")),
+                            _p(exits["target"].get("price")), a.index, approved.get("yes_text")))
+    return 0
+
+
+def _near(x, y):
+    return x is not None and y is not None and abs(float(x) - float(y)) < 0.005
+
+
+def reconcile_rows(ours, book, cancelled, changes):
+    """Match this tool's linked records to the broker's linked book. -> (rows, found) where found maps a record
+    sent with an unknown outcome to the broker's id. Pure, for tests."""
+    by_id = {str(x["linked_id"]): x for x in book}
+    used, rows, found = set(), [], {}
+    for r in ours:
+        lid = str(r.get("broker_order_id") or "")
+        o = r.get("order") or {}
+        want_stop = (o.get("stop") or {}).get("trigger_price")
+        want_target = (o.get("target") or {}).get("price")
+        ch = changes.get(lid)
+        if ch:
+            want_stop = ((ch.get("order") or {}).get("stop") or {}).get("trigger_price")
+            want_target = ((ch.get("order") or {}).get("target") or {}).get("price")
+        x = by_id.get(lid) if lid else None
+        if x is None and r.get("status") == "unknown":
+            entry_side = o.get("side") if r.get("leg") == "bracket" else (
+                "BUY" if str(o.get("side")).upper() == "SELL" else "SELL")
+            cands = [y for y in book if str(y["linked_id"]) not in used and y.get("qty") == o.get("qty")
+                     and str(y.get("side")).upper() == str(entry_side).upper()
+                     and ((r.get("tag") and y.get("tag") == r.get("tag")) or
+                          (_near(y.get("stop_trigger"), want_stop) and _near(y.get("target_price"), want_target)))]
+            if len(cands) == 1:
+                x = cands[0]
+                found[id(r)] = str(x["linked_id"])
+        row = {"linked_id": lid or (x or {}).get("linked_id"), "leg": r.get("leg"), "symbol": r.get("symbol"),
+               "fingerprint": r.get("fingerprint"), "date": r.get("date"), "ours": r.get("status"),
+               "stop": want_stop, "target": want_target}
+        if lid in cancelled:
+            row.update(broker=(x or {}).get("status"), verdict="cancelled by this tool")
+        elif x is None:
+            row.update(broker=None, verdict="not in the broker's book: unknown send that never arrived, or completed, "
+                                            "expired or deleted outside this tool" if r.get("status") == "unknown"
+                       else "not in the broker's book (completed, expired or deleted outside this tool)")
+        else:
+            used.add(str(x["linked_id"]))
+            same = _near(x.get("stop_trigger"), want_stop) and _near(x.get("target_price"), want_target)
+            row.update(linked_id=str(x["linked_id"]), broker=x.get("status"), broker_stop=x.get("stop_trigger"),
+                       broker_target=x.get("target_price"),
+                       verdict=("found at the broker (the send's outcome was unknown)" if id(r) in found else
+                                "matches" if same else "prices differ from this tool's record: changed outside it?"))
+        rows.append(row)
+    extra = [{"linked_id": str(x["linked_id"]), "symbol": x.get("symbol"), "broker": x.get("status"),
+              "verdict": "not made by this tool: left alone"} for x in book if str(x["linked_id"]) not in used]
+    return rows, extra, found
+
+
+def cmd_reconcile(a):
+    """After a restart: read the broker's linked book (GTT or super orders) and match it to this tool's records.
+    Read only at the broker; it may add records here for sends whose outcome was unknown."""
+    cfg = read_json(a.config, "config", required=False) or {}
+    now, today = _clock(a)
+    b = which_broker(a, cfg)
+    ad = get_adapter(b, cfg)
+    state = load_state(a.state)
+    recs = state.get("orders", [])
+    cancelled = {str(r.get("broker_order_id")) for r in recs if r.get("broker") == b and r.get("status") == "cancel_sent"}
+    changes = {}
+    for r in recs:
+        if r.get("broker") == b and r.get("status") == "modify_sent":
+            changes[str(r.get("broker_order_id"))] = r
+    since = (now - datetime.timedelta(days=a.days)).date().isoformat()
+    ours = [r for r in recs if r.get("broker") == b and r.get("live") and r.get("leg") in LINKED_LEGS and not
+            r.get("modify") and r.get("status") in ("placed", "linked_sent", "unknown") and (r.get("date") or "") >= since]
+    book = []
+    if ad.linked_leg():
+        book = _broker_call(ad.linked_book)
+    rows, extra, found = reconcile_rows(ours, book, cancelled, changes)
+    added = 0
+    for r in ours:
+        if id(r) in found:
+            new = dict(r, status="placed" if r.get("leg") == "bracket" else "linked_sent", broker_order_id=found[id(r)],
+                       reconciled=ist_iso(now))
+            new.pop("error", None)
+            recs.append(new)
+            added += 1
+    state.setdefault("reconciled", {})[b] = {"at": ist_iso(now), "rows": rows, "not_ours": len(extra)}
+    write_json(a.state, state)
+    if a.json:
+        _print_json(b, now, {"rows": rows, "not_ours": extra, "records_added": added, "native_oco": bool(
+            ad.linked_leg())})
+        return 0
+    if not ad.linked_leg():
+        print("%s: %s. Nothing to reconcile there; leg-by-leg exits show in ticket.py orders." % (ad.title,
+                                                                                               ad.linked_words))
+        return 0
+    print("%s linked orders at %s IST: %d of this tool's (last %d days), %d at the broker." % (
+        ad.title, now.strftime("%Y-%m-%d %H:%M"), len(rows), a.days, len(book)))
+    for r in rows:
+        print("  %s %s %s: here %s, at %s %s (stop %s, target %s): %s" % (
+            r.get("linked_id") or "(no id)", r.get("leg"), r.get("symbol"), r.get("ours"), ad.title,
+            r.get("broker") or "-", _p(r["stop"]) if r.get("stop") is not None else "-",
+            _p(r["target"]) if r.get("target") is not None else "-", r["verdict"]))
+    for x in extra:
+        print("  %s %s at %s %s: %s" % (x["linked_id"], x.get("symbol"), ad.title, x.get("broker"), x["verdict"]))
+    if added:
+        print("Recorded %d send%s whose outcome was unknown, now found at %s." % (added, "" if added == 1 else "s",
+                                                                               ad.title))
+    print("Read only at %s: nothing was sent, changed or cancelled." % ad.title)
+    return 0
+
+
+# ---------------------------------------------------------------- the broker's basket margin, read only
+
+MARGIN_CACHE = "trader/state/broker_margin.json"
+
+
+def margin_key(rows):
+    """One basket, broker-neutral: rows of (side, underlying, expiry, strike, CE/PE/FUT, qty). The same function in
+    trader-strategy and trader-risk, so each finds the broker's figure for its own legs."""
+    parts = []
+    for side, und, exp, strike, kind, qty in rows:
+        kind = str(kind or "").upper()
+        k = "-" if kind == "FUT" or strike in (None, "") else "%g" % float(strike)
+        parts.append("%s|%s|%s|%s|%s|%d" % (str(side).upper(), str(und).upper(), str(exp)[:10], k, kind,
+                                            int(round(abs(float(qty or 0))))))
+    return hashlib.sha256("\n".join(sorted(parts)).encode("utf-8")).hexdigest()[:16]
+
+
+def margin_rows(orders):
+    return [(o.get("side"), underlying_of(o), o.get("expiry"), o.get("strike"),
+             "FUT" if fno_segment(o) == "FUT" else o.get("option_type"), o.get("qty")) for o in orders]
+
+
+def adapter_order(o):
+    """A basket leg (trader-strategy's shape) -> the adapters' neutral order (a canonical NFO symbol)."""
+    base = adapters().base
+    if not is_fno(o):
+        return dict(o)
+    fut = fno_segment(o) == "FUT"
+    sym = base.canonical_symbol("FUT" if fut else "OPT", underlying_of(o), str(o.get("expiry"))[:10],
+                                None if fut else o.get("strike"), None if fut else str(o.get("option_type")).upper())
+    return {"symbol": sym, "exchange": "NFO", "product": str(o.get("product") or "NRML").upper(),
+            "side": str(o.get("side")).upper(), "qty": int(_f(o.get("qty")) or 0),
+            "order_type": str(o.get("order_type") or "LIMIT").upper(), "price": o.get("price")}
+
+
+def cmd_margin_check(a):
+    """The broker's basket margin for these F&O legs next to our SPAN-style estimate. Read only."""
+    cfg = read_json(a.config, "config", required=False) or {}
+    now, today = _clock(a)
+    b = which_broker(a, cfg)
+    ad = get_adapter(b, cfg)
+    src = a.legs_json or a.orders
+    doc = read_json(src, "legs")
+    legs = doc.get("orders", doc) if isinstance(doc, dict) else doc
+    legs = [o for o in (legs or []) if is_fno(o)]
+    if not legs:
+        raise TicketError("no F&O legs in %s: the broker's basket margin is for an F&O basket" % src)
+    ours, ours_from = a.estimate, "given" if a.estimate is not None else None
+    if ours is None:
+        sdoc = read_json(a.strategy, "strategy", required=False)
+        if strategy_matches(sdoc, legs) and isinstance(sdoc.get("margin"), dict):
+            ours, ours_from = _f(sdoc["margin"].get("required")), "trader-strategy (%s)" % a.strategy
+    if not ad.token():
+        raise TicketError("no %s token in this shell: eval \"$(python3 ticket.py login %s)\" first. Nothing was "
+                          "sent" % (ad.env_names["access_token"], b))
+    bm = _broker_call(ad.basket_margin, [adapter_order(o) for o in legs])
+    key = margin_key(margin_rows(legs))
+    total = bm.get("total")
+    diff = round_paise(total - ours) if (total is not None and ours) else None
+    entry = {"key": key, "date": today, "at": ist_iso(now), "broker": b, "title": ad.title, "legs": len(legs),
+             "total": total, "initial": bm.get("initial"), "hedge_benefit": bm.get("hedge_benefit"),
+             "note": bm.get("note"), "our_estimate": ours, "our_estimate_from": ours_from, "difference": diff,
+             "difference_pct": round(100.0 * diff / ours, 1) if diff is not None else None, "read_only": True}
+    cache = read_json(a.cache, "broker margin cache", required=False) or {}
+    checks = [c for c in cache.get("checks", []) if c.get("date") == today and c.get("key") != key]
+    cache = {"note": "the broker's basket margin, read only, from ticket.py margin-check (newest per basket, today)",
+             "checks": checks + [entry]}
+    write_json(a.cache, cache)
+    if a.json:
+        _print_json(b, now, entry)
+        return 0
+    print("%s basket margin for %d leg%s at %s IST: %s%s." % (
+        ad.title, len(legs), "" if len(legs) == 1 else "s", now.strftime("%H:%M"), inr(total or 0),
+        (" (hedge benefit %s)" % inr(bm["hedge_benefit"])) if bm.get("hedge_benefit") else ""))
+    if ours:
+        print("Our SPAN-style estimate: %s, from %s. Difference: %s%s (%+.1f%%). The broker's figure is what it blocks."
+              % (inr(ours), ours_from, "+" if diff >= 0 else "-", inr(abs(diff)), entry["difference_pct"]))
+    else:
+        print("No estimate of ours to compare (run trader-strategy for these legs, or pass --estimate).")
+    print("Read only: nothing was sent to %s. Saved for trader-strategy and trader-risk in %s." % (ad.title, a.cache))
     return 0
 
 
@@ -3594,7 +3950,7 @@ def main(argv=None):
     p.add_argument("--trades", default="trader/state/trades.json")
     p.add_argument("--config", default="trader/config.json")
     clock(p)
-    brokers = list(LIVE_BROKERS) + ["zerodha"]
+    brokers = list(LIVE_BROKERS) + ["zerodha", "angelone"]
     p = sub.add_parser("shadow-report", help="each shadowed live order next to its paper twin (read only)")
     p.add_argument("--shadow", default="trader/state/shadow.json")
     p.add_argument("--live", action="store_true", help="read the live order book (nothing is sent)")
@@ -3620,7 +3976,8 @@ def main(argv=None):
     p = reader("instruments", "look one symbol up in the broker's instrument master (read only)")
     p.add_argument("--symbol", required=True, help="RELIANCE, or \"NIFTY 2026-11-23 25000 CE\"")
     p.add_argument("--exchange", type=str.upper, choices=["NSE", "NFO"], default="NSE")
-    p = sub.add_parser("login", help="log in to a broker in your browser; prints export lines for your shell")
+    p = sub.add_parser("login", help="log in to a broker (browser, or Angel One's TOTP); prints export lines for "
+                                     "your shell")
     p.add_argument("broker", type=str.lower, choices=brokers)
     p.add_argument("--config", default="trader/config.json")
     p.add_argument("--timeout", type=int, default=180, help="seconds to wait for the login (default 180)")
@@ -3633,16 +3990,51 @@ def main(argv=None):
     p.add_argument("--ip", help="skip the IP echo services and use this public IP")
     p.add_argument("--json", action="store_true")
     clock(p)
-    for name, what in (("place", "send ONE approved order to the live broker, after every gate"),
-                       ("cancel", "cancel one live order this tool sent today")):
+    legs = ["entry", "stop", "target", "oco", "bracket"]
+    for name, what in (("place", "send ONE approved order (or one native linked order) to the live broker, after "
+                                 "every gate"),
+                       ("cancel", "cancel one live order (or linked order) this tool sent")):
         p = sub.add_parser(name, help=what)
         common(p)
-        p.add_argument("--index", type=int, required=True)
-        p.add_argument("--leg", choices=["entry", "stop", "target"], default="entry")
+        p.add_argument("--index", type=int, required=(name == "place"))
+        p.add_argument("--leg", choices=legs, default="entry",
+                       help="entry, stop, target; oco: the stop and target as one linked order after the fill (Kite); "
+                            "bracket: the entry with both (Upstox GTT, Dhan Super Order)")
         p.add_argument("--preflight", default="trader/state/preflight.json")
         p.add_argument("--prices", default="trader/prices.json", help="shadow mode: the paper twin's price")
         p.add_argument("--options", action="append", help="shadow mode: the chain for an F&O twin")
         p.add_argument("--shadow", default="trader/state/shadow.json")
+        if name == "place":
+            p.add_argument("--last-price", type=float, help="oco at Kite: the last price for the GTT (default: the "
+                                                            "entry's fill price)")
+        else:
+            p.add_argument("--linked-id", help="cancel this linked order (from ticket.py reconcile), any day")
+    p = sub.add_parser("modify-exits", help="new stop and target for a working linked order; the new ticket needs its "
+                                            "own risk PASS and your yes")
+    common(p)
+    p.add_argument("--index", type=int, required=True, help="the NEW ticket (same position, new stop_loss and target)")
+    p.add_argument("--linked-id", required=True, help="the linked order to change (ticket.py reconcile lists them)")
+    p.add_argument("--last-price", type=float, help="Kite: the last price for the GTT (default: a quote)")
+    p.add_argument("--preflight", default="trader/state/preflight.json")
+    p = sub.add_parser("reconcile", help="match the broker's GTT / super-order book to this tool's linked orders "
+                                         "(read only at the broker)")
+    p.add_argument("--broker", type=str.lower, choices=brokers, help="default: the config broker")
+    p.add_argument("--config", default="trader/config.json")
+    p.add_argument("--state", default="trader/state/broker.json")
+    p.add_argument("--days", type=int, default=7, help="this tool's linked orders from the last N days (default 7)")
+    p.add_argument("--json", action="store_true")
+    clock(p)
+    p = sub.add_parser("margin-check", help="the broker's basket margin for F&O legs next to our estimate (read "
+                                            "only)")
+    p.add_argument("--broker", type=str.lower, choices=brokers, help="default: the config broker")
+    p.add_argument("--orders", default="trader/orders.json", help="the basket legs (trader-strategy's orders)")
+    p.add_argument("--legs-json", help="a JSON list of basket legs instead of --orders")
+    p.add_argument("--strategy", default="trader/strategy.json", help="our estimate, when it is this basket")
+    p.add_argument("--estimate", type=float, help="our estimate in rupees (trader-strategy and trader-risk pass it)")
+    p.add_argument("--cache", default=MARGIN_CACHE, help="where the result is kept for trader-strategy and trader-risk")
+    p.add_argument("--config", default="trader/config.json")
+    p.add_argument("--json", action="store_true")
+    clock(p)
     a = ap.parse_args(argv)
     if not a.cmd:
         ap.print_help()
@@ -3655,7 +4047,8 @@ def main(argv=None):
                 "holdings": cmd_holdings, "positions": cmd_positions, "orders": cmd_orders, "login": cmd_login,
                 "preflight": cmd_preflight, "place": cmd_place, "cancel": cmd_cancel,
                 "instruments": cmd_instruments, "mtm": cmd_mtm, "adjust": cmd_adjust, "settle": cmd_settle,
-                "shadow-report": cmd_shadow_report}[a.cmd](a)
+                "shadow-report": cmd_shadow_report, "modify-exits": cmd_modify_exits, "reconcile": cmd_reconcile,
+                "margin-check": cmd_margin_check}[a.cmd](a)
     except (TicketError, RulesError) as e:
         print("ticket.py: %s" % adapters().base.scrub(e), file=sys.stderr)
         return 1
