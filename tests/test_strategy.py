@@ -11,7 +11,9 @@ Fixtures:
 Reference margins: scanning risk computed from the risk arrays of NSE's SPAN file
 nsccl.20261030.s.zip for 1 lot (65) of NIFTY: short 23000 CE 03-Nov 1,30,859; short 23000
 straddle 03-Nov 1,24,079; short 23000 straddle 01-Dec 97,186; iron condor 22700/22800 PE -
-23300/23400 CE 03-Nov 4,367 (exposure at 2% of spot notional per short lot: 29,969 a leg).
+23300/23400 CE 03-Nov 4,367 (exposure at 2% of spot notional per short lot: 29,969 a leg). The
+net option values from the same file (short 23000 straddle 01-Dec: -50,359) are less from SPAN risk, as
+NSE does; tests/test_margin_model.py compares more structures against the file's risk arrays.
 """
 
 import io
@@ -369,9 +371,12 @@ class Margin(unittest.TestCase):
         self.assertEqual(m["max_loss"], 4129.12)
         self.assertGreater(m["required"], m["max_loss"])                                # never read max loss as capital
         s = m["span_style"]
-        self.assertAlmostEqual(m["required"], s["scan_risk"] + s["exposure"] + s["premium_paid"], 1)
-        # exposure is charged on both short legs' notional, hedged or not
-        self.assertAlmostEqual(s["exposure"], 2 * NIFTY["forward"] * 65 * 0.02, 0)
+        self.assertAlmostEqual(m["required"], s["span"] + s["exposure"] + s["premium_paid"], 1)
+        self.assertAlmostEqual(s["span"], s["scan_risk"] - s["net_option_value"], 1)    # SPAN less net option value
+        self.assertEqual(s["premium_paid"], 0)                                          # a credit: nothing paid
+        self.assertEqual(m["margin_model"], st.MARGIN_MODEL)
+        # exposure is charged on both short legs' notional (the underlying's close), hedged or not
+        self.assertAlmostEqual(s["exposure"], 2 * NIFTY["spot"] * 65 * 0.02, 0)
         self.assertAlmostEqual(m["return_on_margin"], 100 * d["expiry"]["max_profit"] / m["required"], 2)
         self.assertEqual(m["low"], round(m["required"] * 0.85, 2))
         self.assertIsNone(m["broker_basket"])
@@ -416,7 +421,7 @@ class Margin(unittest.TestCase):
         m = d["margin"]
         self.assertEqual(m["method"], "span-style")
         self.assertEqual(m["error_pct"], 15)
-        ref = 97186 + 2 * 29969
+        ref = (97186 + 50359) + 2 * 29969       # SPAN file scan risk less net option value (-50,359), + ELM
         self.assertLess(abs(m["required"] - ref) / ref, m["error_pct"] / 100.0)
         self.assertLessEqual(m["low"], ref)
         self.assertGreaterEqual(m["high"], ref)
@@ -428,13 +433,13 @@ class Margin(unittest.TestCase):
         normal = st.span_style(pos, "index", asof=st.parse_time("2026-11-02 10:00"))
         expiry = st.span_style(pos, "index", asof=st.parse_time("2026-11-03 10:00"))
         self.assertEqual(normal["expiry_day_elm"], 0)
-        self.assertAlmostEqual(expiry["expiry_day_elm"], NIFTY["forward"] * 65 * 0.02, 1)
+        self.assertAlmostEqual(expiry["expiry_day_elm"], NIFTY["spot"] * 65 * 0.02, 1)
 
     def test_stock_scan_has_a_wider_bound(self):
         mk = {REL["expiry"]: REL}
         d = st.evaluate(legs_of("-1 CE 1200", mk), mk, CFG, simulate=False)
         self.assertEqual(d["margin"]["error_pct"], 35)
-        self.assertAlmostEqual(d["margin"]["span_style"]["assumptions"]["price_scan"], REL["forward"] * 0.20, 1)
+        self.assertAlmostEqual(d["margin"]["span_style"]["assumptions"]["price_scan"], REL["spot"] * 0.20, 1)
         over = st.span_style(st.Position(legs_of("-1 CE 1200", mk)), "stock", {"scan_pct": 15})
         self.assertLess(over["scan_risk"], d["margin"]["span_style"]["scan_risk"])
 
@@ -547,7 +552,7 @@ class Commands(unittest.TestCase):
         self.assertEqual(code, 0, err)
         for bit in ("iron-condor on NIFTY, expiry 03-Nov-2026", "SELL 1 lot 22,800 PE", "BUY  1 lot 23,300 CE",
                     "Net premium: ₹", "received (credit)", "Breakevens at expiry: 22,", "after charges",
-                    "Margin required (estimate, +/-15%): about ₹67,408.76",
+                    "Margin required (estimate, +/-15%): about ₹66,434.10",
                     "Max loss at expiry: ₹4,129.12 (not the margin); return on margin", "textbook (lognormal at IV 12.10%)", "simulated (bootstrap",
                     "STT on exercise", "Nothing was placed"):
             self.assertIn(bit, out)
