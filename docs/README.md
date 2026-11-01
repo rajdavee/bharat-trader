@@ -20,6 +20,7 @@ your own AI assistant in about 30 minutes.
 | [mcp.md](mcp.md) | Connecting any MCP-compatible AI assistant: install, every tool and prompt, using it as an evidence-first co-trader, trial-count honesty, the paper order flow, the security model and the protocol. |
 | [ai-chat.md](ai-chat.md) | The optional Ask page: chat with your own LLM endpoint inside the UI (env-only setup, the two API formats, privacy and consent, what it can and cannot do). |
 | [journal.md](journal.md) | The trade journal: entries from paper fills and broker trade books, statistics with their ranges, the rule-break log, the counterfactual ledger and the weekly review. |
+| [tax.md](tax.md) | The tax estimate: how trades are classified (intraday, F&O, delivery), the ICAI turnover and the audit check, set-off and carry-forward, the dated rules table with sources (Income-tax Act, 1961 and 2025), ITR-3 schedules, and what could not be verified. |
 | [agents.md](agents.md) | The six agent personas, how to run them as sub-agents or over MCP, and their paper scorecards. |
 
 ## How it works

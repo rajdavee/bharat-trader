@@ -51,6 +51,7 @@ def _load_api():
         "discover": ("trader-discover", "discover"),
         "cotrader": ("trader-cotrader", "cotrader"),
         "journal": ("trader-journal", "journal"),
+        "tax": ("trader-tax", "tax"),
         "archive": ("trader-archive", "archive"),
     })
     return mod
@@ -1370,6 +1371,29 @@ def t_counterfactual_report(kit, a, call):
                 "Read only."]
 
 
+# ---------------------------------------------------------------- tools: the tax estimate
+
+TAX_NOTE = ("An ESTIMATE for discussion with the user's chartered accountant, not tax advice: say so whenever you "
+            "quote it. Give each figure with its head and section, and the rule's effective date when it matters. "
+            "Slab tax, surcharge, cess, rebates and deductions are not computed; do not compute them. Read only.")
+
+
+def t_tax_summary(kit, a, call):
+    """trader-tax's financial-year report, read only: heads, turnover and audit check, set-off, special rates."""
+    tx = api.skill("tax")
+    now = kit.ctx.now_ist().replace(tzinfo=None, microsecond=0)
+    try:
+        d = tx.report(tx.Paths(kit.workdir), tx.parse_fy(a["fy"]) if a.get("fy") else None, a.get("book") or "live",
+                      None, None, now)
+    except tx.TaxError as e:
+        raise ToolError(str(e))
+    out = tx.summary_view(d)
+    out.pop("trades_preview", None)
+    if not a.get("rules"):
+        out["rules"] = [{"what": r["what"], "section": r["section"], "effective": r["effective"]} for r in d["rules"]]
+    return out, [TAX_NOTE]
+
+
 # ---------------------------------------------------------------- tools v2: the co-trader workflow layer
 
 TRIALS_LEDGER = ("state", "lab-trials.jsonl")
@@ -2405,6 +2429,27 @@ def build_tools():
                    "limit": S("integer", "how many replay rows to return (default 50)", minimum=1, maximum=500)},
                   data=obj({"groups": ANY_OBJ, "rows": ANY_LIST, "caveats": ANY_LIST}, ["groups", "caveats"],
                            extra=True), network=False))
+    T.append(tool("tax_summary", "Tax estimate for a financial year",
+                  "A financial-year tax ESTIMATE of the user's trading (trader-tax), for discussion with a CA: each "
+                  "trade classified as intraday equity (speculative business income), F&O (non-speculative business "
+                  "income) or delivery shares (short-term gains at the s.111A rate, long-term above the yearly "
+                  "exemption at the s.112A rate, with the 31 Jan 2018 grandfathering); charges per head (STT "
+                  "deductible for business, not for capital gains); business turnover the ICAI Guidance Note way "
+                  "(the absolute sum of profits and losses) with the tax-audit check in words; current-year set-off, "
+                  "brought-forward losses, what carries forward and until when; the special-rate amounts; the "
+                  "advance-tax dates; the ITR-3 schedule for each number; what needs the user's input. FY 2025-26 "
+                  "under the Income-tax Act, 1961; tax year 2026-27 under the Income-tax Act, 2025. Read only.",
+                  t_tax_summary,
+                  {"fy": S("string", "financial year like 2025-26 (default: the current one)",
+                           pattern=r"^\d{4}-\d{2}$"),
+                   "book": S("string", "live (default: imported broker trade books), paper (a practice report) or "
+                                       "all", enum=["live", "paper", "all"]),
+                   "rules": S("boolean", "include each rule's full wording and source (default: section and date "
+                                         "only)")},
+                  data=obj({"fy": S("string"), "heads": ANY_OBJ, "turnover": ANY_OBJ, "audit": ANY_OBJ,
+                            "setoff": ANY_OBJ, "taxable": ANY_OBJ, "disclaimer": S("string")},
+                           ["fy", "heads", "turnover", "audit", "setoff", "taxable", "disclaimer"], extra=True),
+                  network=False))
     # ---- v2: the co-trader workflow layer
     T.append(tool("archive_status", "Market data archive status",
                   "What the local NSE archive (trader-archive) holds: each dataset (equity and F&O bhavcopies, "

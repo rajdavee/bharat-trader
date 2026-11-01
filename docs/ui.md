@@ -55,7 +55,7 @@ Pages are grouped by the trader's day, so each step's next step is close by
 | Discover | Chart, Scanner, Option chain |
 | Plan | Strategy builder, Co-trader |
 | Trade | Portfolio and orders, Risk, Auto-pilot (coming in v0.3) |
-| Review | Strategy Lab, Journal, Agents |
+| Review | Strategy Lab, Journal, Tax, Agents |
 | Setup | Settings, Setup guide, About |
 
 - 1100 px and wider: the groups are a sidebar. Narrower: the menu button opens
@@ -77,6 +77,7 @@ Pages are grouped by the trader's day, so each step's next step is close by
 | --- | --- | --- |
 | Today | The session rail (pre-open to 15:30 IST with your entry window, exits-only time and flat-by, and a now needle), day P&L after charges (realised, open, charges), the daily loss budget used, trades used, risk state (kill switch, circuit-breakers), open positions, the plan and its last risk check, alerts, NSE status, indices, the data self-test, the market regime, and the co-trader's top ready candidates (tier, odds with range and n, expected R after charges) or its no-edge decision; this week from the journal (closed trades, net after charges, win rate with its range, rule breaks) | `/api/dashboard`, `/api/portfolio`, `/api/risk`, `/api/regime`, `/api/cotrader`, `/api/journal?lite=1` |
 | Journal | trader-journal's record: tiles for closed trades (with the sample-size warning), win rate with its Wilson 95% range, expectancy after charges with its range and the average R, net P&L with the cost drag, profit factor, max drawdown and streaks; the equity curve after charges; a breakdown by strategy, persona, regime, time of day, weekday or instrument; the rule-break log with the overtrading index; the counterfactual ledger (saved / cost per group, with the caveats); every closed trade, whose details (fills, R, MAE/MFE, rule notes) open in a dialog where you add notes and tags. See [journal.md](journal.md) | `trader-journal/journal.py` `summary`, `add_note` |
+| Tax | trader-tax's estimate for one financial year, for your CA, with the disclaimer on top: the FY picker and the book (live broker files, paper practice or both); tiles for speculative (intraday) and non-speculative (F&O) business income, short- and long-term capital gains and the ICAI business turnover; the audit check in words; the taxable amounts and the special-rate amounts with their sections and rates; every set-off step, the carry-forward table with "usable until" and what lapsed; the advance-tax dates with your results to each date; the ITR-3 schedule for each number and the dated rules; an export button. See [tax.md](tax.md) | `trader-tax/tax.py` `report`, `export` |
 | Strategy Lab | Each trader-lab run: the verdict and why, out-of-sample trades (the sample size), expectancy after charges, the Monte Carlo range of the final P&L, max drawdown, the equity curve after charges with the out-of-sample windows shaded, the gates, results by regime, the deflated Sharpe ratio, the probability of overfitting, the paper forward test, and what a backtest does not show | `trader/lab/<name>/results.json`, `status.json`, `equity.csv` from `trader-lab/lab.py run` |
 | Co-trader | Candidate cards from trader-cotrader: the evidence tier badge (PROMOTED, WATCH; RESEARCH only with "Show RESEARCH ideas"), the probability that a similar past trade made money after charges with its 95% range and n, the expected R after charges, the time-machine replay and any disagreement, the plan and size, trader-risk's verdict, why and why not, what would invalidate it, what the evidence does not show, similar past trades and Draft to paper (sized and risk-checked, nothing placed); the no-edge card when nothing qualifies; each strategy's status today; the calibration chart (predicted vs observed) with Brier scores by strategy. See [cotrader.md](cotrader.md) | trader-cotrader `run_today`, `calibration_report`; trader-budget and trader-risk for the draft |
 | Ask | Optional, off by default: a chat with your own LLM endpoint (set by `BT_LLM_*` environment variables only). A privacy notice and a per-session consent box come first. The conversation shows each tool call the model made (read-only tools and the paper draft only) and links a drafted ticket to Portfolio and orders for your own typed yes. See [ai-chat.md](ai-chat.md) | `ui/chat.py` relaying to your endpoint; tool calls run `mcp/toolkit.py` |
@@ -95,7 +96,7 @@ its inputs, the source and the time.
 
 Keyboard: `Ctrl K` or `/` the palette; `g` then a letter jumps to a page:
 `d` Today, `c` chart, `s` scanner, `o` option chain, `b` strategy, `k`
-co-trader, `q` ask, `p` portfolio, `r` risk, `u` auto-pilot, `l` lab, `j` journal, `t`
+co-trader, `q` ask, `p` portfolio, `r` risk, `u` auto-pilot, `l` lab, `j` journal, `x` tax, `t`
 agents, `e` settings, `w` setup guide, `a` about. `t` theme, `x` guided or
 expert, `?` the list, `Esc` closes a panel. Dark and light themes follow your
 system setting until you press the toggle.
@@ -155,6 +156,8 @@ free endpoints again.
 | POST | `/api/cotrader/run` | `cotrader.py today`: `{"tier": "validated" or "research"}`; writes `trader/cotrader.json`, the plans and new log lines; places nothing |
 | POST | `/api/cotrader/draft` | `{"id"}`: that candidate's plan becomes `trader/plan.json` (old one kept as `.bak`), trader-budget sizes it into `trader/orders.json`, trader-risk records the verdict; paper config only, on the plan's own day; your typed yes still decides |
 | GET | `/api/journal` | trader-journal's summary, read only: stats with intervals, equity curve, breakdowns, rule breaks, the counterfactual ledger, every closed trade (`?lite=1`: this week only, no bars) |
+| GET | `/api/tax` | trader-tax's report for `?fy=2025-26&book=live` (or `paper`, `all`), read only, without the per-trade rows; the years with fills |
+| POST | `/api/tax/export` | `{"fy", "book"}`: write `report.md`, `summary.csv`, `trades.csv`, `carry-forward.csv` and `tax.json` to `trader/tax/FY<year>/`; touches no order or trade record |
 | POST | `/api/journal/note` | `{"id", "text", "tags"}`: your note and tags on one journal entry (`trader/journal/notes.json`); touches no order or trade record |
 | GET | `/api/ask` | the Ask panel: on or off and why, the format, model and endpoint host (never the key), this session's consent, the tools the model may call |
 | POST | `/api/ask/consent` | `{"consent": true or false}` for this browser session; off forgets the conversation |

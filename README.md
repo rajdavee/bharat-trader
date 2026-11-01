@@ -20,8 +20,8 @@ placed without your yes.
   after brokerage, STT, exchange fees, stamp duty and GST. Textbook odds sit
   next to simulated ones. The Strategy Lab rejects most strategies, and says why.
 - **Standard library only.** Python 3.8+, nothing to `pip install`, every tool runs by hand.
-- **Agent-native.** Twenty [Agent Skills](https://agentskills.io), six agent
-  personas, and an [MCP](https://modelcontextprotocol.io/) server with 47 tools
+- **Agent-native.** Twenty-one [Agent Skills](https://agentskills.io), six agent
+  personas, and an [MCP](https://modelcontextprotocol.io/) server with 48 tools
   for any MCP-compatible AI assistant.
 - **Zero-install UI.** `python3 ui/serve.py --open`: a web app on `127.0.0.1`
   that never loads anything from the internet.
@@ -94,7 +94,7 @@ first-run setup and a validated settings editor. Grouped navigation that works
 on a phone, a command palette (Ctrl/Cmd-K), guided or expert detail, and a
 "why" panel for every number. See [docs/ui.md](docs/ui.md).
 
-**Your AI assistant, via MCP.** 47 tools and 16 prompts for any
+**Your AI assistant, via MCP.** 48 tools and 16 prompts for any
 MCP-compatible assistant, over stdio or loopback HTTP. Paper only: there is
 no live-order tool at all. See [docs/mcp.md](docs/mcp.md).
 
@@ -110,6 +110,15 @@ and explain. Orders still need risk PASS and your typed yes. See
 chat inside the web UI with your own LLM key? The optional **Ask** page is
 off by default and configured by environment variables only. See
 [docs/ai-chat.md](docs/ai-chat.md).
+
+**Tax estimate.** `trader-tax` turns a financial year of trades into the
+numbers your CA asks for: intraday (speculative) and F&O (non-speculative)
+business income, short- and long-term capital gains with the 2018
+grandfathering, F&O turnover the ICAI way with the audit check in plain
+words, set-off and carry-forward, the special-rate amounts, advance-tax dates
+and the ITR-3 schedule for each number. Every rule is dated with its section
+under the Income-tax Act, 1961 and the 2025 Act. An estimate, not tax advice.
+See [docs/tax.md](docs/tax.md).
 
 **Agent team.** Six personas that run the skills like a disciplined desk:
 intraday trader, swing trader, options seller, researcher, risk officer and
@@ -176,6 +185,8 @@ python3 trader-regime/regime.py history NIFTY --from 2025-01-01   # every day's 
 python3 trader-journal/journal.py sync                 # the trade journal: stats, rule breaks, after charges
 python3 trader-journal/journal.py import tradebook.csv --broker zerodha   # your broker's trade book
 python3 trader-journal/journal.py review --week last   # the weekly review for the journal coach
+python3 trader-tax/tax.py report --fy 2025-26          # tax estimate for your CA: heads, turnover, audit, set-off
+python3 trader-tax/tax.py export --fy 2025-26          # trader/tax/FY2025-26/: report.md and CSVs
 ```
 
 </details>
@@ -237,6 +248,7 @@ Copy one or all into your agent's skills folder; each works on its own:
 | `trader-discover` | Strategy discovery with strict overfitting controls: a fixed trial budget over the lab's rule vocabulary, train / validation / untouched holdout with purging and an embargo, every trial logged and counted; deflated Sharpe with the true trial count, overfitting odds over the trial matrix, a Reality Check / SPA bootstrap, a false-discovery cut, cost stress, neighbourhood and regime checks. Survivors go to the lab as specs that still need a paper forward test. |
 | `trader-cotrader` | Co-trader: today's candidates from strategies the lab validated (PROMOTED, WATCH; RESEARCH ideas only on request, never for live), each a full plan with size, charges and a trader-risk verdict; the share of past trades in today's regime that made money after charges with a Wilson / Beta 95% range and n, shrunk toward the rule's overall rate; expected R after charges; a time-machine second opinion; ranked per unit risk, penalised for uncertainty and correlation. No edge is a first-class answer. Every probability is logged and scored (Brier, log loss, reliability); overconfident rules are demoted. |
 | `trader-journal` | The trade journal: one entry per closed trade (an F&O strategy as one entry) from paper fills, your live trade book and Zerodha, Upstox, Dhan, Angel One or Groww tradebook imports, with persona, strategy, regime, R multiple, MAE/MFE and your notes; expectancy and win rate with intervals by strategy, persona, regime and time of day; rule breaks, overtrading and cost drag; a counterfactual ledger of every skipped or blocked trade; the weekly review. |
+| `trader-tax` | A financial-year tax estimate for your CA: intraday equity as speculative business income, F&O as non-speculative, delivery shares as short- or long-term capital gains (s.111A, s.112A, the 31 Jan 2018 grandfathering); charges per head; F&O and intraday turnover the ICAI way with the audit check; set-off and carry-forward; special-rate amounts, advance-tax dates and ITR-3 schedules; FY 2025-26 under the 1961 Act, tax year 2026-27 under the 2025 Act; CSV and markdown export. Not tax advice. |
 
 ## How it compares
 
@@ -245,7 +257,7 @@ all of these together, run on your own machine:
 
 | | after-charges payoff | honest-odds simulation | out-of-sample lab | multi-broker paper F&O | local-first | MCP | dated rules |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 47 tools | ✅ effective date and source per rule |
+| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 48 tools | ✅ effective date and source per rule |
 | Typical free option-analytics apps | ◐ often gross only | ◐ one model-based PoP | — | ◐ one broker, forward only | — hosted, broker login | — rarely | ◐ |
 | Typical paid backtesting platforms | ◐ often | ◐ | ◐ backtests, rarely overfitting statistics | ◐ their own simulator | — hosted, your strategies on their servers | — rarely | ◐ |
 | Typical open-source NSE toolkits | ◐ | — rarely | — rarely | ◐ a few, often needing a live broker session | ✅ | ◐ some | — rarely |
@@ -392,8 +404,9 @@ SEBI's PIT Regulations require them to be disclosed; this tool reads what is
 already public.
 
 **Taxes.** Intraday equity profits are generally speculative business income
-in India and F&O profits non-speculative business income. Nothing here is
-tax advice.
+in India and F&O profits non-speculative business income. `trader-tax` gives
+an estimate with every rule dated and sourced, to discuss with your CA.
+Nothing here is tax advice.
 
 ## License
 

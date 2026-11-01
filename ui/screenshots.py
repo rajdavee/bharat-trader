@@ -34,7 +34,7 @@ import serve  # noqa: E402
 
 FIXTURES = os.path.join(ROOT, "tests", "fixtures", "ui")
 PAGES = ["today", "chart", "scanner", "options", "strategy", "cotrader", "ask", "portfolio", "risk", "autopilot",
-         "lab", "journal", "agents", "settings", "welcome", "about"]
+         "lab", "journal", "tax", "agents", "settings", "welcome", "about"]
 HEIGHTS = {390: 844}
 CANDIDATES = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
