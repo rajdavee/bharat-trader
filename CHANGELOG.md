@@ -7,6 +7,32 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **`trader-discover`** (#43): strategy discovery with strict overfitting
+  controls. `discover.py run --budget N --universe nifty50 --timeframe 1d|5m
+  [--seed]`, `resume`, `report`, `list`. A fixed trial budget declared up
+  front in `plan.json` (a seeded random or grid sample of 918 daily and 1,398
+  five-minute rules over trader-lab's vocabulary: RSI dips, breakouts, MA
+  crosses, gaps, pullbacks, opening ranges, VWAP, yesterday's high, time
+  windows, ATR stops, R targets, maximum holding, trend filters); a time split
+  into train / validation / untouched holdout with purging and an embargo;
+  every trial logged to `trials.jsonl` (spec hash, params, metrics) and
+  counted. Screens on trades and after-charges expectancy; cost stress at
+  1.5x and 2x, the parameter neighbourhood (run and counted), regime
+  consistency (trader-regime); the deflated Sharpe ratio with the true trial
+  count, the probability of backtest overfitting by CSCV over the trial
+  matrix, a stationary-bootstrap Reality Check / SPA p-value against doing
+  nothing, a Benjamini-Hochberg cut, the Harvey-Liu haircut Sharpe. The
+  holdout is opened once per finalist and logged (`holdout.jsonl`).
+  Finalists are written as trader-lab specs (`trials_tried` = N - 1) and run
+  by the lab: WATCH at best, a paper forward test before any PROMOTE.
+  Everything else is REJECTED with its stage and reason. Time budget with
+  pause and resume, progress, lowered CPU priority, reproducible by seed.
+  Tested on synthetic data: a random walk gives no finalists in every seed,
+  a planted edge is found. Method and sources in `docs/discovery.md`.
+- MCP: `discover_strategies` (budgeted, progress notifications, cancellable,
+  resumable) and the read-only `discover_report` (35 tools). UI: the
+  Strategy Lab page lists discovery runs and their funnels (`GET /api/lab`
+  adds `discovery`).
 - **UI redesign** (#48): a research-led rework of the local web app, written up
   in `docs/design.md` (workflow research, an audit of the old UI, the design
   system). Design system v2 in CSS variables: type scale, spacing, radii,

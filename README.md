@@ -20,8 +20,8 @@ placed without your yes.
   after brokerage, STT, exchange fees, stamp duty and GST. Textbook odds sit
   next to simulated ones. The Strategy Lab rejects most strategies, and says why.
 - **Standard library only.** Python 3.8+, nothing to `pip install`, every tool runs by hand.
-- **Agent-native.** Seventeen [Agent Skills](https://agentskills.io), six agent
-  personas, and an [MCP](https://modelcontextprotocol.io/) server with 33 tools
+- **Agent-native.** Eighteen [Agent Skills](https://agentskills.io), six agent
+  personas, and an [MCP](https://modelcontextprotocol.io/) server with 35 tools
   for any MCP-compatible AI assistant.
 - **Zero-install UI.** `python3 ui/serve.py --open`: a web app on `127.0.0.1`
   that never loads anything from the internet.
@@ -46,7 +46,9 @@ and F&O), index closes, India VIX and broker intraday candles on your own
 disk, split- and bonus-adjusted, read offline by the lab and the time machine;
 and `trader-regime`, the market regime in plain words (trending or ranging,
 the India VIX percentile, the gap, expiry tomorrow, results or RBI policy
-day, the time-of-day bucket), with no look-ahead.
+day, the time-of-day bucket), with no look-ahead; and `trader-discover`, a
+strategy search that counts every rule it tries and makes each survivor beat
+the luck of the whole search on an untouched holdout (most runs find none).
 
 **Options and strategies.** The NSE option chain with our own Black-76 IV and
 Greeks off the put-call-parity forward, PCR, max pain, call and put walls,
@@ -87,7 +89,7 @@ first-run setup and a validated settings editor. Grouped navigation that works
 on a phone, a command palette (Ctrl/Cmd-K), guided or expert detail, and a
 "why" panel for every number. See [docs/ui.md](docs/ui.md).
 
-**Your AI assistant, via MCP.** 33 tools and 11 prompts for any
+**Your AI assistant, via MCP.** 35 tools and 11 prompts for any
 MCP-compatible assistant, over stdio or loopback HTTP. Paper only: there is
 no live-order tool at all. See [docs/mcp.md](docs/mcp.md).
 
@@ -143,6 +145,7 @@ python3 trader-broker/ticket.py confirm --basket --yes-text "yes"   # the strate
 python3 trader-broker/ticket.py mtm                    # paper F&O P&L, Greeks, margin
 python3 trader-lab/lab.py run orb15-vwap               # backtest + robustness + gates, after charges
 python3 trader-lab/lab.py report orb15-vwap            # the scorecard, and what it does NOT prove
+python3 trader-discover/discover.py run --budget 500 --universe nifty50 --timeframe 1d   # search, overfitting controls on
 python3 trader-broker/ticket.py holdings --broker kite # your real holdings, read only
 python3 trader-broker/ticket.py preflight upstox       # static IP and today's login: ready for live?
 python3 trader-doctor/doctor.py                        # is every NSE and Yahoo source answering? (exit 1 if not)
@@ -207,6 +210,7 @@ Copy one or all into your agent's skills folder; each works on its own:
 | `trader-doctor` | Self-test of every data source (NSE APIs and archives, Yahoo): ok, slow, changed, down or blocked, since when, which tools it breaks and the fallback in use. Holiday-aware freshness in IST. |
 | `trader-archive` | A local NSE data archive: equity and F&O bhavcopies (UDiFF and legacy), index closes, India VIX, lot sizes, ban lists, settlement prices and split/bonus factors, backfilled politely and resumably; broker intraday candles merged with Yahoo; option-chain snapshots; verify and a data-quality report. Read offline by the lab and the time machine. |
 | `trader-regime` | The market regime for NIFTY, BANKNIFTY or a stock: trend or range (ADX, efficiency ratio, EMA slope, 200-day average), volatility bucket (India VIX percentile, realised vol, IV rank), gap, breadth, expiry today or tomorrow from the exchange's list, results, RBI policy and Budget days, the closing-auction window and the time of day. No look-ahead; the lab splits every backtest by it. |
+| `trader-discover` | Strategy discovery with strict overfitting controls: a fixed trial budget over the lab's rule vocabulary, train / validation / untouched holdout with purging and an embargo, every trial logged and counted; deflated Sharpe with the true trial count, overfitting odds over the trial matrix, a Reality Check / SPA bootstrap, a false-discovery cut, cost stress, neighbourhood and regime checks. Survivors go to the lab as specs that still need a paper forward test. |
 
 ## How it compares
 
@@ -215,7 +219,7 @@ all of these together, run on your own machine:
 
 | | after-charges payoff | honest-odds simulation | out-of-sample lab | multi-broker paper F&O | local-first | MCP | dated rules |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 33 tools | ✅ effective date and source per rule |
+| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 35 tools | ✅ effective date and source per rule |
 | Typical free option-analytics apps | ◐ often gross only | ◐ one model-based PoP | — | ◐ one broker, forward only | — hosted, broker login | — rarely | ◐ |
 | Typical paid backtesting platforms | ◐ often | ◐ | ◐ backtests, rarely overfitting statistics | ◐ their own simulator | — hosted, your strategies on their servers | — rarely | ◐ |
 | Typical open-source NSE toolkits | ◐ | — rarely | — rarely | ◐ a few, often needing a live broker session | ✅ | ◐ some | — rarely |
