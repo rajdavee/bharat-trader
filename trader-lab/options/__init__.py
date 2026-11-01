@@ -487,8 +487,9 @@ class Chains(object):
         return b["spot"], "the underlying price in the bhavcopy"
 
 
-def trim_board(chain, keep_dte=MAX_DTE_LOADED, band=STRIKE_BAND):
-    """trader-archive's load_fo_chain_eod() -> the compact board Chains keeps."""
+def trim_board(chain, keep_dte=MAX_DTE_LOADED, band=STRIKE_BAND, monthly_only=False):
+    """trader-archive's load_fo_chain_eod() -> the compact board Chains keeps (monthly_only: only the expiries
+    that have a future, NSE's monthly contracts)."""
     day, spot = chain["date"], chain.get("spot")
     futures, monthly = {}, set()
     for f in chain.get("futures") or []:
@@ -499,6 +500,8 @@ def trim_board(chain, keep_dte=MAX_DTE_LOADED, band=STRIKE_BAND):
     for o in chain.get("options") or []:
         e, k, t = o.get("expiry"), o.get("strike"), o.get("option_type")
         if not e or k is None or t not in ("CE", "PE"):
+            continue
+        if monthly_only and e not in monthly:
             continue
         dte = _dte(day, e)
         if dte < 0 or dte > keep_dte:
@@ -511,14 +514,16 @@ def trim_board(chain, keep_dte=MAX_DTE_LOADED, band=STRIKE_BAND):
     return {"spot": spot, "futures": futures, "opts": opts, "expiries": sorted(exps), "monthly": monthly}
 
 
-def load_chains(underlying, root, archive, start=None, end=None, progress=None):
-    """Chains for one underlying from a trader-archive folder (offline). archive: trader-archive's module."""
+def load_chains(underlying, root, archive, start=None, end=None, progress=None, band=STRIKE_BAND,
+                keep_dte=MAX_DTE_LOADED, monthly_only=False):
+    """Chains for one underlying from a trader-archive folder (offline). archive: trader-archive's module.
+    band, keep_dte, monthly_only: what trim_board keeps (a long history needs less of each board)."""
     days = archive.trading_days(start, end, root=root)
     boards = {}
     for i, d in enumerate(days):
         ch = archive.load_fo_chain_eod(underlying, d, root=root)
         if ch and ch.get("options"):
-            boards[d] = trim_board(ch)
+            boards[d] = trim_board(ch, keep_dte, band, monthly_only)
         if progress and i % 100 == 99:
             progress("loaded %d of %d EOD chains" % (i + 1, len(days)))
     if not boards:

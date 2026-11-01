@@ -571,7 +571,7 @@ class Executor(unittest.TestCase):
         r = X.execute(os.path.join(REAL, "eh-03-index-trend.json"), empty, out, NOW)
         self.assertEqual(r["state"], "blocked")
         r = X.execute(os.path.join(REAL, "eh-05-vrp-condor.json"), empty, out, NOW)
-        self.assertIn("#73", r["plan"]["blockers"][0])
+        self.assertIn("trader-archive", " ".join(r["plan"]["blockers"]))
         r = X.execute(os.path.join(REAL, "eh-06-pead.json"), empty, out, NOW)
         self.assertTrue(any("results dates" in b for b in r["plan"]["blockers"]))
         # a futures hypothesis whose data is two years short waits for the history instead of running

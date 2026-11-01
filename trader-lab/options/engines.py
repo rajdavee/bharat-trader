@@ -1,39 +1,43 @@
-"""The options engines the edge-hunt executor calls by family name. Standard library only.
+"""The options engines behind the edge-hunt executor's option families. Standard library only.
 
-Each engine runs ONE grid point of ONE registered hypothesis (trader-lab/library/edge-hunt/<id>.json) on ONE
-window of its span, and returns trades and metrics; the executor owns the grid loop, the train ->
-validation -> holdout order, the deflated Sharpe ratio, PBO and the gates.
+trader-lab/engines/jobs.py's OptionsJob is the only caller: the executor's Job interface is the one contract
+(blockers, load(until), run(params, a, b, m) -> the v2 run shape of engines/core.py). This module supplies,
+per family:
 
-    engine(family) -> fn          families: "vrp-selling", "event-vol", "option-buying"
-    fn(hyp, params, window, data, cost_mult=1.0) -> result
+    prepare(hyp, data, start, until) -> sessions
+        read what the family needs from the archive, up to `until` and never later, into `data` (the
+        job's cache); EngineError when the data is not there (the job reports it as a blocker)
+    engine(family)(hyp, params, a, b, data, cost_mult=1.0) -> run
+        one registered grid point on the sessions a..b
 
-    hyp        the registered hypothesis (the JSON file, read as is; this module never edits it)
-    params     one grid point: {name: value}, every name in hyp["parameters"], each value one of the
-               registered values (anything else is refused: a new value is a new hypothesis)
-    window     "train" | "validation" | "holdout", or {"name", "from", "to"}: signals are taken only inside
-               it and every position is closed by its last session ("window end", purged). Models (the
-               HAR-RV forecast) are fitted on hyp["span"]["train"] only, whatever the window.
-    data       {"root": the trader-archive folder, "archive": trader-archive's module (default: the bound
-               one), "regime": trader-regime's module, "chains": {UNDERLYING: Chains} (optional, prebuilt),
-               "index": {UNDERLYING: daily bars}, "vix": daily bars, "intraday": {UNDERLYING: bars},
-               "symbols": [F&O stocks] (event-vol; default: every stock with options in the window's
-               bhavcopies), "capital": rupees (sizing; default 10 lakh, one lot), "rate": 0.0557,
-               "progress": fn(text)}
-    cost_mult  slippage and charges multiplier (1.5 for the cost-stress gate)
-
-    result     {"family", "hypothesis", "engine", "params", "window", "status" ("ok", "no data",
-               "waiting for captured chains"), "trades" (the lab's trade shape: net, r, margin,
-               return_on_margin_pct, entry_date, exit_date, ...), "n", "metrics" (options_metrics plus
-               expectancy_r, win_rate_pct, mean_return_on_premium_pct and the family's own),
-               "primary_metric", "primary" (the hypothesis's primary metric on this window), "baseline"
-               (vrp-selling: the same condor untimed), "skipped" {why: n}, "notes", "flags"
-               {"model_priced", "verdict_cap"}, "registration": the hypothesis id and status}
+    families   "vrp-selling" (eh-05), "event-vol" (eh-08 short iron fly, eh-09 long straddle, by the
+               registration's side), "option-buying" (eh-14)
+    hyp        the registered hypothesis, read as is (never edited here)
+    params     one grid point: every name in hyp["parameters"], each value one of the registered values
+               (anything else is refused: a new value is a new hypothesis)
+    a, b       the window (ISO dates): signals only inside it, every position closed by its last session
+               ("window end", purged). Models (HAR-RV) are fitted on hyp["span"]["train"] only. A window
+               starting on or after the registered holdout's first day is the holdout: eh-14 then prices
+               from captured chains only.
+    data       {"root": the trader-archive folder, "archive": trader-archive's module, "regime":
+               trader-regime's module, "capital": rupees, "rate": 0.0557, "until": the last day loaded,
+               "symbols": [stocks] (event-vol; default the stocks with options in the archive),
+               "min_history": earlier results moves needed (event-vol, default 4)} plus prepare()'s caches
+    run        {"days", "ret", "bench": None, "equity", "exposure", "trades", "traded", "charges", "notes",
+                "extra", "capital"}; each trade carries the lab's options trade fields (net, r, margin,
+                return_on_margin_pct, legs...) and "ret" (net over the margin for sellers, over the premium
+                paid for buyers; the executor's expectancy) and, for buyers, "abnormal" (the return on the
+                premium: eh-09's event return). extra: "return_on_margin_pct" (eh-05, eh-08's primary),
+                "options" (options_metrics + expectancy_r, win rate, mean return on premium, the family's own:
+                the untimed baseline, the event study, the IV/move split), "skipped", "status",
+                "model_priced", "verdict_cap", "engine"
 
 Nothing here places an order, reads the network or writes a file.
 Education and tooling, not financial advice.
 """
 
 import bisect
+import csv
 import datetime
 import itertools
 import math
@@ -42,8 +46,6 @@ import os
 O = None          # the options package, set by its loader (options.engines_api())
 
 FAMILIES = ("vrp-selling", "event-vol", "option-buying")
-PRIMARY = {"oos_return_on_margin": "return_on_margin_pct", "oos_expectancy_r": "expectancy_r",
-           "oos_mean_event_return": "mean_return_on_premium_pct"}
 DEFAULT_CAPITAL = 1000000.0
 MIN_DTE_MONTHLY = 21           # eh-05: the monthly expiry at least 21 calendar days away
 MARGIN_CAP_PCT = 50.0          # sizing: at most half the capital blocked as margin
@@ -51,6 +53,8 @@ TAIL_LOSS_PCT = 1.0            # sizing: the defined-risk worst case of a positi
 MIN_HISTORY = 4                # event-vol: earlier results moves of the stock needed for the ratio
 IV_HISTORY = 252               # event-vol: sessions of ATM IV behind the IV percentile
 IV_HISTORY_MIN = 126
+EVENT_BAND = 0.12              # event-vol: strikes within 12% of the spot (the 8% wings fit)
+EVENT_DTE = 70                 # event-vol: expiries within 70 days (stock options are monthly)
 LAST_ENTRY = "15:00"           # option-buying: no new entry after this bar end
 FLAT_BY = "15:15"              # option-buying: out by 15:15 ("1515")
 TRAIL = 0.30                   # option-buying: "trail_30pct_from_peak"
@@ -106,21 +110,27 @@ def _say(data, text):
         fn(text)
 
 
-def families():
-    return FAMILIES
-
-
 def engine(family):
-    """The engine function for a hypothesis family (EngineError for one this package does not run)."""
+    """The engine function for an option family (EngineError for one this package does not run)."""
     fn = ENGINES.get(family)
     if fn is None:
         raise EngineError("no options engine for family %r (options engines: %s)" % (family, ", ".join(FAMILIES)))
     return fn
 
 
-def run(hyp, params, window, data, cost_mult=1.0):
-    """engine(hyp["family"])(hyp, params, window, data, cost_mult)."""
-    return engine(hyp.get("family"))(hyp, params, window, data, cost_mult)
+def run(hyp, params, a, b, data, cost_mult=1.0):
+    """engine(hyp["family"])(hyp, params, a, b, data, cost_mult)."""
+    return engine(hyp.get("family"))(hyp, params, a, b, data, cost_mult)
+
+
+def prepare(hyp, data, start, until):
+    """Read the family's data up to `until` into `data`; returns the sessions it covers (EngineError when
+    there is none)."""
+    fam = hyp.get("family")
+    if fam not in PREPARE:
+        raise EngineError("no options engine for family %r" % fam)
+    data["until"] = until
+    return PREPARE[fam](hyp, data, start, until)
 
 
 def grid(hyp):
@@ -145,17 +155,14 @@ def check_params(hyp, params):
     return params
 
 
-def window_of(hyp, window):
-    if isinstance(window, str):
-        sp = (hyp.get("span") or {}).get(window)
-        if not sp:
-            raise EngineError("%s has no %r window" % (hyp.get("id"), window))
-        return {"name": window, "from": sp["from"], "to": sp["to"]}
-    if not isinstance(window, dict) or not window.get("from") or not window.get("to"):
-        raise EngineError("window is train, validation, holdout or {\"name\", \"from\", \"to\"}")
-    w = dict(window)
-    w.setdefault("name", "custom")
-    return w
+def _window(hyp, a, b, data):
+    until = (data or {}).get("until")
+    if until and b > until:
+        b = until                     # never past what was loaded (the executor loads to validation's end)
+    if a > b:
+        raise EngineError("the window %s to %s is empty" % (a, b))
+    ho = ((hyp.get("span") or {}).get("holdout") or {}).get("from")
+    return {"from": a, "to": b, "holdout": bool(ho) and a >= ho}
 
 
 def _underlying(hyp):
@@ -171,19 +178,16 @@ def size_lots(capital, margin_per_lot, max_loss_per_lot, margin_cap_pct=MARGIN_C
     return max(0, min(by_m, by_t))
 
 
-def _compiled(under, structure, strikes, wing, lots, capital, rate, expiry="monthly", cache=None):
+def _compiled(under, structure, strikes, wing, lots, capital, rate, cache, expiry="monthly"):
     k = (under, structure, str(strikes), wing, lots, expiry)
-    if cache is not None and k in cache:
-        return cache[k]
-    doc = {"name": "edge-%s" % structure, "kind": "options", "underlying": under, "structure": structure,
-           "expiry": expiry, "strikes": strikes, "entry": {"days_to_expiry": 0}, "exit": {},
-           "lots": lots, "capital": max(10000, capital), "rate": rate}
-    if wing:
-        doc["wings"] = {"points": wing}
-    spec = O.validate(doc)
-    if cache is not None:
-        cache[k] = spec
-    return spec
+    if k not in cache:
+        doc = {"name": "edge-%s" % structure, "kind": "options", "underlying": under, "structure": structure,
+               "expiry": expiry, "strikes": strikes, "entry": {"days_to_expiry": 0}, "exit": {},
+               "lots": lots, "capital": max(10000, capital), "rate": rate}
+        if wing:
+            doc["wings"] = {"points": wing}
+        cache[k] = O.validate(doc)
+    return cache[k]
 
 
 def _wing_points(spot, pct, step):
@@ -195,67 +199,100 @@ def _mean(xs):
     return sum(xs) / len(xs) if xs else None
 
 
-def _metrics(trades, days, capital, mtm=None):
-    if mtm is None:
-        mtm, run_, by = {}, 0.0, {}
-        for t in trades:
-            by[t["exit_date"]] = by.get(t["exit_date"], 0.0) + t["net"]
-        for d in days:
-            run_ += by.get(d, 0.0)
-            mtm[d] = run_
+def _skip(skipped, why):
+    skipped[why] = skipped.get(why, 0) + 1
+
+
+def _metrics(trades, days, capital, mtm):
     m = O.options_metrics(trades, mtm, days, capital) if days else {"positions": 0}
-    rs = [t.get("r") for t in trades]
     prem = [100.0 * t["net"] / abs(t["premium"]) for t in trades if t.get("premium")]
-    m["expectancy_r"] = round(_mean(rs), 5) if trades else None
+    m["expectancy_r"] = round(_mean([t.get("r") for t in trades]), 5) if trades else None
     m["win_rate_pct"] = round(100.0 * sum(1 for t in trades if t["net"] > 0) / len(trades), 2) if trades else None
     m["mean_return_on_premium_pct"] = round(_mean(prem), 3) if prem else None
     m["net"] = round(sum(t["net"] for t in trades), 2)
     return m
 
 
-def _result(hyp, eng, params, w, trades, metrics, skipped, notes, status="ok", model_priced=False, extra=None):
-    pm = hyp.get("primary_metric")
-    key = PRIMARY.get(pm)
-    out = {"family": hyp.get("family"), "hypothesis": hyp.get("id"), "engine": eng, "params": params, "window": w,
-           "status": status, "trades": trades, "n": len(trades), "metrics": metrics, "primary_metric": pm,
-           "primary": metrics.get(key) if key else None, "skipped": skipped, "notes": notes,
-           "flags": {"model_priced": model_priced,
-                     "verdict_cap": ((hyp.get("gates") or {}).get("extra") or {}).get("verdict_cap")},
-           "registration": {"id": hyp.get("id"), "status": hyp.get("status"), "trial_budget": hyp.get("trial_budget")}}
-    out.update(extra or {})
+def _realised_mtm(trades, days):
+    by, out, run_ = {}, {}, 0.0
+    for t in trades:
+        by[t["exit_date"]] = by.get(t["exit_date"], 0.0) + t["net"]
+    for d in days:
+        run_ += by.get(d, 0.0)
+        out[d] = run_
     return out
 
 
-def _skip(skipped, why):
-    skipped[why] = skipped.get(why, 0) + 1
+def _run_shape(hyp, eng, days, capital, trades, metrics, mtm, skipped, notes, status="ok", model_priced=False,
+               extra=None):
+    """The v2 run shape (engines/core.py) from the options results: daily P&L from the MTM curve (or
+    realised P&L on exit days), exposure = the margin blocked over the equity."""
+    eq, prev, rets, equity, expo = capital, 0.0, [], [], []
+    for d in days:
+        cur = mtm.get(d, prev)
+        p = cur - prev
+        rets.append(p / eq if eq > 0 else 0.0)
+        eq += p
+        equity.append(eq)
+        prev = cur
+        held = sum(t.get("margin") or 0.0 for t in trades if t["entry_date"] <= d < t["exit_date"])
+        expo.append(held / eq if eq > 0 else 0.0)
+    traded = 0.0
+    for t in trades:
+        legs = t.get("legs") or [{"qty": t.get("lot_size", 1) * t.get("lots", 1), "entry": t.get("entry", 0.0),
+                                  "exit": t.get("exit", 0.0)}]
+        traded += sum(abs(l["qty"]) * (abs(l.get("entry") or 0.0) + abs(l.get("exit") or 0.0)) for l in legs)
+    vc = ((hyp.get("gates") or {}).get("extra") or {}).get("verdict_cap")
+    ex = {"engine": eng, "status": status, "model_priced": model_priced, "verdict_cap": vc,
+          "return_on_margin_pct": metrics.get("return_on_margin_pct"), "options": metrics, "skipped": skipped}
+    ex.update(extra or {})
+    return {"days": list(days), "ret": rets, "bench": None, "equity": equity, "exposure": expo, "trades": trades,
+            "traded": traded, "charges": round(sum(t.get("charges") or 0.0 for t in trades), 2), "notes": notes,
+            "extra": ex, "capital": float(capital)}
+
+
+def _seller_ret(t):
+    t["ret"] = t["net"] / t["margin"] if t.get("margin") else 0.0
+    return t
+
+
+def _buyer_ret(t):
+    paid = abs(t.get("premium") or 0.0)
+    t["ret"] = t["net"] / paid if paid else 0.0
+    t["abnormal"] = t["ret"]
+    return t
 
 
 # ---------------------------------------------------------------- vrp-selling (eh-05)
 
-def vrp_inputs(hyp, w, data):
-    """(chains, index bars, vix bars, HAR model or None, notes) for a VRP run."""
+def prepare_vrp(hyp, data, start, until):
     A = _arch(data)
     root = data.get("root")
     under = _underlying(hyp)
-    notes = []
-    chains = (data.get("chains") or {}).get(under)
-    if chains is None:
-        chains = O.load_chains(under, root, A, _minus(w["from"], 40), w["to"])
-    idx = (data.get("index") or {}).get(under)
-    if idx is None:
-        idx = A.load_index(under, None, w["to"], root)
-    vix = data.get("vix")
-    if vix is None:
-        vix = A.load_vix(None, w["to"], root)
-    tr = (hyp.get("span") or {}).get("train") or {}
-    model = None
+    notes = data.setdefault("notes", [])
     try:
-        model = _V().har_fit([b for b in idx if b["date"] <= tr.get("to", "")], tr["from"], tr["to"], h=20)
-        notes.append("HAR-RV fitted on the train window %s to %s (%d rows, R2 %.2f): a diagnostic, not the "
-                     "registered signal" % (tr["from"], tr["to"], model["n"], model["r2"] or 0))
-    except (_V().VolError, KeyError) as e:
+        chains = O.load_chains(under, root, A, start, until, band=0.12, keep_dte=63, monthly_only=True)
+    except Exception as e:  # noqa: BLE001 - the lab's LabError: no chains in the archive
+        raise EngineError(str(e))
+    idx = A.load_index(under, start, until, root)
+    vix = A.load_vix(start, until, root)
+    if not idx or not vix:
+        raise EngineError("no %s index closes or India VIX in the archive up to %s (backfill index,vix)" % (under, until))
+    data.setdefault("chains", {})[under] = chains
+    data.setdefault("index", {})[under] = idx
+    data["vix"] = vix
+    tr = (hyp.get("span") or {}).get("train") or {}
+    V = _V()
+    data["har"] = None
+    try:
+        data["har"] = V.har_fit([b for b in idx if b["date"] <= tr["to"]], tr["from"], tr["to"], h=20)
+        notes.append("HAR-RV fitted on the train window %s to %s (%d rows, R2 %.2f): reported beside each "
+                     "condor, not the registered signal" % (tr["from"], tr["to"], data["har"]["n"],
+                                                             data["har"]["r2"] or 0))
+    except (V.VolError, KeyError) as e:
         notes.append("no HAR-RV forecast: %s" % e)
-    return chains, idx, vix, model, notes
+    notes.append("%s EOD chains: %s" % (under, chains.source))
+    return list(chains.days)
 
 
 def _monthly_expiries(chains):
@@ -268,7 +305,8 @@ def _monthly_expiries(chains):
 def vrp_backtest(chains, days, signal, threshold, p, cost_mult, capital, rate, facts_of=None, cache=None):
     """One condor at a time, one per monthly cycle, on `days`. threshold None: untimed (every cycle).
     signal: {day: IV - RV}. Entry at the close; exit at expiry settlement, at 50% of the credit
-    (take_50pct_profit), or at the last of `days` ("window end")."""
+    (take_50pct_profit), or at the last of `days` ("window end"). -> (trades, skipped, mtm)"""
+    cache = {} if cache is None else cache
     under = chains.underlying
     monthly = _monthly_expiries(chains)
     trades, skipped, mtm = [], {}, {}
@@ -298,7 +336,7 @@ def vrp_backtest(chains, days, signal, threshold, p, cost_mult, capital, rate, f
                 t = O.close_position(spec, pos, chains, day, reason, prices, cost_mult, settle is not None)
                 t["facts"] = pos["facts"]
                 t["sized_lots"] = pos.get("sized_lots")
-                trades.append(t)
+                trades.append(_seller_ret(t))
                 realised += t["net"]
                 pos = None
             else:
@@ -309,12 +347,9 @@ def vrp_backtest(chains, days, signal, threshold, p, cost_mult, capital, rate, f
             b = chains.boards[day]
             cands = [e for e in sorted(b["monthly"]) if (_d(e) - _d(day)).days >= MIN_DTE_MONTHLY]
             exp = cands[0] if cands else None
-            if exp is None:
-                mtm[day] = realised
-                continue
-            i = bisect.bisect_left(monthly, exp)
-            prev_exp = monthly[i - 1] if i > 0 else None
-            if exp in used or (prev_exp and day <= prev_exp):
+            i = bisect.bisect_left(monthly, exp) if exp else 0
+            prev_exp = monthly[i - 1] if exp and i > 0 else None
+            if exp is None or exp in used or (prev_exp and day <= prev_exp):
                 mtm[day] = realised            # one position a monthly cycle: wait for the previous expiry
                 continue
             s = signal.get(day)
@@ -332,25 +367,22 @@ def vrp_backtest(chains, days, signal, threshold, p, cost_mult, capital, rate, f
                 _skip(skipped, "no chain for the expiry")
                 mtm[day] = realised
                 continue
-            step = _S().strike_step(a)
-            wing = _wing_points(b["spot"], p["wing_width_pct_of_spot"], step)
+            wing = _wing_points(b["spot"], p["wing_width_pct_of_spot"], _S().strike_step(a))
             strikes = {"by": "delta", "value": p["short_delta"]}
-            spec = _compiled(under, "iron-condor", strikes, wing, 1, capital, rate, cache=cache)
+            spec = _compiled(under, "iron-condor", strikes, wing, 1, capital, rate, cache)
             pos, why = O.open_position(spec, chains, day, exp, cost_mult)
             if pos is None:
                 _skip(skipped, why)
                 mtm[day] = realised
                 continue
             lot = pos["lot_size"] or 1
-            credit_unit = pos["premium"] / float(lot)
             m = O.margin_for(pos["legs"], "index" if spec["index"] else "stock", day, exp, True)["required"]
-            worst = max(0.0, wing - credit_unit) * lot
+            worst = max(0.0, wing - pos["premium"] / float(lot)) * lot
             lots = size_lots(capital, m, worst)
-            pos["sized_lots"] = lots
             if lots > 1:
-                spec = _compiled(under, "iron-condor", strikes, wing, min(lots, 50), capital, rate, cache=cache)
+                spec = _compiled(under, "iron-condor", strikes, wing, min(lots, 50), capital, rate, cache)
                 pos, why = O.open_position(spec, chains, day, exp, cost_mult)
-                pos["sized_lots"] = lots
+            pos["sized_lots"] = lots
             pos["facts"] = dict(facts_of(day) if facts_of else {}, spread=None if s is None else round(s, 3),
                                 wing_points=wing, margin_per_lot=round(m, 2), worst_case_per_lot=round(worst, 2),
                                 sized_lots=lots)
@@ -362,124 +394,182 @@ def vrp_backtest(chains, days, signal, threshold, p, cost_mult, capital, rate, f
     return trades, skipped, mtm
 
 
-def _event_split(trades, w, data):
+def _event_split(trades, a, b, data):
     """The positions held through an RBI policy or Union Budget day against the rest (a diagnostic: eh-05
     registered no event filter, so none is applied). Each trade gets facts["events_in_hold"]."""
     R = _reg(data)
-    evs = R.builtin_events() if R is not None and hasattr(R, "builtin_events") else []
-    evs = list(evs) + list((data or {}).get("events") or [])
-    cal = _E().calendar(w["from"], w["to"], evs)
+    evs = list(R.builtin_events() if R is not None and hasattr(R, "builtin_events") else [])
+    evs += list((data or {}).get("events") or [])
+    cal = _E().calendar(a, b, evs)
     out = {"held_through_event": {"n": 0, "net": 0.0}, "clear": {"n": 0, "net": 0.0}}
     for t in trades:
         hit = ["%s %s" % (k, d) for d, ks in sorted(cal.items()) for k in ks if t["entry_date"] < d <= t["exit_date"]]
         t.setdefault("facts", {})["events_in_hold"] = hit
-        b = out["held_through_event" if hit else "clear"]
-        b["n"] += 1
-        b["net"] = round(b["net"] + t["net"], 2)
+        x = out["held_through_event" if hit else "clear"]
+        x["n"] += 1
+        x["net"] = round(x["net"] + t["net"], 2)
     return out
 
 
-def run_vrp(hyp, params, window, data, cost_mult=1.0):
+def run_vrp(hyp, params, a, b, data, cost_mult=1.0):
     """eh-05: a monthly NIFTY iron condor sold only when India VIX - the 20-session close-to-close realised
     vol is above the registered threshold. The untimed condor (same strikes, every cycle) rides along as the
     baseline its holdout rule compares with."""
     p = check_params(hyp, params)
-    w = window_of(hyp, window)
-    data = data or {}
+    w = _window(hyp, a, b, data)
     V = _V()
+    under = _underlying(hyp)
+    if under not in (data.get("chains") or {}):
+        prepare_vrp(hyp, data, _minus(w["from"], 60), w["to"])
     capital = float(data.get("capital") or DEFAULT_CAPITAL)
     rate = float(data.get("rate", 0.0557))
-    chains, idx, vix, model, notes = vrp_inputs(hyp, w, data)
+    chains, idx, vix, model = data["chains"][under], data["index"][under], data["vix"], data.get("har")
+    notes = list(data.get("notes") or [])
     days = [d for d in chains.days if w["from"] <= d <= w["to"]]
     if not days:
-        return _result(hyp, "vrp-condor", p, w, [], {"positions": 0}, {}, notes + ["no EOD chains in the window"],
-                       status="no data")
-    iv = V.vix_iv(vix)
-    rv = V.realised_vol(idx, 20, "close")
-    sig = V.spread(iv, rv)
-    har = V.har_forecast(model, idx) if model else {}
-    atm = chains.iv_series(30, rate)
+        return _run_shape(hyp, "vrp-condor", [], capital, [], {"positions": 0}, {}, {},
+                          notes + ["no EOD chains in the window"], status="no data")
+    key = ("vrp-signal", idx[-1]["date"] if idx else None)
+    if data.get("_sigkey") != key:
+        iv = V.vix_iv(vix)
+        rv = V.realised_vol(idx, 20, "close")
+        data["_sig"] = (iv, rv, V.spread(iv, rv), V.har_forecast(model, idx) if model else {}, chains.iv_series(30, rate))
+        data["_sigkey"] = key
+    iv, rv, sig, har, atm = data["_sig"]
 
     def facts(day):
         return {"vix": iv.get(day), "rv20": None if rv.get(day) is None else round(rv[day], 3),
                 "har_rv": None if har.get(day) is None else round(har[day], 3),
                 "atm_iv30": None if atm.get(day) is None else round(atm[day], 3)}
-    cache = {}
+    cache = data.setdefault("_specs", {})
     th = float(p["vrp_threshold_vol_points"])
     trades, skipped, mtm = vrp_backtest(chains, days, sig, th, p, cost_mult, capital, rate, facts, cache)
     base_t, base_s, base_m = vrp_backtest(chains, days, sig, None, p, cost_mult, capital, rate, facts, cache)
     met = _metrics(trades, days, capital, mtm)
-    credits = [t["premium"] for t in trades if t.get("credit")]
-    avg_c = _mean(credits)
+    avg_c = _mean([t["premium"] for t in trades if t.get("credit")])
     met["worst_loss_avg_credits"] = round(-min(t["net"] for t in trades) / avg_c, 3) if trades and avg_c else None
     bm = _metrics(base_t, days, capital, base_m)
+    met["beats_untimed"] = (met["return_on_margin_pct"] > bm["return_on_margin_pct"]
+                            if met.get("return_on_margin_pct") is not None
+                            and bm.get("return_on_margin_pct") is not None else None)
+    met["by_events"] = _event_split(trades, w["from"], w["to"], data)
     notes.append("signal: India VIX - 20-session close-to-close realised vol (the registered rule), entry at the "
                  "close on the first session of a cycle with the spread above %g vol points" % th)
-    notes.append("strikes: %g-delta shorts on Black-76 IV from settle prices; wings %g%% of spot" %
-                 (p["short_delta"], p["wing_width_pct_of_spot"]))
-    beat = None
-    if met.get("return_on_margin_pct") is not None and bm.get("return_on_margin_pct") is not None:
-        beat = met["return_on_margin_pct"] > bm["return_on_margin_pct"]
-    met["beats_untimed"] = beat
-    met["by_events"] = _event_split(trades, w, data)
-    return _result(hyp, "vrp-condor", p, w, trades, met, skipped, notes,
-                   model_priced=met.get("model_priced_marks", 0) > 0,
-                   extra={"baseline": {"label": "the same condor sold every cycle (untimed)", "n": len(base_t),
-                                       "metrics": bm, "skipped": base_s},
-                          "har": None if model is None else {k: model[k] for k in ("coef", "n", "r2", "h", "train")}})
+    notes.append("strikes: %g-delta shorts on Black-76 IV from settle prices; wings %g%% of spot; margin is "
+                 "trader-strategy's SPAN-style estimate (with the expiry-day ELM when held to expiry)"
+                 % (p["short_delta"], p["wing_width_pct_of_spot"]))
+    return _run_shape(hyp, "vrp-condor", days, capital, trades, met, mtm, skipped, notes,
+                      model_priced=met.get("model_priced_marks", 0) > 0,
+                      extra={"baseline": {"label": "the same condor sold every cycle (untimed)", "n": len(base_t),
+                                          "return_on_margin_pct": bm.get("return_on_margin_pct"),
+                                          "net": bm.get("net"), "skipped": base_s},
+                             "har": None if model is None else {k: model[k] for k in ("coef", "n", "r2", "h", "train")}})
 
 
 # ---------------------------------------------------------------- event-vol (eh-08, eh-09)
 
+def _fo_lines(A, root, day):
+    p = A.Store(A.default_root(root)).path("fo", day)
+    try:
+        return A._gz_lines(p)
+    except OSError:
+        return []
+
+
 def fno_stocks(A, root, start, end):
-    """The stocks with options in the archive's F&O bhavcopies between start and end (point in time: a stock
-    counts only on the sessions it had options)."""
+    """The stocks with options in the archive's F&O bhavcopies between start and end."""
     out = set()
-    for d in A.trading_days(start, end, root=root):
-        p = A.Store(A.default_root(root)).path("fo", d)
-        try:
-            lines = A._gz_lines(p)
-        except OSError:
-            continue
-        for l in lines[1:]:
-            f = l.split(",", 2)
-            if len(f) > 1 and f[1] == "STO":
-                out.add(f[0])
+    for d in A.Store(A.default_root(root)).dates("fo"):
+        if start <= d <= end:
+            for l in _fo_lines(A, root, d)[1:]:
+                f = l.split(",", 2)
+                if len(f) > 1 and f[1] == "STO":
+                    out.add(f[0])
     return sorted(out)
 
 
-def _chains_for(A, root, sym, days, rate):
-    boards = {}
-    for d in days:
-        ch = A.load_fo_chain_eod(sym, d, root=root)
-        if ch and ch.get("options"):
-            boards[d] = O.trim_board(ch, band=0.3)
-    return O.Chains(sym, boards, None, None, "archive (%d EOD chains)" % len(boards)) if boards else None
+def _chain_dicts(A, day, lines, syms):
+    """One read of a day's F&O bhavcopy -> {symbol: load_fo_chain_eod()-shaped chain} for `syms` (the spot
+    is the bhavcopy's underlying price; a missing lot stays None)."""
+    rows = {}
+    for l in lines[1:]:
+        k = l.find(",")
+        s = l[:k]
+        if s in syms:
+            rows.setdefault(s, []).append(l)
+    out = {}
+    for s, ls in rows.items():
+        futs, opts, spot = [], [], None
+        for row in csv.reader(ls):
+            rec = dict(zip(A.FO_COLS, row))
+            for c in ("strike", "open", "high", "low", "close", "settle", "underlying_price", "turnover"):
+                rec[c] = A._num(rec.get(c))
+            for c in ("oi", "oi_change", "volume", "lot"):
+                rec[c] = int(A._num(rec.get(c), 0) or 0) if rec.get(c) not in ("", None) else None
+            if spot is None and rec["underlying_price"]:
+                spot = rec["underlying_price"]
+            (opts if rec["kind"] in ("IDO", "STO") else futs).append(rec)
+        out[s] = {"date": day, "underlying": s, "spot": spot, "futures": futs, "options": opts}
+    return out
 
 
-def _closes(A, root, sym, start, end):
+def _boards(data, need):
+    """{(symbol, day): trimmed board} for need = {day: {symbols}}, each day's file read once, cached."""
+    A = _arch(data)
+    cache = data.setdefault("_boards", {})
+    for day in sorted(need):
+        miss = set(s for s in need[day] if (s, day) not in cache)
+        if not miss:
+            continue
+        got = _chain_dicts(A, day, _fo_lines(A, data.get("root"), day), miss)
+        for s in miss:
+            ch = got.get(s)
+            cache[(s, day)] = O.trim_board(ch, keep_dte=EVENT_DTE, band=EVENT_BAND) if ch and ch["options"] else None
+    return cache
+
+
+def _iv_panel(data, syms, days, rate):
+    """{symbol: {day: near-monthly ATM IV (%)}} (the expiry at least 7 days out), each day read once, cached."""
+    A = _arch(data)
+    panel = data.setdefault("_ivp", {})
+    done = data.setdefault("_ivp_days", set())
+    for day in days:
+        if day in done:
+            continue
+        got = _chain_dicts(A, day, _fo_lines(A, data.get("root"), day), set(syms))
+        for s, ch in got.items():
+            if not ch["options"]:
+                continue
+            c = O.Chains(s, {day: O.trim_board(ch, keep_dte=EVENT_DTE, band=0.05)})
+            b = c.boards[day]
+            exps = [e for e in sorted(b["monthly"] or b["expiries"]) if (_d(e) - _d(day)).days >= 7]
+            v = c.atm_iv(day, exps[0], rate) if exps else None
+            if v:
+                panel.setdefault(s, {})[day] = v
+        done.add(day)
+    return panel
+
+
+def _closes(A, root, sym, end):
     try:
-        bars = A.load_daily(sym, start, end, adjusted=False, root=root)
+        bars = A.load_daily(sym, None, end, adjusted=False, root=root)
     except Exception:  # noqa: BLE001 - an archive without equity files
         bars = []
     return {b["date"]: b["c"] for b in bars if b.get("c")}
 
 
-def atm_iv_panel(A, root, sym, days, rate):
-    """{day: the near-monthly ATM IV (%) of one stock} (the expiry at least 7 days out), from the EOD chains."""
-    out = {}
-    for d in days:
-        ch = A.load_fo_chain_eod(sym, d, root=root)
-        if not ch or not ch.get("options"):
-            continue
-        c = O.Chains(sym, {d: O.trim_board(ch, band=0.1)})
-        b = c.boards[d]
-        exps = [e for e in sorted(b["monthly"] or b["expiries"]) if (_d(e) - _d(d)).days >= 7]
-        if exps:
-            v = c.atm_iv(d, exps[0], rate)
-            if v:
-                out[d] = v
-    return out
+def prepare_events(hyp, data, start, until):
+    A = _arch(data)
+    root = data.get("root")
+    days = [d for d in A.Store(A.default_root(root)).dates("fo") if start <= d <= until]
+    if not days:
+        raise EngineError("no F&O bhavcopies in the archive from %s to %s" % (start, until))
+    data["sessions"] = [d for d in A.trading_days(None, until, root=root)]
+    if data.get("symbols") is None:
+        data["symbols"] = fno_stocks(A, root, start, until)
+    data.setdefault("notes", []).append("%d F&O stocks with options in the archive, %s to %s"
+                                        % (len(data["symbols"]), days[0], days[-1]))
+    return days
 
 
 def _percentile(hist, cur):
@@ -489,133 +579,154 @@ def _percentile(hist, cur):
     return 100.0 * sum(1 for x in hist if x < cur) / len(hist) if hist else None
 
 
-def run_event_vol(hyp, params, window, data, cost_mult=1.0):
+def run_event_vol(hyp, params, a, b, data, cost_mult=1.0):
     """eh-08 (short iron fly over results) or eh-09 (long straddle into results), by the registration's side."""
     side = str((hyp.get("instrument") or {}).get("side") or "")
-    return _event_run(hyp, params, window, data, cost_mult, short=side.startswith("short"))
+    return _event_run(hyp, params, a, b, data, cost_mult, short=side.startswith("short"))
 
 
-def _event_run(hyp, params, window, data, cost_mult, short):
+def _event_plan(hyp, p, w, data, short):
+    """[(symbol, event, windows, entry, exit, span)] for every results event of the universe in the window."""
+    A = _arch(data)
+    root = data.get("root")
+    E = _E()
+    sessions = data.get("sessions") or A.trading_days(None, w["to"], root=root)
+    res = data.setdefault("_results", {})
+    out = []
+    for sym in data.get("symbols") or []:
+        if sym not in res:
+            got = (data.get("results") or {}).get(sym)
+            res[sym] = got if got is not None else A.results_dates(sym, None, data.get("until") or w["to"], root=root)
+        for ev in res[sym] or []:
+            win = E.event_windows(ev, sessions)
+            if win is None:
+                continue
+            i = win["i_event"]
+            if short:
+                j = i + int(p["exit_session"]) - 1
+                if j >= len(sessions):
+                    continue
+                entry, exit_ = win["entry"], sessions[j]
+            else:
+                k = i - int(p["entry_sessions_before"])
+                if k < 0:
+                    continue
+                entry, exit_ = sessions[k], win["entry"]
+            if not (w["from"] <= entry and exit_ <= w["to"] and win["move_end"] <= w["to"]):
+                continue
+            lo, hi = sessions.index(entry), sessions.index(max(exit_, win["move_end"]))
+            out.append((sym, ev, win, entry, exit_, sessions[lo:hi + 1]))
+    return out, sessions
+
+
+def _event_run(hyp, params, a, b, data, cost_mult, short):
     p = check_params(hyp, params)
-    w = window_of(hyp, window)
-    data = data or {}
+    w = _window(hyp, a, b, data)
     A = _arch(data)
     E = _E()
     root = data.get("root")
     rate = float(data.get("rate", 0.0557))
     capital = float(data.get("capital") or DEFAULT_CAPITAL)
     min_hist = int(data.get("min_history", MIN_HISTORY))
-    sessions = A.trading_days(root=root)
-    days = [d for d in sessions if w["from"] <= d <= w["to"]]
-    symbols = data.get("symbols") or fno_stocks(A, root, w["from"], w["to"])
-    trades, skipped, notes, study = [], {}, [], []
-    cache = {}
+    if data.get("symbols") is None:
+        data["symbols"] = fno_stocks(A, root, w["from"], w["to"])
+    plan, sessions = _event_plan(hyp, p, w, data, short)
+    need = {}
+    for sym, ev, win, entry, exit_, span in plan:
+        for d in span:
+            need.setdefault(d, set()).add(sym)
+    boards = _boards(data, need)
+    closes_all = data.setdefault("_closes", {})
+    trades, skipped, study = [], {}, []
+    notes = list(data.get("notes") or [])
+    cache = data.setdefault("_specs", {})
     eng = "event-crush-iron-fly" if short else "event-runup-straddle"
-    for si, sym in enumerate(symbols):
-        if si % 20 == 19:
-            _say(data, "%s: %d of %d stocks" % (hyp.get("id"), si + 1, len(symbols)))
-        evs = (data.get("results") or {}).get(sym)
-        if evs is None:
-            evs = A.results_dates(sym, None, w["to"], root=root)
-        if not evs:
+    for n, (sym, ev, win, entry, exit_, span) in enumerate(plan):
+        if n % 200 == 199:
+            _say(data, "%s: %d of %d events" % (hyp.get("id"), n + 1, len(plan)))
+        bd = {d: boards.get((sym, d)) for d in span if boards.get((sym, d))}
+        if entry not in bd:
+            _skip(skipped, "no options on the entry session (not in the F&O list then)")
             continue
-        closes = _closes(A, root, sym, None, w["to"])
-        ivp = None
-        for ev in evs:
-            win = E.event_windows(ev, sessions)
-            if win is None:
+        if exit_ not in bd:
+            _skip(skipped, "no chain on the exit session")
+            continue
+        ch = O.Chains(sym, bd)
+        if sym not in closes_all:
+            closes_all[sym] = _closes(A, root, sym, data.get("until") or w["to"])
+        closes = closes_all[sym]
+        for d in span:                         # equity closes, else the bhavcopy's underlying price
+            if d not in closes and d in bd:
+                closes[d] = bd[d]["spot"]
+        evs = data["_results"][sym]
+        im = E.implied_move(ch, entry, exit_, rate)
+        rm = E.realised_move(closes, win["entry"], win["move_end"])
+        hist = E.history_moves(evs, closes, sessions, entry)
+        row = {"symbol": sym, "date": ev["date"], "event_session": win["event_session"],
+               "time_known": win["time_known"], "implied_move_pct": im and round(im["move_pct"], 4),
+               "realised_move_pct": None if rm is None else round(rm, 4),
+               "history_mean_pct": round(_mean(hist), 4) if hist else None, "history_n": len(hist)}
+        row["realised_above_implied"] = (rm > im["move_pct"]) if im and rm is not None else None
+        study.append(row)
+        if im is None:
+            _skip(skipped, "no ATM straddle on the entry session")
+            continue
+        exp = im["expiry"]
+        if short:
+            if len(hist) < min_hist:
+                _skip(skipped, "fewer than %d earlier results moves" % min_hist)
                 continue
-            i = win["i_event"]
-            if short:
-                entry = win["entry"]
-                j = i + int(p["exit_session"]) - 1
-                if j >= len(sessions):
+            ratio = im["move_pct"] / _mean(hist) if _mean(hist) else None
+            row["ratio_to_history"] = ratio and round(ratio, 4)
+            if ratio is None or ratio < float(p["min_event_iv_ratio"]):
+                _skip(skipped, "implied move under %g x the stock's past results moves" % p["min_event_iv_ratio"])
+                continue
+            an = ch.analysis(entry, exp, rate)
+            wing = _wing_points(an["spot"], p["wing_pct_of_spot"], _S().strike_step(an))
+            spec = _compiled(sym, "iron-fly", {"by": "atm"}, wing, 1, capital, rate, cache)
+        else:
+            cap = float(p["iv_percentile_cap"])
+            if cap < 100:
+                k0 = bisect.bisect_left(sessions, entry)
+                look = sessions[max(0, k0 - IV_HISTORY):k0 + 1]
+                ivp = _iv_panel(data, [sym], look, rate).get(sym, {})
+                hist_iv = [ivp[d] for d in look[:-1] if d in ivp]
+                cur = ivp.get(entry)
+                if cur is None or len(hist_iv) < IV_HISTORY_MIN:
+                    _skip(skipped, "under %d sessions of ATM IV history" % IV_HISTORY_MIN)
                     continue
-                exit_ = sessions[j]
-            else:
-                k = i - int(p["entry_sessions_before"])
-                if k < 0:
+                pct = _percentile(hist_iv, cur)
+                row["iv_percentile"] = round(pct, 1)
+                if pct > cap:
+                    _skip(skipped, "ATM IV percentile over the cap")
                     continue
-                entry, exit_ = sessions[k], win["entry"]
-            if not (w["from"] <= entry and exit_ <= w["to"]):
-                continue
-            span = sessions[sessions.index(entry):sessions.index(max(exit_, win["move_end"])) + 1]
-            ch = _chains_for(A, root, sym, span, rate)
-            if ch is None or ch.board(entry) is None:
-                _skip(skipped, "no options on the entry session (not in the F&O list then)")
-                continue
-            if ch.board(exit_) is None:
-                _skip(skipped, "no chain on the exit session")
-                continue
-            for d in span:                     # equity closes, else the bhavcopy's underlying price
-                if d not in closes and ch.board(d):
-                    closes[d] = ch.board(d)["spot"]
-            im = E.implied_move(ch, entry, exit_, rate)
-            rm = E.realised_move(closes, win["entry"], win["move_end"])
-            hist = E.history_moves(evs, closes, sessions, entry)
-            row = {"symbol": sym, "date": ev["date"], "event_session": win["event_session"],
-                   "time_known": win["time_known"], "implied_move_pct": im and round(im["move_pct"], 4),
-                   "realised_move_pct": None if rm is None else round(rm, 4),
-                   "history_mean_pct": round(_mean(hist), 4) if hist else None, "history_n": len(hist)}
-            row["realised_above_implied"] = (rm > im["move_pct"]) if im and rm is not None else None
-            study.append(row)
-            if im is None:
-                _skip(skipped, "no ATM straddle on the entry session")
-                continue
-            exp = im["expiry"]
-            if short:
-                if len(hist) < min_hist:
-                    _skip(skipped, "fewer than %d earlier results moves" % min_hist)
-                    continue
-                ratio = im["move_pct"] / _mean(hist) if _mean(hist) else None
-                row["ratio_to_history"] = ratio and round(ratio, 4)
-                if ratio is None or ratio < float(p["min_event_iv_ratio"]):
-                    _skip(skipped, "implied move under %g x the stock's past results moves" % p["min_event_iv_ratio"])
-                    continue
-                a = ch.analysis(entry, exp, rate)
-                wing = _wing_points(a["spot"], p["wing_pct_of_spot"], _S().strike_step(a))
-                spec = _compiled(sym, "iron-fly", {"by": "atm"}, wing, 1, capital, rate, cache=cache)
-            else:
-                cap = float(p["iv_percentile_cap"])
-                if cap < 100:
-                    if ivp is None:
-                        lo = bisect.bisect_left(sessions, w["from"])
-                        ivp = atm_iv_panel(A, root, sym, sessions[max(0, lo - IV_HISTORY - 5):
-                                                                  bisect.bisect_right(sessions, w["to"])], rate)
-                    k0 = bisect.bisect_left(sessions, entry)
-                    hist_iv = [ivp[d] for d in sessions[max(0, k0 - IV_HISTORY):k0] if d in ivp]
-                    cur = ivp.get(entry)
-                    if cur is None or len(hist_iv) < IV_HISTORY_MIN:
-                        _skip(skipped, "under %d sessions of ATM IV history" % IV_HISTORY_MIN)
-                        continue
-                    pct = _percentile(hist_iv, cur)
-                    row["iv_percentile"] = round(pct, 1)
-                    if pct > cap:
-                        _skip(skipped, "ATM IV percentile over the cap")
-                        continue
-                spec = _compiled(sym, "long-straddle", {"by": "atm"}, None, 1, capital, rate, cache=cache)
-            pos, why = O.open_position(spec, ch, entry, exp, cost_mult)
-            if pos is None:
-                _skip(skipped, why)
-                continue
-            if any(l["price_source"] != "settle" for l in pos["legs"]):
-                _skip(skipped, "a strike did not trade on the entry session")
-                continue
-            gross, prices, models = O._value(pos, ch, exit_)
-            spot_x = ch.board(exit_)["spot"]
-            pos["breached"] = O._breach(pos, spot_x) if short else False
-            pos["models"] += models
-            t = O.close_position(spec, pos, ch, exit_, "exit session" if short else "close before results",
-                                 prices, cost_mult, False)
-            t["facts"] = dict(row)
-            if not short:
-                t["attribution"] = _attribution(pos, ch, exit_, rate, t)
-            if not win["time_known"]:
-                t["flags"] = (t.get("flags") or []) + ["results time unknown: the reaction may be on %s or the "
-                                                       "session after" % win["event_session"]]
-            trades.append(t)
+            spec = _compiled(sym, "long-straddle", {"by": "atm"}, None, 1, capital, rate, cache)
+        pos, why = O.open_position(spec, ch, entry, exp, cost_mult)
+        if pos is None:
+            _skip(skipped, why)
+            continue
+        if any(l["price_source"] != "settle" for l in pos["legs"]):
+            _skip(skipped, "a strike did not trade on the entry session")
+            continue
+        gross, prices, models = O._value(pos, ch, exit_)
+        pos["breached"] = O._breach(pos, bd[exit_]["spot"]) if short else False
+        pos["models"] += models
+        t = O.close_position(spec, pos, ch, exit_, "exit session" if short else "close before results",
+                             prices, cost_mult, False)
+        t["facts"] = dict(row)
+        if short:
+            _seller_ret(t)
+        else:
+            t["attribution"] = _attribution(pos, ch, exit_, rate, t)
+            _buyer_ret(t)
+        if not win["time_known"]:
+            t["flags"] = (t.get("flags") or []) + ["results time unknown: the reaction may be on %s or the "
+                                                   "session after" % win["event_session"]]
+        trades.append(t)
     trades.sort(key=lambda t: (t["exit_date"], t["symbol"]))
-    met = _metrics(trades, days, capital)
+    days = [d for d in A.Store(A.default_root(root)).dates("fo") if w["from"] <= d <= w["to"]]
+    mtm = _realised_mtm(trades, days)
+    met = _metrics(trades, days, capital, mtm)
     met["event_study"] = E.summary(study)
     met["events_traded"] = len(trades)
     if not short and trades:
@@ -623,10 +734,11 @@ def _event_run(hyp, params, window, data, cost_mult, short):
         met["pnl_from_move_and_time"] = round(sum(t["attribution"]["move_and_time"] for t in trades), 2)
     notes.append("results events from trader-archive's results dataset; the reacting session re-derived from "
                  "the archive's sessions; implied move = ATM straddle / spot at the entry close on the nearest "
-                 "monthly expiry alive after the exit")
+                 "monthly expiry alive after the exit; P&L booked on the exit day")
     notes.append("EOD settle prices: a real fill at 15:29 on a thin stock-option strike can be far worse than "
                  "the slippage model")
-    return _result(hyp, eng, p, w, trades, met, skipped, notes, extra={"event_study": study})
+    return _run_shape(hyp, eng, days, capital, trades, met, mtm, skipped, notes,
+                      extra={"event_rows": study[:200]})
 
 
 def _attribution(pos, ch, day, rate, t):
@@ -688,119 +800,115 @@ def snapshot_quote(A, root, under, day, minute, expiry, strike, kind, side):
     return None, "strike not in the captured chain"
 
 
-def _captured(A, root, under, w):
-    """True when the archive holds any captured chain of `under` inside the window."""
+def captured_days(A, root, under, a, b):
+    """The days in a..b with captured chains of `under`."""
     base = os.path.join(A.default_root(root), "chain", under.upper())
     try:
-        return any(w["from"] <= d <= w["to"] and A.chain_snapshots(under, d, root) for d in os.listdir(base))
+        return sorted(d for d in os.listdir(base) if a <= d <= b and A.chain_snapshots(under, d, root))
     except OSError:
-        return False
+        return []
 
 
-def _sessions_bars(bars):
-    by = {}
-    for b in bars:
-        by.setdefault(b["date"], []).append(b)
-    for v in by.values():
-        v.sort(key=lambda b: b["time"])
-    return by
+def prepare_buying(hyp, data, start, until):
+    A = _arch(data)
+    root = data.get("root")
+    under = _underlying(hyp)
+    notes = data.setdefault("notes", [])
+    bars = A.load_intraday(under, "1m", start, until, root) or A.load_intraday(under, "5m", start, until, root)
+    if not bars:
+        raise EngineError("no %s minute bars in the archive (archive.py intraday --symbols %s with a broker token: "
+                          "Upstox index candles go back to Jan 2022)" % (under, under))
+    data.setdefault("intraday", {})[under] = bars
+    data["vix"] = A.load_vix(start, until, root)
+    try:
+        data.setdefault("chains", {})[under] = O.load_chains(under, root, A, start, until, band=0.03, keep_dte=10)
+    except Exception as e:  # noqa: BLE001 - no EOD chains: IV from India VIX, expiries from the rules
+        notes.append("no %s EOD chains (%s): IV from India VIX, expiries from trader-regime's rules" % (under, e))
+    return sorted(set(x["date"] for x in bars))
 
 
-def _interval(day_bars):
-    if len(day_bars) < 2:
-        return 1
-    return max(1, _hm(day_bars[1]["time"]) - _hm(day_bars[0]["time"]))
-
-
-def run_option_buying(hyp, params, window, data, cost_mult=1.0):
+def run_option_buying(hyp, params, a, b, data, cost_mult=1.0):
     """eh-14: on a session whose previous India VIX close is under the cap, buy the nearest weekly ATM call
     (put) when a bar closes above (below) the opening range by min_breakout_pct; out by 15:15 or on a 30%
     trail from the peak. Train and validation are MODEL-PRICED (Black-76 on index bars, the previous
     session's EOD ATM IV of that expiry, else India VIX); the holdout prices from captured chains only, so
     it waits for #76's capture and its verdict is capped at WATCH."""
     p = check_params(hyp, params)
-    w = window_of(hyp, window)
-    data = data or {}
+    w = _window(hyp, a, b, data)
     A = _arch(data)
     root = data.get("root")
     under = _underlying(hyp)
     rate = float(data.get("rate", 0.0557))
     capital = float(data.get("capital") or DEFAULT_CAPITAL)
     L = _L()
-    live = w["name"] == "holdout"
-    notes, skipped, trades = [], {}, []
-    bars = (data.get("intraday") or {}).get(under)
-    if bars is None:
-        bars = A.load_intraday(under, "1m", w["from"], w["to"], root) or A.load_intraday(under, "5m", w["from"],
-                                                                                          w["to"], root)
-    bars = [b for b in bars if w["from"] <= b["date"] <= w["to"]]
-    vix = data.get("vix")
-    if vix is None:
-        vix = A.load_vix(_minus(w["from"], 10), w["to"], root)
-    vixc = {b["date"]: b["c"] for b in vix if b.get("c")}
-    chains = (data.get("chains") or {}).get(under)
-    if chains is None:
+    live = w["holdout"]
+    notes, skipped, trades = list(data.get("notes") or []), {}, []
+    if live and not captured_days(A, root, under, w["from"], w["to"]):
+        return _run_shape(hyp, "trend-day-buying", [], capital, [], {"positions": 0}, {}, {},
+                          notes + ["the holdout is priced from captured option chains only (archive.py "
+                                   "capture-chains, #76) and none exist in the window yet; the verdict is "
+                                   "capped at WATCH whatever it shows"], status="waiting for captured chains")
+    if under not in (data.get("intraday") or {}):
         try:
-            chains = O.load_chains(under, root, A, _minus(w["from"], 10), w["to"])
-        except Exception as e:  # noqa: BLE001 - no EOD chains: IV from India VIX, expiries from the rules
-            notes.append("no EOD chains (%s): IV from India VIX, expiries from trader-regime's rules" % e)
-            chains = None
-    by = _sessions_bars(bars)
+            prepare_buying(hyp, data, _minus(w["from"], 10), w["to"])
+        except EngineError as e:
+            return _run_shape(hyp, "trend-day-buying", [], capital, [], {"positions": 0}, {}, {}, notes + [str(e)],
+                              status="no data", model_priced=not live)
+    bars = [x for x in data["intraday"][under] if w["from"] <= x["date"] <= w["to"]]
+    vixc = {x["date"]: x["c"] for x in data.get("vix") or [] if x.get("c")}
+    chains = (data.get("chains") or {}).get(under)
+    by = {}
+    for x in bars:
+        by.setdefault(x["date"], []).append(x)
     days = sorted(by)
-    if live and not _captured(A, root, under, w):
-        return _result(hyp, "trend-day-buying", p, w, [], {"positions": 0}, {},
-                       notes + ["the holdout is priced from captured option chains only (archive.py "
-                                "capture-chains, #76) and none exist in the window yet; the verdict is capped at "
-                                "WATCH whatever it shows"], status="waiting for captured chains")
-    if not days:
-        return _result(hyp, "trend-day-buying", p, w, [], {"positions": 0}, {},
-                       notes + ["no %s intraday bars in the window" % under], status="no data", model_priced=not live)
+    if live:
+        cap = set(captured_days(A, root, under, w["from"], w["to"]))
+        days = [d for d in days if d in cap]
     known = sorted(set(vixc) | set(chains.days if chains else []))
     R = _reg(data)
     cfg = {"fno_charges": {}}
-    S = _S()
-    orm, pct, cap = int(p["opening_range_minutes"]), float(p["min_breakout_pct"]), float(p["vix_cap"])
+    orm, pct, vcap = int(p["opening_range_minutes"]), float(p["min_breakout_pct"]), float(p["vix_cap"])
+    start, flat = _hm("09:15"), _hm(FLAT_BY)
     for day in days:
-        db = by[day]
+        db = sorted(by[day], key=lambda x: x["time"])
         k = bisect.bisect_left(known, day)
         prev = known[k - 1] if k > 0 else None
         v = vixc.get(prev) if prev else None
         if v is None:
             _skip(skipped, "no India VIX close the session before")
             continue
-        if not v < cap:
+        if not v < vcap:
             _skip(skipped, "India VIX at or over the cap")
             continue
-        iv_ = _interval(db)
-        start = _hm("09:15")
-        orb = [b for b in db if _hm(b["time"]) < start + orm]
-        if len(orb) < orm // iv_:
+        step_m = max(1, _hm(db[1]["time"]) - _hm(db[0]["time"])) if len(db) > 1 else 1
+        orb = [x for x in db if _hm(x["time"]) < start + orm]
+        if len(orb) < orm // step_m:
             _skip(skipped, "opening range incomplete")
             continue
-        hi, lo = max(b["h"] for b in orb), min(b["l"] for b in orb)
+        hi, lo = max(x["h"] for x in orb), min(x["l"] for x in orb)
         sig = None
-        for j, b in enumerate(db):
-            end = _hm(b["time"]) + iv_
-            if _hm(b["time"]) < start + orm or end > _hm(LAST_ENTRY):
+        for j, x in enumerate(db):
+            end = _hm(x["time"]) + step_m
+            if _hm(x["time"]) < start + orm or end > _hm(LAST_ENTRY):
                 continue
-            if b["c"] > hi * (1 + pct / 100.0):
-                sig = (j, "CE", b, end)
+            if x["c"] > hi * (1 + pct / 100.0):
+                sig = (j, "CE", x, end)
                 break
-            if b["c"] < lo * (1 - pct / 100.0):
-                sig = (j, "PE", b, end)
+            if x["c"] < lo * (1 - pct / 100.0):
+                sig = (j, "PE", x, end)
                 break
         if sig is None:
             _skip(skipped, "no opening-range break by %s" % LAST_ENTRY)
             continue
-        j, kind, b, end = sig
+        j, kind, x, end = sig
         expiry, lot, sigma, src = None, None, None, None
         if chains is not None and prev in chains.boards:
             exps = [e for e in chains.boards[prev]["expiries"] if e >= day]
             expiry = exps[0] if exps else None
             if expiry:
                 sigma = chains.atm_iv(prev, expiry, rate)
-                a = chains.analysis(prev, expiry, rate)
-                lot = a and a.get("lot_size")
+                an = chains.analysis(prev, expiry, rate)
+                lot = an and an.get("lot_size")
                 src = "the previous session's EOD ATM IV" if sigma else None
         if expiry is None and R is not None:
             expiry = R.expiry_info(under, day).get("next_expiry")
@@ -811,8 +919,7 @@ def run_option_buying(hyp, params, window, data, cost_mult=1.0):
             sigma, src = v, "India VIX (previous close)"
         lot = lot or int(data.get("lot") or 65)
         step = STEPS.get(under, 50)
-        K = round(b["c"] / step) * step
-        flat = _hm(FLAT_BY)
+        K = round(x["c"] / step) * step
         if live:
             px_in, why = snapshot_quote(A, root, under, day, end, expiry, K, kind, "buy")
             if px_in is None:
@@ -820,21 +927,19 @@ def run_option_buying(hyp, params, window, data, cost_mult=1.0):
                 continue
             fill_in = px_in
         else:
-            px_in = model_price(b["c"], K, day, end, expiry, sigma, rate, kind)
+            px_in = model_price(x["c"], K, day, end, expiry, sigma, rate, kind)
             fill_in = px_in + O.slip(px_in, O.OPTION_COSTS, cost_mult)
-        peak = fill_in
-        exit_px, exit_t, reason = None, None, None
-        for x in db[j + 1:]:
-            t0 = _hm(x["time"])
+        peak, exit_px, exit_t, reason, spot = fill_in, None, None, None, None
+        for y in db[j + 1:]:
+            t0 = _hm(y["time"])
             if t0 >= flat:
-                exit_t, reason = flat, "15:15"
-                spot = x["o"]
+                exit_t, reason, spot = flat, "15:15", y["o"]
                 break
-            te = t0 + iv_
+            te = t0 + step_m
             if live:
                 mark, _ = snapshot_quote(A, root, under, day, te, expiry, K, kind, "sell")
             else:
-                mark = model_price(x["c"], K, day, te, expiry, sigma, rate, kind)
+                mark = model_price(y["c"], K, day, te, expiry, sigma, rate, kind)
             if mark is None:
                 continue
             peak = max(peak, mark)
@@ -842,8 +947,7 @@ def run_option_buying(hyp, params, window, data, cost_mult=1.0):
                 exit_px, exit_t, reason = mark, te, "trail 30% from the peak"
                 break
         else:
-            last = db[-1]
-            exit_t, reason, spot = _hm(last["time"]) + iv_, "last bar", last["c"]
+            exit_t, reason, spot = _hm(db[-1]["time"]) + step_m, "last bar", db[-1]["c"]
         if exit_px is None:
             if live:
                 q, why = snapshot_quote(A, root, under, day, exit_t, expiry, K, kind, "sell")
@@ -859,25 +963,46 @@ def run_option_buying(hyp, params, window, data, cost_mult=1.0):
         gross = (fill_out - fill_in) * qty
         net = gross - ch
         risk = fill_in * qty
-        trades.append({"symbol": under, "signal_date": day, "entry_date": day, "entry_time": _hhmm(end),
-                       "exit_date": day, "exit_time": _hhmm(exit_t), "expiry": expiry, "reason": reason,
-                       "structure": "long-%s" % ("call" if kind == "CE" else "put"), "strike": K,
-                       "option_type": kind, "lots": 1, "lot_size": lot, "premium": round(-risk, 2), "credit": False,
-                       "entry": round(fill_in, 2), "exit": round(fill_out, 2), "gross": L.round_paise(gross),
-                       "charges": L.round_paise(ch), "net": L.round_paise(net), "margin": round(risk, 2),
-                       "r": round(net / risk, 5) if risk else 0.0,
-                       "return_on_margin_pct": round(100.0 * net / risk, 3) if risk else None,
-                       "price_source": "captured chain" if live else "model (Black-76)",
-                       "iv": round(sigma, 2), "iv_source": src, "vix_prev": v, "breached": False,
-                       "model_marks": 0 if live else 1, "flags": [] if live else ["model-priced"]})
-    met = _metrics(trades, days, capital)
+        t = {"symbol": under, "signal_date": day, "entry_date": day, "entry_time": _hhmm(end),
+             "exit_date": day, "exit_time": _hhmm(exit_t), "expiry": expiry, "reason": reason,
+             "structure": "long-%s" % ("call" if kind == "CE" else "put"), "side": "BUY", "strike": K,
+             "option_type": kind, "lots": 1, "lot_size": lot, "qty": qty, "premium": round(-risk, 2),
+             "credit": False, "entry": round(fill_in, 2), "exit": round(fill_out, 2), "gross": L.round_paise(gross),
+             "charges": L.round_paise(ch), "net": L.round_paise(net), "margin": round(risk, 2),
+             "r": round(net / risk, 5) if risk else 0.0, "sessions": 0,
+             "return_on_margin_pct": round(100.0 * net / risk, 3) if risk else None,
+             "price_source": "captured chain" if live else "model (Black-76)",
+             "iv": round(sigma, 2), "iv_source": src, "vix_prev": v, "breached": False,
+             "model_marks": 0 if live else 1, "flags": [] if live else ["model-priced"]}
+        trades.append(_buyer_ret(t))
+    mtm = _realised_mtm(trades, days)
+    met = _metrics(trades, days, capital, mtm)
     notes.append("signal on %s bars: opening range %d min, break %g%%, India VIX (previous close) under %g, "
-                 "entries until %s, out by %s" % (under, orm, pct, cap, LAST_ENTRY, FLAT_BY))
+                 "entries until %s, out by %s" % (under, orm, pct, vcap, LAST_ENTRY, FLAT_BY))
     if not live:
         notes.append("model-priced: Black-76 with the IV held for the session; intraday IV moves, the bid-ask "
                      "spread and the expiry-day smile are not in these prices. A model-priced pass can only send "
                      "the idea to the live-captured holdout, and that can only reach WATCH")
-    return _result(hyp, "trend-day-buying", p, w, trades, met, skipped, notes, model_priced=not live)
+    return _run_shape(hyp, "trend-day-buying", days, capital, trades, met, mtm, skipped, notes, model_priced=not live)
 
 
+def holdout_wait(hyp, data, today):
+    """Why the sealed holdout cannot be opened yet (None when it can): eh-14's holdout is the live captured
+    chain, so it waits until the window has ended and the capture covers it. The executor asks before it
+    opens the holdout, so it is never burnt on data that does not exist yet."""
+    if hyp.get("family") != "option-buying":
+        return None
+    w = (hyp.get("span") or {}).get("holdout") or {}
+    if today and today <= w.get("to", ""):
+        return "the holdout %s to %s is live captured data and has not ended yet (#76 captures it)" % (
+            w.get("from"), w.get("to"))
+    A = _arch(data)
+    have = captured_days(A, data.get("root"), _underlying(hyp), w.get("from", ""), w.get("to", ""))
+    if not have:
+        return "no captured %s chains in the holdout %s to %s yet (archive.py capture-chains, #76)" % (
+            _underlying(hyp), w.get("from"), w.get("to"))
+    return None
+
+
+PREPARE = {"vrp-selling": prepare_vrp, "event-vol": prepare_events, "option-buying": prepare_buying}
 ENGINES = {"vrp-selling": run_vrp, "event-vol": run_event_vol, "option-buying": run_option_buying}

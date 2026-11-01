@@ -15,6 +15,7 @@ Fixtures:
 
 import copy
 import csv
+import datetime
 import gzip
 import json
 import math
@@ -32,6 +33,9 @@ E = O.events_api()
 EN = O.engines_api()
 A = lab.archive_api()
 R = lab.regime_api()
+ENG = lab.engines_api()
+X, XC, XM, XJ = ENG.executor, ENG.core, ENG.market, ENG.jobs
+NOW = datetime.datetime(2026, 11, 1, 12, 0)
 ARC = os.path.join(FIX, "trader-lab", "edge")
 LIB = os.path.join(ROOT, "trader-lab", "library", "edge-hunt")
 FIXWIN = {"name": "validation", "from": "2026-09-30", "to": "2026-10-30"}
@@ -211,6 +215,12 @@ class Charges(unittest.TestCase):
         self.assertEqual(EN.size_lots(1000000, 0, 1000), 0)
 
 
+
+
+A0, B0 = FIXWIN["from"], FIXWIN["to"]
+RUN_KEYS = ("days", "ret", "bench", "equity", "exposure", "trades", "traded", "charges", "notes", "extra", "capital")
+
+
 class Contract(unittest.TestCase):
     def test_families_grid_and_params(self):
         for fam in EN.FAMILIES:
@@ -222,37 +232,46 @@ class Contract(unittest.TestCase):
             h = hyp(pre)
             self.assertEqual(h["family"], fam)
             g = EN.grid(h)
+            self.assertEqual(g, X.grid(h))                 # the executor's own grid, in the same order
             self.assertEqual(len(g), h["trial_budget"])
-            self.assertEqual(len({json.dumps(x, sort_keys=True) for x in g}), len(g))
         h = hyp("eh-05")
         with self.assertRaises(EN.EngineError):
             EN.check_params(h, dict(EN.grid(h)[0], vrp_threshold_vol_points=3))
         with self.assertRaises(EN.EngineError):
             EN.check_params(h, {"short_delta": 0.1})
-        self.assertEqual(EN.window_of(h, "holdout"), {"name": "holdout", "from": "2024-12-02", "to": "2026-10-30"})
 
-    def test_result_shape_and_the_registration_is_untouched(self):
+    def test_run_shape_and_the_registration_is_untouched(self):
         h = hyp("eh-05")
         before = copy.deepcopy(h)
-        r = EN.run(h, EN.grid(h)[0], FIXWIN, data())
+        r = EN.run(h, EN.grid(h)[0], A0, B0, data())
         self.assertEqual(h, before)
-        for k in ("family", "hypothesis", "engine", "params", "window", "status", "trades", "n", "metrics",
-                  "primary_metric", "primary", "skipped", "notes", "flags", "registration", "baseline"):
-            self.assertIn(k, r)
-        self.assertEqual((r["family"], r["hypothesis"], r["primary_metric"]),
-                         ("vrp-selling", "eh-05-vrp-condor", "oos_return_on_margin"))
-        self.assertEqual(r["primary"], r["metrics"]["return_on_margin_pct"])
+        self.assertEqual(sorted(r), sorted(RUN_KEYS))
+        self.assertEqual(len(r["ret"]), len(r["days"]))
+        self.assertEqual(len(r["equity"]), len(r["days"]))
+        m = XC.metrics(r)                                  # the executor's metrics read it as is
+        self.assertEqual(m["trades"], len(r["trades"]))
+        self.assertAlmostEqual(m["net"], sum(t["net"] for t in r["trades"]), places=1)
         for t in r["trades"]:
-            for k in ("net", "r", "margin", "return_on_margin_pct", "entry_date", "exit_date", "charges"):
+            for k in ("net", "ret", "r", "margin", "return_on_margin_pct", "entry_date", "exit_date", "charges"):
                 self.assertIn(k, t)
+            self.assertAlmostEqual(t["ret"], t["net"] / t["margin"], places=9)
+        # the executor's primary metric for eh-05 is the return on margin
+        s = X.summary(h, r)
+        self.assertEqual(s["primary"], round(r["extra"]["return_on_margin_pct"], 5))
+        self.assertEqual(s["net_value"], s["primary"])
+        # nothing after `until` is read: a window past it is cut there
+        d = data(until="2026-10-20")
+        r2 = EN.run(h, EN.grid(h)[0], A0, B0, d)
+        self.assertEqual(r2["days"][-1], "2026-10-19")
 
 
 class Engines(unittest.TestCase):
     def test_vrp_condor_on_the_fixture(self):
         h = hyp("eh-05")
         p = {"short_delta": 0.1, "wing_width_pct_of_spot": 1.5, "vrp_threshold_vol_points": 0, "exit": "expiry"}
-        r = EN.run(h, p, FIXWIN, data())
-        self.assertEqual(r["status"], "ok")
+        r = EN.run(h, p, A0, B0, data())
+        ex = r["extra"]
+        self.assertEqual((ex["status"], ex["engine"]), ("ok", "vrp-condor"))
         t = r["trades"]
         self.assertEqual([(x["entry_date"], x["exit_date"], x["reason"]) for x in t],
                          [("2026-09-30", "2026-10-27", "expiry settlement"), ("2026-10-28", "2026-10-30", "window end")])
@@ -264,55 +283,58 @@ class Engines(unittest.TestCase):
         self.assertEqual(f["wing_points"], 300.0)              # 1.5% of about 23,000 on 100-point strikes
         self.assertEqual(f["events_in_hold"], ["rbi_policy 2026-10-07"])
         self.assertEqual(f["sized_lots"], 0)                   # 10 lakh cannot carry one lot within 1%
-        self.assertEqual(r["baseline"]["n"], 2)
-        self.assertIn("beats_untimed", r["metrics"])
-        self.assertIn("worst_loss_avg_credits", r["metrics"])
+        self.assertEqual(ex["baseline"]["n"], 2)
+        for k in ("beats_untimed", "worst_loss_avg_credits", "breach_pct", "tail_loss_1pct", "worst_week"):
+            self.assertIn(k, ex["options"])
+        # the MTM curve: the equity on the last day is the capital plus every condor's net
+        self.assertAlmostEqual(r["equity"][-1], r["capital"] + sum(x["net"] for x in t), places=2)
         # a 4-point threshold keeps only the cycles with a wide spread
-        hi = EN.run(h, dict(p, vrp_threshold_vol_points=4), FIXWIN, data())
-        self.assertLess(hi["n"], r["n"])
-        self.assertGreater(sum(hi["skipped"].values()), 0)
+        hi = EN.run(h, dict(p, vrp_threshold_vol_points=4), A0, B0, data())
+        self.assertLess(len(hi["trades"]), len(t))
+        self.assertGreater(sum(hi["extra"]["skipped"].values()), 0)
         # cost stress costs money
-        st = EN.run(h, p, FIXWIN, data(), cost_mult=1.5)
-        self.assertLess(st["metrics"]["net"], r["metrics"]["net"])
+        st = EN.run(h, p, A0, B0, data(), cost_mult=1.5)
+        self.assertLess(st["extra"]["options"]["net"], ex["options"]["net"])
 
     def test_event_crush_and_runup(self):
         d = data(symbols=["HDFCBANK", "ICICIBANK"], min_history=2)
         h8 = hyp("eh-08")
-        r = EN.run(h8, {"wing_pct_of_spot": 5, "exit_session": 1, "min_event_iv_ratio": 1.0}, FIXWIN, d)
-        self.assertEqual(r["engine"], "event-crush-iron-fly")
+        r = EN.run(h8, {"wing_pct_of_spot": 5, "exit_session": 1, "min_event_iv_ratio": 1.0}, A0, B0, d)
+        self.assertEqual(r["extra"]["engine"], "event-crush-iron-fly")
         self.assertEqual(sorted(t["symbol"] for t in r["trades"]), ["HDFCBANK", "ICICIBANK"])
         for t in r["trades"]:
             self.assertEqual((t["entry_date"], t["exit_date"], t["structure"]), ("2026-10-16", "2026-10-19", "iron-fly"))
             self.assertTrue(t["credit"])
             self.assertEqual(len(t["legs"]), 4)
-        self.assertEqual(r["metrics"]["event_study"]["with_both"], 2)
-        # the registered MIN_HISTORY (4 earlier events) is more than this fixture holds
-        r4 = EN.run(h8, {"wing_pct_of_spot": 5, "exit_session": 1, "min_event_iv_ratio": 1.0}, FIXWIN,
+            self.assertEqual(t["facts"]["event_session"], "2026-10-19")
+        self.assertEqual(r["extra"]["options"]["event_study"]["with_both"], 2)
+        # the engine's MIN_HISTORY (4 earlier events) is more than this fixture holds
+        r4 = EN.run(h8, {"wing_pct_of_spot": 5, "exit_session": 1, "min_event_iv_ratio": 1.0}, A0, B0,
                     data(symbols=["HDFCBANK"]))
-        self.assertEqual(r4["n"], 0)
-        self.assertEqual(r4["skipped"], {"fewer than 4 earlier results moves": 1})
+        self.assertEqual((len(r4["trades"]), r4["extra"]["skipped"]), (0, {"fewer than 4 earlier results moves": 1}))
         h9 = hyp("eh-09")
-        r9 = EN.run(h9, {"entry_sessions_before": 3, "iv_percentile_cap": 100}, FIXWIN, d)
-        self.assertEqual(r9["primary_metric"], "oos_mean_event_return")
+        r9 = EN.run(h9, {"entry_sessions_before": 3, "iv_percentile_cap": 100}, A0, B0, d)
         self.assertEqual(sorted((t["symbol"], t["entry_date"], t["exit_date"]) for t in r9["trades"]),
                          [("HDFCBANK", "2026-10-14", "2026-10-16"), ("ICICIBANK", "2026-10-14", "2026-10-16")])
         for t in r9["trades"]:
             self.assertFalse(t["credit"])
             a = t["attribution"]
             self.assertAlmostEqual(a["iv_change"] + a["move_and_time"], t["gross"], places=1)
-        self.assertAlmostEqual(r9["primary"], sum(100 * t["net"] / abs(t["premium"]) for t in r9["trades"]) / 2,
-                               places=2)
-        capped = EN.run(h9, {"entry_sessions_before": 3, "iv_percentile_cap": 50}, FIXWIN, d)
-        self.assertEqual(capped["skipped"], {"under 126 sessions of ATM IV history": 2})
+            self.assertAlmostEqual(t["abnormal"], t["net"] / abs(t["premium"]), places=9)
+        # the executor's eh-09 primary: the mean return on the premium, in %
+        s = X.summary(h9, r9)
+        self.assertAlmostEqual(s["primary"], sum(100 * t["net"] / abs(t["premium"]) for t in r9["trades"]) / 2,
+                               places=3)
+        capped = EN.run(h9, {"entry_sessions_before": 3, "iv_percentile_cap": 50}, A0, B0, d)
+        self.assertEqual(capped["extra"]["skipped"], {"under 126 sessions of ATM IV history": 2})
 
     def test_trend_day_buying_model_priced_and_holdout_waits(self):
         h = hyp("eh-14")
-        win = {"name": "validation", "from": "2026-10-29", "to": "2026-10-29"}
         p = {"opening_range_minutes": 30, "min_breakout_pct": 0.2, "vix_cap": 18, "exit": "1515"}
-        r = EN.run(h, p, win, data())
-        self.assertTrue(r["flags"]["model_priced"])
-        self.assertEqual(r["flags"]["verdict_cap"], "WATCH")
-        self.assertEqual(r["n"], 1)
+        r = EN.run(h, p, "2026-10-29", "2026-10-29", data())
+        self.assertTrue(r["extra"]["model_priced"])
+        self.assertEqual(r["extra"]["verdict_cap"], "WATCH")
+        self.assertEqual(len(r["trades"]), 1)
         t = r["trades"][0]
         self.assertEqual((t["option_type"], t["exit_time"], t["reason"], t["expiry"]), ("CE", "15:15", "15:15", "2026-11-03"))
         self.assertEqual(t["iv_source"], "the previous session's EOD ATM IV")
@@ -321,13 +343,16 @@ class Engines(unittest.TestCase):
         bar = [b for b in bars if b["time"] == "10:20"][0]
         px = EN.model_price(bar["c"], t["strike"], "2026-10-29", 10 * 60 + 25, "2026-11-03", t["iv"], 0.0557, "CE")
         self.assertAlmostEqual(t["entry"], px + O.slip(px, O.OPTION_COSTS), delta=0.25)    # IV kept to 2 places
-        self.assertAlmostEqual(t["r"], t["net"] / (t["entry"] * t["lot_size"]), places=3)
+        self.assertAlmostEqual(t["ret"], t["net"] / (t["entry"] * t["lot_size"]), places=3)
+        self.assertEqual(X.summary(h, r)["primary"], round(t["ret"] * 100, 5))   # expectancy a trade, in %
         # a VIX cap under the previous close (16.25 on 28 Oct) blocks the day
-        low = EN.run(h, dict(p, vix_cap=14), win, data())
-        self.assertEqual((low["n"], low["skipped"]), (0, {"India VIX at or over the cap": 1}))
-        held = EN.run(h, p, "holdout", data())
-        self.assertEqual(held["status"], "waiting for captured chains")
-        self.assertEqual(held["primary"], None)
+        low = EN.run(h, dict(p, vix_cap=14), "2026-10-29", "2026-10-29", data())
+        self.assertEqual((len(low["trades"]), low["extra"]["skipped"]), (0, {"India VIX at or over the cap": 1}))
+        held = EN.run(h, p, "2026-11-16", "2027-05-31", data())
+        self.assertEqual(held["extra"]["status"], "waiting for captured chains")
+        self.assertIn("has not ended", EN.holdout_wait(h, data(), "2026-11-01"))
+        self.assertIn("no captured", EN.holdout_wait(h, data(), "2027-06-01"))
+        self.assertIsNone(EN.holdout_wait(hyp("eh-05"), data(), "2026-11-01"))
 
     def test_snapshot_quote_reads_a_captured_chain(self):
         import shutil
@@ -349,8 +374,82 @@ class Engines(unittest.TestCase):
                                                "CE", "sell")[0], None)          # stale: 20 minutes old
             self.assertEqual(EN.snapshot_quote(A, tmp, "NIFTY", "2026-10-30", 14 * 60, "2026-11-03", 22800,
                                                "CE", "sell"), (None, "no captured chain"))
+            self.assertEqual(EN.captured_days(A, tmp, "NIFTY", "2026-10-01", "2026-10-31"), ["2026-10-30"])
         finally:
             shutil.rmtree(tmp)
+
+
+def fixture_library(t, spans):
+    """A temporary edge-hunt folder with copies of the real option registrations re-dated to the fixture
+    (new ids, their own manifest): the executor refuses anything not in a manifest."""
+    import shutil
+    import tempfile
+    d = tempfile.mkdtemp(prefix="bt-opt-hunt-")
+    t.addCleanup(shutil.rmtree, d, True)
+    lib = os.path.join(d, "edge-hunt")
+    os.makedirs(lib)
+    rows = []
+    for k, (pre, span) in enumerate(spans):
+        doc = copy.deepcopy(hyp(pre))
+        doc["id"] = "eh-9%d-fixture-%s" % (5 + k, doc["family"])
+        doc["rank"] = 90 + k
+        doc["span"] = span
+        with open(os.path.join(lib, doc["id"] + ".json"), "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=2)
+        rows.append({"id": doc["id"], "sha256": X.registered_hash(doc)})
+    with open(os.path.join(lib, "manifest.json"), "w", encoding="utf-8") as fh:
+        json.dump({"hypotheses": rows}, fh)
+    return lib, os.path.join(d, "out")
+
+
+FIXSPAN = {"train": {"from": "2026-09-30", "to": "2026-10-14"}, "validation": {"from": "2026-10-15", "to": "2026-10-30"},
+           "holdout": {"from": "2026-11-16", "to": "2027-05-31"}, "embargo_days": 14}
+BUYSPAN = {"train": {"from": "2026-10-29", "to": "2026-10-29"}, "validation": {"from": "2026-10-29", "to": "2026-10-29"},
+           "holdout": {"from": "2026-11-16", "to": "2027-05-31"}, "embargo_days": 14}
+
+
+class Executor(unittest.TestCase):
+    def test_option_families_are_runnable_in_the_executor(self):
+        lib, out = fixture_library(self, [("eh-05", FIXSPAN), ("eh-08", FIXSPAN), ("eh-09", FIXSPAN),
+                                          ("eh-14", BUYSPAN)])
+        mkt = XM.ArchiveMarket(ARC, A)
+        words = {"vrp-selling": "VRP-timed iron condor", "event-vol": "results-day options",
+                 "option-buying": "trend-day option buying"}
+        for hid, path in X.library(lib):
+            r = X.execute(path, mkt, out, NOW, dry_run=True)
+            self.assertEqual(r["state"], "dry-run", (hid, r["plan"].get("blockers")))
+            fam = X.read_json(path)["family"]
+            self.assertEqual(XJ.job_for(X.read_json(path), mkt).engine, "options")
+            self.assertTrue(r["plan"]["coverage"]["validation"]["sessions"] > 0)
+            self.assertIn(words[fam], r["plan"]["engine"])
+        st = X.status(lib, out)
+        self.assertEqual(set(h["engine"] for h in st["hypotheses"]), {"options"})
+        self.assertEqual(os.listdir(out) if os.path.isdir(out) else [], [])
+
+    def test_a_full_vrp_run_rejects_or_watches_and_never_without_a_holdout_record(self):
+        lib, out = fixture_library(self, [("eh-05", dict(FIXSPAN, holdout={"from": "2026-10-28", "to": "2026-10-30"}))])
+        path = X.library(lib)[0][1]
+        r = X.execute(path, XM.ArchiveMarket(ARC, A), out, NOW)
+        self.assertEqual(r["state"], "decided")
+        self.assertIn(r["outcome"]["verdict"], ("REJECT", "WATCH"))
+        trials = X.read_trials(X.run_dir(out, X.read_json(path)["id"]))
+        self.assertEqual(len(trials), 36)
+        self.assertTrue(all("primary" in t["train"] and "primary" in t["validation"] for t in trials))
+
+    def test_eh14_waits_instead_of_burning_its_holdout(self):
+        lib, out = fixture_library(self, [("eh-14", BUYSPAN)])
+        path = X.library(lib)[0][1]
+        real = X.gate_rows
+        X.gate_rows = lambda *a, **k: [dict(row, **{"pass": True}) for row in real(*a, **k)]
+        try:
+            r = X.execute(path, XM.ArchiveMarket(ARC, A), out, NOW)
+        finally:
+            X.gate_rows = real
+        self.assertEqual(r["state"], "waiting")
+        self.assertIn("has not ended", r["why"])
+        d = X.run_dir(out, X.read_json(path)["id"])
+        self.assertFalse(os.path.exists(os.path.join(d, "holdout.json")))
+        self.assertEqual(X.read_json(path)["status"], "running")
 
 
 if __name__ == "__main__":

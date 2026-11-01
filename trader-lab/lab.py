@@ -3024,6 +3024,9 @@ def _hunt_words(r):
         L.append("The holdout %s to %s stays sealed; only a finalist that passes every validation gate opens it, "
                  "once." % (pl["windows"]["holdout"]["from"], pl["windows"]["holdout"]["to"]))
         L.append("Nothing was written (dry run).")
+    elif r["state"] == "waiting":
+        L.append("%s: %s." % (pl.get("id"), r.get("why")))
+        L.append("Scorecard so far: %s" % os.path.join(r["dir"], "scorecard.md"))
     elif r["state"] == "paused":
         L.append("%s paused (%s): %d of %d trials done. Run it again to carry on; no trial runs twice." % (
             pl["id"], r.get("why"), r["done"], r["of"]))
@@ -3072,7 +3075,7 @@ def cmd_hunt(a):
         print(json.dumps({k: v for k, v in r.items() if k != "results"}, indent=1, ensure_ascii=False, default=str))
     else:
         print(_hunt_words(r))
-    return 0 if r["state"] in ("decided", "dry-run", "paused") else 3
+    return 0 if r["state"] in ("decided", "dry-run", "paused", "waiting") else 3
 
 
 def utf8_console():
