@@ -24,7 +24,8 @@ STDLIB = set(getattr(sys, "stdlib_module_names", ())) | {
 
 SKILLS = ["trader-scanner", "trader-news", "trader-entry", "trader-exit", "trader-timemachine",
           "trader-risk", "trader-budget", "trader-broker", "trader-alerts", "trader-analyst",
-          "trader-insider", "trader-options", "trader-lab", "trader-strategy", "trader-doctor"]
+          "trader-insider", "trader-options", "trader-lab", "trader-strategy", "trader-doctor",
+          "trader-archive"]
 # skills on the way to an order carry the safety block
 ORDER_PATH = ["trader-scanner", "trader-entry", "trader-exit", "trader-timemachine", "trader-budget",
               "trader-insider", "trader-risk", "trader-broker", "trader-alerts", "trader-lab", "trader-strategy"]

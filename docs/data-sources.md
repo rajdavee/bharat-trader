@@ -21,8 +21,15 @@ of these are official APIs with stability guarantees: when one changes, open a
 | `nseindia.com/api/corporates-pit-gg` | insider | SEBI PIT insider-trading disclosures (one row per filing; details are in the linked XBRL). |
 | `nseindia.com/api/option-chain-contract-info?symbol=X` | options | The exchange's expiry list and strikes for one underlying. |
 | `nseindia.com/api/option-chain-v3?type=Indices\|Equity&symbol=X&expiry=DD-Mon-YYYY` | options | One expiry's option chain. OI and volume in contracts. |
-| `nsearchives.nseindia.com/content/fo/fo_mktlots.csv` | options | F&O lot size per underlying per expiry month. |
-| `nseindia.com/api/historicalOR/vixhistory`, `nseindia.com/api/allIndices` | options | India VIX history (70 rows a call) and the live value. |
+| `nsearchives.nseindia.com/content/fo/fo_mktlots.csv` | options, archive | F&O lot size per underlying per expiry month. |
+| `nseindia.com/api/historicalOR/vixhistory`, `nseindia.com/api/allIndices` | options, archive | India VIX history (70 rows a call) and the live value. |
+| `nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_YYYYMMDD_F_0000.csv.zip` | archive | Equity bhavcopy, UDiFF, from 2024-01-02. Before that `content/historical/EQUITIES/YYYY/MON/cmDDMONYYYYbhav.csv.zip` (legacy, until 2024-07-05). |
+| `nsearchives.nseindia.com/content/fo/BhavCopy_NSE_FO_0_0_0_YYYYMMDD_F_0000.csv.zip` | archive | F&O bhavcopy, UDiFF (OI in shares, volume in contracts, lot per row). Before 2024 `content/historical/DERIVATIVES/YYYY/MON/foDDMONYYYYbhav.csv.zip`. |
+| `nsearchives.nseindia.com/content/indices/ind_close_all_DDMMYYYY.csv` | archive | Every NSE index's daily OHLC, P/E, P/B and yield, India VIX included. |
+| `nsearchives.nseindia.com/archives/fo/sec_ban/fo_secban_DDMMYYYY.csv` | archive | The F&O ban list for that trading day. |
+| `nsearchives.nseindia.com/archives/nsccl/sett/FOSett_prce_DDMMYYYY.csv` | archive | Futures MTM settlement prices; option rows (no expiry) give the underlying's settle. |
+| `nseindia.com/api/corporates-corporateActions?index=equities&from_date=&to_date=` | archive | Corporate actions; splits and bonuses become price adjustment factors. |
+| `api.upstox.com/v3/historical-candle/{key}/minutes/{n}/{to}/{from}` | archive (via trader-broker) | Broker intraday candles, minute intervals from January 2022, a month a call; your token. |
 | `nseindia.com/api/holiday-master?type=trading` | maintainers | Source of the holiday table shipped in the tools. |
 | `nseindia.com/api/master-quote` | scanner, entry, exit, timemachine (cached in `trader/fno_stocks.json`; read by alerts, risk, broker) | NSE's F&O underlying list: a JSON array of stock symbols (218 on 2026-11-01). These stocks close in the Closing Auction Session. Fetched at most once a day, only by a run that is online anyway. |
 
@@ -84,6 +91,7 @@ Yahoo chart (RELIANCE.NS)           down          2026-11-01 11:41  scanner, ent
 - **The historical bulk-deals JSON caps at 70 rows**; the CSV form returns all of them. NSE's bulk list repeats block trades; they are kept once, labelled block.
 - **PIT holding percentages** in the XBRL are fractions (0.3049 = 30.49 %). Some filers enter the per-share price as the value; those rows are flagged and left out of totals.
 - **Option chain v3** returns only the expiry asked for. A wrong expiry returns HTTP 200 with no rows and spot 0. `openInterest` and `totalTradedVolume` are in contracts (x lot = units), while the bhavcopy's open interest is in shares. `optionType` is always null. NSE's `impliedVolatility` disagrees between calls and puts and is 0 for skipped strikes; `trader-options` computes its own.
+- **Bhavcopy formats.** UDiFF files start on 2024-01-02 and the legacy files stop on 2024-07-05; a missing file is an HTML 404 page, not an empty file. NSE does not adjust the previous close on a split's ex-date. See [archive.md](archive.md).
 - **Spot after 15:30.** The cash index stops at 15:30 while equity derivatives trade until 15:40, so the chain's `underlyingValue` is stale against option prices in that window.
 
 ## Market rules (dated)

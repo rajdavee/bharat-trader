@@ -6,6 +6,27 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **`trader-archive`** (#41, archive half of #35): a local NSE market data
+  archive under `trader/archive/`. `backfill --years N` fetches equity and F&O
+  bhavcopies (UDiFF from 2024-01-02, the legacy format before, one schema),
+  index closes, India VIX, lot sizes, ban lists, futures settlement prices
+  and corporate actions, newest day first, 1.5 s between NSE calls, stopping
+  after repeated blocks; weekends and holidays are skipped and missing
+  weekdays learned as closed. Gzip CSV per dataset per day with a manifest
+  (source URL, fetched_at, rows, SHA-256); resumes after any interruption.
+  `update`, `status`, `verify` (checksums, gaps vs the calendar, duplicates,
+  OHLC, split/bonus factors checked against prices, unexplained moves, short
+  sessions, intraday gaps, survivorship), `export` (lab CSV), `intraday`
+  (Upstox v3 candles through trader-broker's adapter and your token; Kite
+  and Dhan when you have their plan; merged with Yahoo, gap report) and
+  `snapshot-chain` (option chains during market hours). An offline read
+  API: `load_daily` (split- and bonus-adjusted), `load_intraday`,
+  `load_fo_chain_eod`, `load_vix`, `load_index`, `trading_days` and more.
+- `trader-lab` reads bars from the archive when present (`--archive`,
+  `--no-archive`), else Yahoo; `trader-timemachine` adds the archive's older
+  5-minute sessions to its pool.
+
 ## [0.2.0] - 2026-11-01
 
 NSE F&O, an honest Strategy Lab, live broker adapters behind gates, a local

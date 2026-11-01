@@ -74,6 +74,9 @@ limits can do what the last 60 sessions never did.
 Data: https://query2.finance.yahoo.com/v8/finance/chart/<SYMBOL>.NS?range=60d&interval=5m
 (unofficial and free, can lag; falls back to query1 on 429 or 5xx).
 --offline FILE reads a saved chart JSON (.json or .json.gz) instead.
+When a trader-archive folder holds older 5-minute bars of the stock (trader/archive, or
+--archive DIR; --no-archive to skip), the sessions Yahoo no longer has are added to the
+pool: months or years of sessions instead of 60. Yahoo still supplies the plan's own day.
 Times are IST (UTC+05:30, no daylight saving); --now "2026-10-26 10:15" pins the clock.
 """
 
@@ -711,6 +714,67 @@ def fetch_chart(sym):
     if last == 429:
         raise TMError("Yahoo is rate limiting (HTTP 429). Wait a minute and run it again.")
     raise TMError("Yahoo answered HTTP %s for %s on both hosts. Try again later." % (last, sym.upper()))
+
+
+ARCHIVE_DIR = os.path.join("trader", "archive")
+
+
+def archive_api():
+    """trader-archive's offline read API (archive.py in the sibling skill folder), or None."""
+    import importlib.util
+    name = "bt_trader_archive"
+    if name in sys.modules:
+        return sys.modules[name]
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trader-archive", "archive.py")
+    if not os.path.isfile(path):
+        return None
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def merge_archive(text, sym, root):
+    """(chart JSON text, sessions added): the archive's 5-minute bars of `sym` for every day the chart
+    does not already have, added to a Yahoo-shaped chart. text may be None (no Yahoo answer): the chart
+    is then built from the archive alone."""
+    api = archive_api() if root and os.path.isdir(root) else None
+    if api is None:
+        return text, 0
+    try:
+        bars = api.load_intraday(sym, "5m", root=root)
+    except (api.ArchiveError, OSError, ValueError):
+        return text, 0
+    if text:
+        chart_result(text, sym)                  # the same checks and messages as a plain run
+        doc = json.loads(text)
+        res = doc["chart"]["result"][0]
+    else:
+        res = {"meta": {"symbol": sym.upper() + ".NS", "dataGranularity": "5m", "gmtoffset": 19800},
+               "timestamp": [], "indicators": {"quote": [{"open": [], "high": [], "low": [], "close": [],
+                                                          "volume": []}]}}
+        doc = {"chart": {"result": [res], "error": None}}
+    stamps = res.setdefault("timestamp", [])
+    q = ((res.setdefault("indicators", {}).setdefault("quote", [{}]) or [{}])[0])
+    for k in ("open", "high", "low", "close", "volume"):
+        q.setdefault(k, [])
+        q[k] = list(q[k]) + [None] * (len(stamps) - len(q[k]))
+    have = {ist_of(t).date().isoformat() for t in stamps if t is not None}
+    added = set()
+    for b in bars:
+        if b["date"] in have:
+            continue
+        local = datetime.datetime.strptime("%s %s" % (b["date"], b["time"]), "%Y-%m-%d %H:%M")
+        stamps.append(int(local.replace(tzinfo=IST).timestamp()))
+        for k, v in (("open", b["o"]), ("high", b["h"]), ("low", b["l"]), ("close", b["c"]), ("volume", b["v"])):
+            q[k].append(v)
+        added.add(b["date"])
+    if not added:
+        return text, 0
+    if not text and stamps:
+        res["meta"]["regularMarketTime"] = max(stamps) + INTERVAL
+    return json.dumps(doc), len(added)
 
 
 def read_offline(path, sym):
@@ -1469,10 +1533,21 @@ def compute(a):
         cfg["include_charges"] = False
     cache = os.path.join(os.path.dirname(a.config) or ".", "fno_stocks.json")
     cfg["_fno"] = load_fno_stocks(cfg, cache, fetch=not a.offline, today=now.date())[0]
+    root = None if a.no_archive else (a.archive or (None if a.offline else ARCHIVE_DIR))
     if a.offline:
         text, source = read_offline(a.offline, plan["symbol"]), "offline"
     else:
-        text, source = fetch_chart(plan["symbol"]), "yahoo"
+        try:
+            text, source = fetch_chart(plan["symbol"]), "yahoo"
+        except TMError:
+            text, n = merge_archive(None, plan["symbol"], root)
+            if not n:
+                raise
+            source, root = "archive", None
+    if root:
+        text, n = merge_archive(text, plan["symbol"], root)
+        if n:
+            source += "+archive"
     return time_machine(text, plan, now, a.replays, a.seed, a.window, a.until, source, cfg, a.qty)
 
 
@@ -1542,6 +1617,9 @@ def main(argv=None):
         p.add_argument("--qty", type=int, help="shares for the charges (default: the plan's, or what max loss allows)")
         p.add_argument("--no-charges", action="store_true", help="gross R only")
         p.add_argument("--offline", metavar="FILE", help="a saved Yahoo chart JSON (.json or .json.gz), no network")
+        p.add_argument("--archive", metavar="DIR", help="add older 5-minute sessions from a trader-archive folder "
+                                                       "(default trader/archive when online, if present)")
+        p.add_argument("--no-archive", action="store_true", help="Yahoo's 60 days only")
         p.add_argument("--now", help='pretend it is this time ("2026-10-26 10:15" IST, or ISO with Z)')
 
     p = sub.add_parser("run", help="replay the plan: 10,000 simulated sessions plus the history")

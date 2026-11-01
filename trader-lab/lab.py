@@ -45,10 +45,12 @@ Output: trader/lab/<name>/spec.json, results.json, scorecard.md, equity.csv,
 status.json and forward.json. Same spec, same data, same --seed give the same
 numbers on any machine.
 
-Data: Yahoo Finance v8 chart (unofficial, free, can lag): SYMBOL.NS 5-minute
-bars for about 60 sessions, or daily bars for 2 years; ^NSEI and ^INDIAVIX
-daily for the regimes. Fetched bars are cached in trader/lab/data/ as CSV.
-Times are IST (UTC+05:30).
+Data: the local trader-archive when it is there (trader/archive: years of
+split- and bonus-adjusted NSE daily bars, broker intraday candles, NIFTY and
+India VIX; --archive DIR, --no-archive), else Yahoo Finance v8 chart
+(unofficial, free, can lag): SYMBOL.NS 5-minute bars for about 60 sessions,
+or daily bars for 2 years; ^NSEI and ^INDIAVIX daily for the regimes. Fetched
+bars are cached in trader/lab/data/ as CSV. Times are IST (UTC+05:30).
 
 Education and tooling, not financial advice.
 """
@@ -784,14 +786,65 @@ def read_bars_file(path, timeframe, now=None):
         return bars_from_yahoo(fh.read(), timeframe, now or datetime.datetime(2100, 1, 1))
 
 
-def load_bars(sym, timeframe, data_dir=None, cache_dir=None, fetch=True, now=None, refresh=False):
-    """(bars, source). Offline: data_dir/SYM-<tf>.csv(.gz) or Yahoo JSON. Online: Yahoo, cached as CSV in
-    cache_dir (re-used the same day unless refresh)."""
+ARCHIVE_DIR = os.path.join("trader", "archive")
+
+
+def archive_api():
+    """trader-archive's offline read API (archive.py in the sibling skill folder), or None when that skill
+    is not installed next to this one."""
+    import importlib.util
+    name = "bt_trader_archive"
+    if name in sys.modules:
+        return sys.modules[name]
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trader-archive", "archive.py")
+    if not os.path.isfile(path):
+        return None
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def archive_bars(sym, timeframe, root):
+    """Bars for one symbol from the local archive in the lab's shape (daily: split- and bonus-adjusted
+    NSE bhavcopy prices; ^NSEI and ^INDIAVIX from NSE's index files), or None when there is no archive,
+    no such data, or the archive skill is missing."""
+    if not root or not os.path.isdir(root):
+        return None
+    api = archive_api()
+    if api is None:
+        return None
+    try:
+        if timeframe == "1d":
+            name = api.index_name(sym)
+            if name == "India VIX":
+                got = api.load_vix(root=root)
+            elif sym.startswith("^") or name != sym:
+                got = api.load_index(sym, root=root)
+            else:
+                got = api.load_daily(sym, root=root)
+        else:
+            got = api.load_intraday(sym, timeframe, root=root)
+    except (api.ArchiveError, OSError, ValueError):
+        return None
+    bars = [{"date": b["date"], "time": b.get("time") or "", "o": round(b["o"], 2), "h": round(b["h"], 2),
+             "l": round(b["l"], 2), "c": round(b["c"], 2), "v": int(b.get("v") or 0)} for b in got]
+    return bars or None
+
+
+def load_bars(sym, timeframe, data_dir=None, cache_dir=None, fetch=True, now=None, refresh=False, archive=None):
+    """(bars, source). Offline: data_dir/SYM-<tf>.csv(.gz) or Yahoo JSON. Then the local archive (when
+    `archive` is a trader-archive folder holding the symbol). Online: Yahoo, cached as CSV in cache_dir
+    (re-used the same day unless refresh)."""
     if data_dir:
         p = find_file(data_dir, sym, timeframe)
         if not p:
             raise LabError("no %s-%s.csv(.gz) in %s" % (sym, timeframe, data_dir))
         return read_bars_file(p, timeframe, now), os.path.basename(p)
+    bars = archive_bars(sym, timeframe, archive)
+    if bars:
+        return bars, "archive %s to %s" % (bars[0]["date"], bars[-1]["date"])
     cache = os.path.join(cache_dir, "%s-%s.csv" % (sym, timeframe)) if cache_dir else None
     now = now or ist_now()
     if cache and os.path.exists(cache) and not refresh:
@@ -2368,12 +2421,15 @@ def seen_by(bars, timeframe, now):
     return [b for b in bars if b["date"] < day or (b["date"] == day and m >= CLOSE_MIN)]
 
 
-def load_data(spec, data_dir=None, cache_dir=None, fetch=True, now=None):
-    """({symbol: Series}, {"nifty", "vix"}, notes) for a compiled spec, as seen at `now`."""
+def load_data(spec, data_dir=None, cache_dir=None, fetch=True, now=None, archive=None):
+    """({symbol: Series}, {"nifty", "vix"}, notes) for a compiled spec, as seen at `now`. archive: a
+    trader-archive folder to prefer over Yahoo (None: Yahoo and the cache only)."""
     data, notes = {}, []
+    from_archive = 0
     for sym in spec["universe"]:
         try:
-            bars, _ = load_bars(sym, spec["timeframe"], data_dir, cache_dir, fetch, now)
+            bars, src = load_bars(sym, spec["timeframe"], data_dir, cache_dir, fetch, now, archive=archive)
+            from_archive += src.startswith("archive")
         except LabError as e:
             notes.append("%s: %s" % (sym, e))
             continue
@@ -2383,12 +2439,15 @@ def load_data(spec, data_dir=None, cache_dir=None, fetch=True, now=None):
     ctx = {}
     for key, sym in (("nifty", "^NSEI"), ("vix", "^INDIAVIX")):
         try:
-            bars, _ = load_bars(sym, "1d", data_dir, cache_dir, fetch, now)
+            bars, _ = load_bars(sym, "1d", data_dir, cache_dir, fetch, now, archive=archive)
             bars = seen_by(bars, "1d", now)
             ctx[key] = Series(sym, "1d", bars) if bars else None
         except LabError as e:
             ctx[key] = None
             notes.append("regimes: %s" % e)
+    if from_archive:
+        notes.append("%d of %d symbols from the local archive (%s), the rest from Yahoo or the cache"
+                     % (from_archive, len(spec["universe"]), archive))
     return data, ctx, notes
 
 
@@ -2611,7 +2670,8 @@ def cmd_run(a):
         doc["seed"] = a.seed
     spec = validate_spec(doc)
     now = ist_now(a.now)
-    data, ctx, notes = load_data(spec, a.data, os.path.join(a.out, "data"), not a.offline, now)
+    data, ctx, notes = load_data(spec, a.data, os.path.join(a.out, "data"), not a.offline, now,
+                                 None if a.no_archive else a.archive)
     fno, fnote = _fno(a, spec["cfg"])
     res = run_and_decide(doc, data, ctx, a.out, fno, now, None if a.json else _progress)
     res["notes"] = notes + [fnote]
@@ -2683,7 +2743,8 @@ def cmd_forward(a):
     doc, src = resolve_spec(a.strategy, a.out)
     spec = validate_spec(doc)
     now = ist_now(a.now)
-    data, ctx, notes = load_data(spec, a.data, os.path.join(a.out, "data"), not a.offline, now)
+    data, ctx, notes = load_data(spec, a.data, os.path.join(a.out, "data"), not a.offline, now,
+                                 None if a.no_archive else a.archive)
     fno, _ = _fno(a, spec["cfg"])
     r = forward(doc, data, a.out, a.date, fno, now)
     if a.json:
@@ -2733,6 +2794,9 @@ def main(argv=None):
         p.add_argument("strategy", help="a library name, a lab name or a spec file")
         p.add_argument("--data", help="offline: a folder of SYMBOL-5m.csv(.gz) / SYMBOL-1d.csv(.gz) bars")
         p.add_argument("--offline", action="store_true", help="use the cached bars in trader/lab/data only")
+        p.add_argument("--archive", default=ARCHIVE_DIR,
+                       help="a trader-archive folder to read bars from first (default trader/archive, if present)")
+        p.add_argument("--no-archive", action="store_true", help="ignore the local archive: Yahoo and the cache only")
         p.add_argument("--now", help="pretend it is this IST time, e.g. \"2026-10-30 15:40\"")
         p.add_argument("--json", action="store_true")
         if name == "run":
