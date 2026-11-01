@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "registered_on": "2026-11-01",
+  "note": "Test fixture registrations.",
+  "hypotheses": [
+    {
+      "id": "eh-91-fixture-momentum",
+      "rank": 1,
+      "sha256": "f7fbf19f0377c7cbfb1cc24eddc12c65359d514c5240685ce2bed14f5275976f"
+    },
+    {
+      "id": "eh-92-fixture-turn-of-month",
+      "rank": 2,
+      "sha256": "3db49fcc60982712239dbe0205d8d267739572ffe575b7af0af3d414b4346107"
+    },
+    {
+      "id": "eh-93-fixture-blocked-pead",
+      "rank": 3,
+      "sha256": "9a893d109d574bd9da59899235a64b0511c1f3bb5c5e684cb297bd8e1036161e"
+    }
+  ]
+}

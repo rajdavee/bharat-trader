@@ -3053,7 +3053,7 @@ def cmd_hunt(a):
                 extra = "  %s, %d of %d trials%s%s" % (h["phase"], h["trials_run"], h["trial_budget"],
                                                       ", holdout opened %s" % h["holdout_opened"] if h["holdout_opened"]
                                                       else "", ", BH keeps" if h["bh_kept"] else "")
-            print("  %2s %-26s %-17s %-10s %-9s%s" % (h["rank"], h["id"], h["family"], h["status"],
+            print("  %2s %-28s %-17s %-10s %-9s%s" % (h["rank"], h["id"], h["family"], h["status"],
                                                      h["verdict"] or "-", extra))
             if not h["registered_ok"]:
                 print("     PROBLEM: %s" % h["problem"])
