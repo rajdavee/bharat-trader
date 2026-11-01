@@ -806,6 +806,54 @@ def archive_api():
     return mod
 
 
+def regime_api():
+    """trader-regime's pure functions (regime.py in the sibling skill folder), or None when that skill is
+    not installed next to this one: then the scorecard keeps only the simple VIX and trend splits."""
+    import importlib.util
+    name = "bt_trader_regime"
+    if name in sys.modules:
+        return sys.modules[name]
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trader-regime", "regime.py")
+    if not os.path.isfile(path):
+        return None
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def lab_regimes(context):
+    """{date: trader-regime record} for NIFTY 50 from the context's daily bars (India VIX for the vol bucket,
+    NIFTY's expiry calendar), or {} without trader-regime or NIFTY bars. Each day uses bars up to its close."""
+    api = regime_api()
+    nifty = (context or {}).get("nifty")
+    if api is None or nifty is None or not nifty.n:
+        return {}
+    vix = (context or {}).get("vix")
+
+    def cols(s):
+        return [{"date": s.date[i], "o": s.o[i], "h": s.h[i], "l": s.l[i], "c": s.c[i]} for i in range(s.n)]
+    return api.daily_regimes(cols(nifty), cols(vix) if vix is not None and vix.n else None, "NIFTY", "index")
+
+
+def regime_gate(g, oos_trades, regs):
+    """The opt-in gate "edge in the current regime" (gates.require_regime_edge = 1)."""
+    api = regime_api()
+    need = int(g["min_regime_trades"])
+    needs = ">= %d out-of-sample trades there, mean > %gR" % (need, g["min_oos_expectancy_r"])
+    if not regs or api is None:
+        return {"gate": "edge in the current regime", "needs": needs,
+                "got": "not measured (needs trader-regime and NIFTY bars)", "pass": False}
+    cur = api.regime_key(regs[max(regs)], expiry=False)
+    e = api.edge_in_regime(oos_trades, regs, cur, need, g["min_oos_expectancy_r"])
+    got = "%d trades, %s" % (e["trades"], "none" if e["expectancy_r"] is None else "%.3fR" % e["expectancy_r"])
+    if e["ci95_r"]:
+        got += " (95%% interval %.2fR to %.2fR)" % tuple(e["ci95_r"])
+    return {"gate": "edge in the current regime (%s vol)" % cur.replace("|", " · "), "needs": needs, "got": got,
+            "pass": bool(e["pass"])}
+
+
 def archive_bars(sym, timeframe, root):
     """Bars for one symbol from the local archive in the lab's shape (daily: split- and bonus-adjusted
     NSE bhavcopy prices; ^NSEI and ^INDIAVIX from NSE's index files), or None when there is no archive,
@@ -945,6 +993,8 @@ GATE_DEFAULTS = {
     "demote_window": 30,             # the rolling forward record: the last N trades
     "demote_below_r": 0.0,           # demote when their mean R falls to this or below
     "demote_drawdown_mult": 1.5,     # or the forward drawdown passes the out-of-sample one x this
+    "require_regime_edge": 0,        # opt-in (1): the out-of-sample trades in today's market regime must show an edge
+    "min_regime_trades": 10,         # ... with at least this many trades (and below it a regime cell is "too few")
 }
 COST_DEFAULTS = {"slippage_bps": 3.0, "slippage_ticks": 1}
 WF_DEFAULTS = {"5m": {"in_sample": 20, "out_of_sample": 10}, "1d": {"in_sample": 120, "out_of_sample": 40}}
@@ -2155,7 +2205,19 @@ def run_lab(doc, data, context=None, fno=None, extra_trials=0, progress=None):
     pbo = pbo_cscv(matrix, nb) if len(runs) > 1 and matrix else None
     mc = monte_carlo([t["net"] for t in oos_trades], spec["mc_runs"], spec["seed"])
     regimes = regime_split(full_trades, context, spec["vix_edges"])
+    regs = lab_regimes(context)
+    if regs:
+        api, need = regime_api(), int(spec["gates"]["min_regime_trades"])
+        last = regs[max(regs)]
+        regimes["market"] = {"whole_sample": api.split_by_regime(full_trades, regs, need),
+                             "out_of_sample": api.split_by_regime(oos_trades, regs, need),
+                             "current": {"date": last["date"], "key": api.regime_key(last, expiry=False),
+                                         "words": last["words"]},
+                             "basis": "NIFTY 50 trend or range x India VIX bucket x expiry flag (trader-regime), "
+                                      "as of the close before each signal day"}
     gates = evaluate_gates(spec["gates"], oos, full, dsr, pbo, cost_oos, pos_share)
+    if spec["gates"]["require_regime_edge"]:
+        gates.append(regime_gate(spec["gates"], oos_trades, regs))
     reasons = {}
     for k, v in me["res"]["skipped"].items():
         reasons[k] = v
@@ -2334,6 +2396,16 @@ def scorecard(res, status=None):
         if rows:
             L.append("- By %s: %s." % (title, "; ".join("%s: %d trades, %s" % (r["regime"], r["trades"],
                                                                               _r(r["expectancy_r"])) for r in rows)))
+    mk = res["regimes"].get("market")
+    if mk:
+        need = int((res.get("gates_set") or {}).get("min_regime_trades", 10))
+        L.append("- By market regime (%s; R a trade with a 95%% interval; under %d trades is too few to judge):"
+                 % (mk["basis"], need))
+        for r in mk["whole_sample"]:
+            ci = " (%.2fR to %.2fR)" % tuple(r["ci95_r"]) if r["ci95_r"] else ""
+            L.append("  - %s: %d trades, %s%s%s" % (r["regime"], r["trades"], _r(r["expectancy_r"]), ci,
+                                                   "" if r["enough"] else ", too few to judge"))
+        L.append("  - The market now (%s): %s." % (mk["current"]["date"], mk["current"]["words"]))
     if res.get("skipped"):
         L.append("- Signals not taken: %s." % ", ".join("%s %d" % (k, v) for k, v in sorted(res["skipped"].items())))
     fw = (status or {}).get("forward") or res.get("forward")

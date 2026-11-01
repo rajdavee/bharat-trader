@@ -53,6 +53,29 @@ All notable changes are documented here. The format follows
   `snapshot-chain` (option chains during market hours). An offline read
   API: `load_daily` (split- and bonus-adjusted), `load_intraday`,
   `load_fo_chain_eod`, `load_vix`, `load_index`, `trading_days` and more.
+- **`trader-regime`** (#42): the market regime per day for NIFTY, BANKNIFTY
+  and any NSE stock. Trend or range from ADX(14), Kaufman's efficiency ratio,
+  the 20/50 EMAs and slope and the 200-day average; the volatility bucket
+  from India VIX's percentile over a year (stocks: their own realised vol),
+  realised vol 20d vs 1y and IV rank (India VIX; a stock's approximate ATM IV
+  from the archived F&O bhavcopy with `--iv`); the gap in ATRs; breadth from
+  the equity bhavcopy; weekly and monthly expiry today or next session from
+  the exchange's list in the archive (else a dated Tuesday/Thursday rule with
+  holiday shifts); results days from NSE board meetings; RBI policy and Union
+  Budget days (`events.json`, each with its source); holidays, special
+  sessions and the closing-auction window from the dated SESSION_RULES; and
+  time-of-day buckets (open drive, morning, midday, afternoon, closing
+  window, closing auction). `now`, `history` (stores `trader/regime/*.json`
+  and an archive table `archive/regime/`), `explain`, `--json`; thresholds in
+  `trader/regime-config.json`. No look-ahead: each day uses data up to its
+  own close (tested by changing the future). Archive first, Yahoo daily bars
+  when there is none or it is thin. Pure functions for other skills.
+- `trader-lab` splits every backtest by market regime (NIFTY trend or range
+  x India VIX bucket x expiry flag, as of the close before each signal), with
+  trades, mean R and a 95% interval per cell, and has an opt-in gate
+  `require_regime_edge` ("edge in the current regime", `min_regime_trades`).
+- MCP: the read-only tool `regime_now` (33 tools) and `trader/regime/`
+  resources. UI: `GET /api/regime`, shown in the Today page's Market card.
 - `trader-lab` reads bars from the archive when present (`--archive`,
   `--no-archive`), else Yahoo; `trader-timemachine` adds the archive's older
   5-minute sessions to its pool.

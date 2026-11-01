@@ -43,6 +43,7 @@ SKILLS = {
     "options": ("trader-options", "options"),
     "strategy": ("trader-strategy", "strategy"),
     "doctor": ("trader-doctor", "doctor"),
+    "regime": ("trader-regime", "regime"),
 }
 # how long a live answer is reused, in seconds (free endpoints: be polite)
 TTL = {"quotes": 15, "nse": 120, "chart-1m": 30, "chart-5m": 60, "chart-1d": 900, "history": 900}
@@ -1656,6 +1657,41 @@ def r_doctor_run(ctx, q, body):
     return r_doctor(ctx, {}, None) if isinstance(report, dict) else report
 
 
+# ---------------------------------------------------------------- routes: market regime
+
+def r_regime(ctx, q, body):
+    """trader-regime's read for now: ?symbols=NIFTY,BANKNIFTY (default) or stocks, up to 6. From the archive
+    (trader/archive or $BT_ARCHIVE) when present, else Yahoo daily bars; offline: the archive only."""
+    rg = skill("regime")
+    syms = [s.strip().upper() for s in str(q.get("symbols") or "NIFTY,BANKNIFTY").split(",") if s.strip()]
+    if len(syms) > 6 or not all(re.match(r"^[A-Z0-9][A-Z0-9&\-]{0,19}$", s) for s in syms):
+        raise ApiError(400, "symbols: up to 6 NSE symbols, e.g. ?symbols=NIFTY,BANKNIFTY,RELIANCE")
+    now = ctx.now_ist().replace(tzinfo=None, second=0, microsecond=0)
+
+    def read():
+        try:
+            cfg = rg.load_config(ctx.path("regime-config.json"))
+        except rg.RegimeError as e:
+            raise ApiError(400, str(e))
+        src = rg.Sources(os.environ.get("BT_ARCHIVE") or ctx.path("archive"), None, not ctx.offline, ctx.path())
+        out, errors = [], []
+        for s in syms:
+            try:
+                out.append(rg.read_now(s, src, now, cfg))
+            except (rg.RegimeError, rg.RulesError) as e:
+                errors.append("%s: %s" % (s, e))
+        return {"regimes": out, "errors": errors, "notes": src.notes, "as_of": ist_text(ctx.now_ist()),
+                "source": "archive" if src.root else ("none (offline, no archive)" if ctx.offline else "yahoo"),
+                "why": why("trend: ADX(14), efficiency ratio(10), EMA 20/50 and slope, 200-day average; vol: India "
+                           "VIX percentile over 252 sessions (indices) or 20-day realised vol percentile (stocks); "
+                           "each day from data up to its own close", {"thresholds": {k: v for k, v in cfg.items()
+                                                                                    if k != "events"}},
+                           "trader-regime (docs/regime.md)", ist_text(ctx.now_ist()),
+                           "A regime describes the market so far; it does not predict the next move."),
+                "disclaimer": DISCLAIMER}
+    return ctx.cached(("regime", ",".join(syms), now.strftime("%Y-%m-%d %H:%M")[:15]), TTL["history"], read)
+
+
 # ---------------------------------------------------------------- routes: agent personas and their scorecards
 
 AGENTS = os.path.join(ROOT, "agents")
@@ -2151,6 +2187,7 @@ ROUTES = [
      False),
     ("GET", "/api/onboarding", r_onboarding, "first-run steps; ?capital=&risk_pct=&max_trades=&product=&broker_profile= "
      "previews the config size.py init would write (save it with POST /api/config)", False),
+    ("GET", "/api/regime", r_regime, "market regime now: trend, vol bucket, gap, expiry and events: ?symbols=", False),
     ("POST", "/api/risk/check", r_risk_check, "run trader-risk on trader/orders.json and record the verdicts", True),
     ("POST", "/api/risk/kill", r_risk_kill, "kill switch on: no new entries today (exits still pass)", True),
     ("POST", "/api/risk/unkill", r_risk_unkill, "lift the kill switch: the typed word unkill", True),

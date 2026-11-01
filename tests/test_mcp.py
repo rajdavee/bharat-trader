@@ -26,7 +26,7 @@ TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit
          "size_trade", "risk_check", "risk_scenarios", "paper_orders_show", "paper_order_draft", "paper_order_confirm",
          "portfolio_status", "paper_mtm", "options_chain", "options_summary", "results_analyse", "insider_deals",
          "insider_disclosures", "config_get", "lab_list", "lab_run", "lab_report", "lab_forward", "strategy_build",
-         "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor", "persona_scorecards"]
+         "strategy_price", "broker_status", "broker_holdings", "broker_positions", "doctor", "persona_scorecards", "regime_now"]
 # one offline call per tool, on the real saved answers in tests/fixtures (see tests/fixtures/mcp/offline.json)
 CALLS = [
     ("market_status", {}),
@@ -60,6 +60,7 @@ CALLS = [
     ("broker_positions", {}),
     ("doctor", {}),
     ("persona_scorecards", {}),
+    ("regime_now", {}),
     ("paper_order_draft", {}),
     ("paper_order_confirm", {"index": 1, "risk_fingerprint": FP, "yes_text": "yes 42 RELIANCE"}),
 ]
@@ -680,9 +681,31 @@ class Resources(ServerCase):
         self.assertIn("ttlMs", doc)
         t = self.result(self.c.request("resources/templates/list"))["resourceTemplates"]
         self.assertEqual([x["uriTemplate"] for x in t], ["bharat-trader://trader/{file}",
-                                                         "bharat-trader://trader/state/{file}"])
+                                                         "bharat-trader://trader/state/{file}",
+                                                         "bharat-trader://trader/regime/{file}"])
         st = self.result(self.c.request("resources/read", {"uri": "bharat-trader://trader/state/risk.json"}))
         self.assertIn(FP, st["contents"][0]["text"])
+
+    def test_regime_history_is_a_resource(self):
+        folder = os.path.join(self.c.workdir, "trader", "regime")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "NIFTY.json"), "w", encoding="utf-8") as fh:
+            json.dump({"schema": "bharat-trader/regime/1", "symbol": "NIFTY", "days": {}}, fh)
+        r = self.result(self.c.request("resources/list"))
+        uris = {x["uri"]: x for x in r["resources"]}
+        self.assertIn("NIFTY", uris["bharat-trader://trader/regime/NIFTY.json"]["description"])
+        doc = self.result(self.c.request("resources/read", {"uri": "bharat-trader://trader/regime/NIFTY.json"}))
+        self.assertEqual(json.loads(doc["contents"][0]["text"])["symbol"], "NIFTY")
+        self.assertEqual(self.code(self.c.request("resources/read", {"uri": "bharat-trader://trader/regime/../config.json"})),
+                         -32602)
+
+    def test_regime_now_offline(self):
+        d = self.result(self.c.call("regime_now", {"symbols": "NIFTY,BANKNIFTY"}))["structuredContent"]["data"]
+        self.assertEqual([r["symbol"] for r in d["regimes"]], ["NIFTY", "BANKNIFTY"])
+        self.assertEqual(d["regimes"][0]["daily"]["date"], "2026-10-30")
+        self.assertTrue(d["regimes"][0]["words"].startswith("NIFTY: "))
+        r = self.result(self.c.call("regime_now", {"symbols": "../x"}))
+        self.assertTrue(r.get("isError") or r is None)
 
     def test_missing_and_hostile_uris(self):
         for uri in ("bharat-trader://trader/strategy.json", "bharat-trader://trader/../../etc/passwd.json",
