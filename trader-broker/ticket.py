@@ -1216,6 +1216,7 @@ def cmd_confirm(a):
     if _is_basket_file(a):
         raise TicketError((BASKET_WORDS % a.orders) + "; nothing was recorded")
     mode, live = mode_of(cfg)
+    actor = actor_of(a, mode)
     order = _pick(orders, a.index)
     ready, label, rv = status_of(order, risk, state, today)
     if not ready:
@@ -1233,6 +1234,8 @@ def cmd_confirm(a):
            "has_legs": bool(order.get("stop_loss") or order.get("target")),
            "plain": plain(order, cfg), "status": "placed", "yes_text": a.yes_text, "broker": "paper",
            "paper": True, "paper_order_id": "PAPER-%s-%d" % (today.replace("-", ""), n), "order": neutral(order)}
+    if actor != "user":
+        rec["actor"] = actor
     if mode == "live":
         rec.update(status="approved", broker=live, paper=False)
         rec.pop("paper_order_id")
@@ -1249,6 +1252,21 @@ def cmd_confirm(a):
     print("Placed on the PAPER account as %s: %s." % (rec["paper_order_id"], plain(order, cfg)))
     print("When it fills: ticket.py fill --index %d --price P (or the fresh price in trader/prices.json)." % a.index)
     return 0
+
+
+ACTORS = ("user", "autopilot")
+
+
+def actor_of(a, mode):
+    """Who typed the yes: "user" (the default) or "autopilot", trader-autopilot's machine yes, which is for the
+    PAPER account only: on a live config it is refused before anything is recorded."""
+    actor = str(getattr(a, "actor", None) or "user").strip().lower()
+    if actor not in ACTORS:
+        raise TicketError("--actor is user or autopilot, not %r" % actor)
+    if actor == "autopilot" and mode != "paper":
+        raise TicketError("an auto-pilot yes is for the PAPER account only and the config is live: the auto-pilot "
+                          "never approves a live order. Nothing was recorded or sent")
+    return actor
 
 
 def cmd_decline(a):
@@ -2676,6 +2694,7 @@ def cmd_confirm_basket(a):
     if mode != "paper":
         raise TicketError("baskets are paper-only in this version: send live F&O legs one by one (each its own "
                           "ticket and yes). Nothing was recorded or sent")
+    actor = actor_of(a, mode)
     risk = read_json(a.risk, "risk check", required=False)
     state = load_state(a.state)
     now, today = _clock(a)
@@ -2706,6 +2725,8 @@ def cmd_confirm_basket(a):
             "basket_margin": s["margin"], "strategy_id": (adj or {}).get("strategy_id"), "stop": None, "target": None,
             "has_legs": False, "plain": fno_plain(o), "status": "placed", "yes_text": a.yes_text, "broker": "paper",
             "paper": True, "paper_order_id": "PAPER-%s-B%d-L%d" % (today.replace("-", ""), n, i), "order": neutral(o)})
+        if actor != "user":
+            state["orders"][-1]["actor"] = actor
     write_json(a.state, state)
     print("Recorded your yes to the basket, word for word: \"%s\"." % a.yes_text)
     print("Placed on the PAPER account as basket PAPER-%s-B%d (%d legs, hedge first: %s):" % (
@@ -3351,6 +3372,9 @@ def cmd_place(a):
     except base.BrokerError as e:
         raise TicketError(e.message)
     approved = [r for r in records(state, fp, today, "approved") if r.get("broker") == b][-1]
+    if approved.get("actor", "user") != "user":
+        raise TicketError("this yes was recorded by %s, not typed by you: a live order needs your own yes. Nothing "
+                          "was sent" % approved.get("actor"))
     if leg != "entry":
         entry = [r for r in records(state, fp, today, "placed") if r.get("live") and r.get("broker") == b]
         if not entry:
@@ -3500,6 +3524,8 @@ def main(argv=None):
     p.add_argument("--basket", action="store_true", help="the yes is for the whole basket ticket")
     p.add_argument("--basket-id", help="the basket id the user was shown (refused if the file changed)")
     p.add_argument("--yes-text", required=True, help="the user's reply, word for word")
+    p.add_argument("--actor", choices=list(ACTORS), default="user",
+                   help="who typed the yes: user (default) or autopilot (trader-autopilot's machine yes, PAPER only)")
     p = sub.add_parser("decline", help="record a no")
     common(p)
     p.add_argument("--index", type=int)
