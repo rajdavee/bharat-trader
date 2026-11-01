@@ -2278,7 +2278,7 @@ def capture_chains(root, http, symbols, every=5, expiries=2, sessions=1, now_fn=
     beat_path = os.path.join(base, "capture.json")
     os.makedirs(base, exist_ok=True)
     other = read_json(lock, None)
-    if other and other.get("pid") != os.getpid() and _alive(other.get("pid")):
+    if other and other.get("pid") != os.getpid() and _alive(other.get("pid"), beat_path):
         raise ArchiveError("another capture-chains (pid %s) is already writing to %s" % (other.get("pid"), base))
     write_json(lock, {"pid": os.getpid(), "started": _stamp(now_fn())})
     closed = Store(root).calendar()["closed"]
@@ -2332,7 +2332,17 @@ def capture_chains(root, http, symbols, every=5, expiries=2, sessions=1, now_fn=
     return beat
 
 
-def _alive(pid):
+LOCK_STALE = 25 * 60     # seconds: a capture loop writes its heartbeat at least every 15 minutes
+
+
+def _alive(pid, beat_path=None):
+    """Is the capture loop that wrote the lock still running? POSIX asks the process table; Windows has no
+    harmless way (os.kill there terminates the process), so it trusts a heartbeat younger than LOCK_STALE."""
+    if os.name == "nt":
+        try:
+            return beat_path is not None and time.time() - os.path.getmtime(beat_path) < LOCK_STALE
+        except OSError:
+            return False
     try:
         os.kill(int(pid), 0)
         return True

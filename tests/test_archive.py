@@ -954,6 +954,7 @@ class CaptureChains(Tmp):
     def test_refuses_a_second_copy(self):
         os.makedirs(os.path.join(self.root, "chain"))
         arc.write_json(os.path.join(self.root, "chain", ".capture.lock"), {"pid": os.getppid()})
+        arc.write_json(os.path.join(self.root, "chain", "capture.json"), {"state": "capturing"})   # fresh heartbeat
         with self.assertRaises(arc.ArchiveError):
             arc.capture_chains(self.root, http(FakeNse()), ["NIFTY"], now_fn=lambda: NOW, sleep=lambda s: None)
 
