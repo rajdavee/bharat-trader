@@ -2775,6 +2775,179 @@ def forward(doc, data, out, today=None, fno=None, now=None, write=True):
             "plans": plans, "written": written, "notes": notes, "params": params}
 
 
+# ---------------------------------------------------------------- the forward-test dashboard
+
+def forward_tests_settings(cfg):
+    """The optional "forward_tests" block of trader/config.json over the dashboard's documented thresholds."""
+    ft = engines_api().fwdtest
+    raw = (cfg or {}).get("forward_tests") or {}
+    if not isinstance(raw, dict) or set(raw) - set(ft.SETTINGS):
+        raise LabError("\"forward_tests\" in trader/config.json takes only: %s" % ", ".join(sorted(ft.SETTINGS)))
+    for k, v in raw.items():
+        if not _is_num(v) or v <= 0:
+            raise LabError("\"forward_tests.%s\" is a number above 0" % k)
+    return dict(ft.SETTINGS, **raw)
+
+
+def _calibration_by_strategy(workdir, out, now):
+    """Brier score and friends per strategy from trader-cotrader's log (outcomes from the paper fills and the
+    lab's forward records; no bars are read). ({}, note) when the co-trader is not installed or has no log."""
+    ct = sibling_script("trader-cotrader", "cotrader.py", "bt_lab_cotrader")
+    if ct is None:
+        return {}, "trader-cotrader is not installed next to trader-lab"
+    try:
+        recs = ct.read_log(workdir)
+        if not recs:
+            return {}, "no co-trader predictions logged yet (trader/cotrader/log.jsonl)"
+        rep = ct.calibration(ct.resolve(recs, workdir, None, now, lab_out=out))
+    except Exception as e:  # noqa: BLE001 - the dashboard must not fail on the co-trader
+        return {}, "calibration unavailable: %s" % str(e)[:200]
+    return rep.get("by_strategy") or {}, None
+
+
+def forward_report(out=None, workdir=None, now=None, names=None, cfg=None, hunt=True):
+    """The forward-test dashboard (read only): for every trader-lab strategy with a run, its paper forward record
+    against the backtest's predicted range, the control chart, decay alerts with a DEMOTE recommendation, the
+    co-trader's calibration (Brier), the promote / demote timeline and the trades and sessions until PROMOTE.
+    workdir is the folder holding trader/ (default: two levels above out)."""
+    now = now or ist_now()
+    out = out or os.path.join("trader", "lab")
+    workdir = workdir or os.path.dirname(os.path.dirname(os.path.abspath(out)))
+    if cfg is None:
+        cfg = read_json(os.path.join(workdir, "trader", "config.json"), {}) or {}
+    st = forward_tests_settings(cfg)
+    ft = engines_api().fwdtest
+    cal, cal_note = _calibration_by_strategy(workdir, out, now)
+    demoted = (read_json(os.path.join(workdir, "trader", "cotrader", "demoted.json"), {}) or {}).get("strategies") or {}
+    rows, skipped = [], []
+    listing = sorted(os.listdir(out)) if os.path.isdir(out) else []
+    for name in listing:
+        d = os.path.join(out, name)
+        if names and name not in names:
+            continue
+        if not SPEC_NAME.match(name) or not os.path.isfile(os.path.join(d, "status.json")):
+            continue
+        res = read_json(os.path.join(d, "results.json"))
+        status = read_json(os.path.join(d, "status.json"), {}) or {}
+        if not res:
+            skipped.append({"strategy": name, "why": "no results.json (run it again)"})
+            continue
+        row = ft.strategy_row(name, res, status, read_json(os.path.join(d, "forward.json"), {}) or {},
+                              cal.get(name), demoted.get(name), st)
+        spec = read_json(os.path.join(d, "spec.json"), {}) or {}
+        row["kind"] = spec.get("kind") or "equity"
+        if row["verdict"] not in ft.ACTIVE and not row["forward"]["trades"] and len(row["timeline"]) < 2:
+            skipped.append({"strategy": name, "why": "verdict %s and no forward trades" % row["verdict"]})
+            continue
+        rows.append(row)
+    order = {"PROMOTE": 0, "WATCH": 1, "DEMOTE": 2}
+    rows.sort(key=lambda r: (not r["decay"], order.get(r["verdict"], 3), r["strategy"]))
+    watch = []
+    if hunt and os.path.isdir(EDGE_HUNT_DIR):
+        try:
+            hs = engines_api().executor.status(EDGE_HUNT_DIR, out)
+            watch = [{"id": h["id"], "title": h["title"], "verdict": h["verdict"], "why": h["why"]}
+                     for h in hs["hypotheses"] if h.get("verdict") == "WATCH"]
+        except Exception as e:  # noqa: BLE001 - the hunt's status is extra
+            watch = [{"id": None, "error": str(e)[:200]}]
+    return {"schema": "bharat-trader/forward-report/1", "as_of": now.strftime("%Y-%m-%d %H:%M"),
+            "strategies": rows, "skipped": skipped, "decay_alerts": [r["strategy"] for r in rows if r["decay"]],
+            "edge_hunt_watch": watch, "calibration_note": cal_note, "settings": st,
+            "thresholds": {
+                "predicted range": "backtest out-of-sample mean R +- %.2f x sd x sqrt(1/n + 1/N)" % st["z"],
+                "judged from": "%d forward trades" % st["min_judge"],
+                "decay alert": "%d+ forward trades and the running mean below the range for %d in a row, or the "
+                               "lower CUSUM (k %g, h %g) alarms" % (st["decay_min_trades"], st["decay_run"],
+                                                                    st["cusum_k"], st["cusum_h"])},
+            "words": ft.summary_words(rows), "does_not_show": ft.DOES_NOT_SHOW,
+            "disclaimer": "Paper forward tests. Education and research tooling, not financial advice."}
+
+
+def apply_forward_demote(out, name, now=None, workdir=None):
+    """DEMOTE one strategy whose forward record decayed, through the lab's own status (the co-trader's
+    calibration uses the same mechanism). Only when the dashboard recommends it; returns the new status."""
+    now = now or ist_now()
+    rep = forward_report(out, workdir, now, names=[name], hunt=False)
+    row = next((r for r in rep["strategies"] if r["strategy"] == name), None)
+    if row is None:
+        raise LabError("no forward test for %s in %s" % (name, out))
+    if not row["recommendation"]:
+        raise LabError("%s has no decay alert (forward record %s the range): nothing to demote" % (name, row["where"]))
+    st = read_json(os.path.join(lab_dir(out, name), "status.json"), {}) or {}
+    return update_status(out, name, "DEMOTE", "forward test: " + row["recommendation"]["why"], st.get("spec_hash"),
+                         now, st.get("forward"))
+
+
+def _pct(x):
+    return "–" if x is None else "%.0f%%" % (100 * x)
+
+
+def forward_report_md(rep):
+    L = ["# Forward tests, %s IST" % rep["as_of"], "", rep["words"], ""]
+    for r in rep["strategies"]:
+        bt, fw, pr = r["backtest"], r["forward"], r["predicted"]
+        L.append("## %s: %s%s" % (r["strategy"], r["verdict"], "  (DECAY ALERT)" if r["decay"] else ""))
+        L.append("")
+        L.append("- Backtest (%s): %d trades, %s a trade, win rate %s." % (
+            bt["source"], bt["trades"] or 0, _r(bt["mean_r"]) if bt.get("mean_r") is not None else "–",
+            _pct(bt.get("win_rate"))))
+        if fw["trades"]:
+            ci = fw.get("win_rate_ci") or [None, None]
+            L.append("- Paper forward: %d trades, %s a trade%s, win rate %s (95%% %s to %s), %s net after charges." % (
+                fw["trades"], _r(fw["mean_r"]),
+                " (95%% %s to %s)" % (_r(fw["mean_r_ci"][0]), _r(fw["mean_r_ci"][1])) if fw.get("mean_r_ci") else "",
+                _pct(fw["win_rate"]), _pct(ci[0]), _pct(ci[1]), inr(fw["net"])))
+        else:
+            L.append("- Paper forward: no trades yet.")
+        if pr:
+            L.append("- Predicted for %d trades: %s to %s a trade%s. The forward record is %s." % (
+                fw["trades"], _r(pr["mean_r"][0]), _r(pr["mean_r"][1]),
+                ", win rate %s to %s" % (_pct(pr["win_rate"][0]), _pct(pr["win_rate"][1])) if pr.get("win_rate") else "",
+                {"inside": "inside the range", "below": "BELOW the range", "above": "above the range",
+                 "too few": "too short to judge"}[r["where"]]))
+        cc = r["control_chart"]
+        if cc["last"] is not None:
+            L.append("- Control chart (lower CUSUM): %.2f now, alarm above %g%s." % (
+                cc["last"], cc["h"], ", ALARMED at forward trade %d" % cc["alarm_at"] if cc["alarm_at"] else ""))
+        c = r["calibration"]
+        L.append("- Calibration: %s." % ("Brier %.3f on %d resolved co-trader predictions (a constant guess at the "
+                                        "base rate scores %.3f)" % (c["brier"], c["n"], c["brier_reference"])
+                                        if c.get("n") else "no resolved co-trader predictions yet"))
+        L.append("- To PROMOTE: %s." % r["eligibility"]["words"])
+        if r["recommendation"]:
+            L.append("- Recommendation: DEMOTE (%s). To apply it: `%s`" % (r["recommendation"]["why"],
+                                                                        r["recommendation"]["how"]))
+        if r["timeline"]:
+            L.append("- Timeline: " + "; ".join("%s %s" % (x["at"], x["verdict"]) for x in r["timeline"][-6:]) + ".")
+        L.append("")
+    ids = [h["id"] for h in rep["edge_hunt_watch"] if h.get("id")]
+    if ids:
+        L.append("Edge-hunt WATCH hypotheses (a paper forward test is their next step): %s." % ", ".join(ids))
+        L.append("")
+    if rep.get("calibration_note"):
+        L.append("Calibration: %s." % rep["calibration_note"])
+    L.append("Thresholds: " + "; ".join("%s: %s" % kv for kv in sorted(rep["thresholds"].items())) + ".")
+    L.append("")
+    L.append("What this does not show: " + " ".join(rep["does_not_show"]))
+    L.append(rep["disclaimer"])
+    return "\n".join(L) + "\n"
+
+
+def cmd_forward_report(a):
+    now = ist_now(a.now)
+    if a.demote:
+        st = apply_forward_demote(a.out, a.demote, now, a.workdir)
+        print("%s is now DEMOTE (%s). The co-trader shows it as RESEARCH and the auto-pilot no longer trades it."
+              % (a.demote, st["why"]))
+        return 0
+    rep = forward_report(a.out, a.workdir, now, a.strategy or None)
+    if a.json:
+        print(json.dumps(rep, indent=1, ensure_ascii=False))
+    else:
+        sys.stdout.write(forward_report_md(rep))
+    return 0
+
+
 def plan_from_signal(spec, p, today, fno, h, verdict):
     """A trader-exit-shaped plan from a pending lab signal: a LIMIT at the signal bar's close."""
     sym, close_px = p["symbol"], p["close"]
@@ -3107,6 +3280,13 @@ def main(argv=None):
             p.add_argument("--seed", type=int, help="the Monte Carlo seed (default: the spec's, else 16)")
         else:
             p.add_argument("--date", help="the session to read signals on (default: the latest in the data)")
+    p = sub.add_parser("forward-report", help="the forward-test dashboard: paper record vs the backtest's range, "
+                       "decay alerts, calibration, days to PROMOTE")
+    p.add_argument("strategy", nargs="*", help="only these lab names (default: every forward test)")
+    p.add_argument("--workdir", help="the folder holding trader/ (default: two levels above --out)")
+    p.add_argument("--demote", metavar="NAME", help="apply the DEMOTE a decay alert recommends for this strategy")
+    p.add_argument("--now", help="pretend it is this IST time")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("report", help="the plain-words scorecard of a run")
     p.add_argument("strategy")
     p.add_argument("--json", action="store_true")
@@ -3134,7 +3314,8 @@ def main(argv=None):
         return 2
     try:
         return {"list": cmd_list, "show": cmd_show, "validate": cmd_validate, "run": cmd_run, "report": cmd_report,
-                "compare": cmd_compare, "forward": cmd_forward, "hunt": cmd_hunt}[a.cmd](a)
+                "compare": cmd_compare, "forward": cmd_forward, "hunt": cmd_hunt,
+                "forward-report": cmd_forward_report}[a.cmd](a)
     except (LabError, RulesError, ValueError) as e:
         print("lab: %s" % e, file=sys.stderr)
         return 1

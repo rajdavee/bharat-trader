@@ -42,6 +42,7 @@ start on it, and it never calls trader-broker's live place command. Education an
 import argparse
 import contextlib
 import datetime
+import gzip
 import importlib.util
 import io
 import json
@@ -49,6 +50,7 @@ import os
 import re
 import shutil
 import signal
+import subprocess
 import sys
 import time
 from decimal import Decimal, ROUND_HALF_UP
@@ -79,6 +81,9 @@ DEFAULTS = {
     "archive_update": False,   # trader-archive update at the pre-open (live only)
     "calibration_demote": True,
     "forward_update": True,    # feed the lab's forward record and re-run its forward test at the end of the day
+    "forward_report": True,    # the forward-test dashboard at the end of the day: decay alerts, days to PROMOTE
+    "decay_demote": False,     # apply the DEMOTE a decay alert recommends (off: it is recommended, you decide)
+    "chain_capture": None,     # the intraday option-chain capture job (CAPTURE_DEFAULTS; on by default, live only)
 }
 STRATEGY_KEYS = {"capital", "max_positions", "max_daily_loss", "max_loss_per_trade", "product", "trail_after_r",
                  "trail_lock_r", "enabled"}
@@ -309,6 +314,10 @@ def settings_of(cfg):
             raise AutopilotError("strategy %s: \"trail_lock_r\" needs \"trail_after_r\"" % name)
         out[name] = b
     s["strategies"] = out
+    for k in ("forward_report", "decay_demote"):
+        if not isinstance(s.get(k), bool):
+            raise AutopilotError("\"%s\" is true or false" % k)
+    s["chain_capture"] = capture_settings(s.get("chain_capture"))
     return s
 
 
@@ -489,6 +498,7 @@ class Pilot(object):
         self.ap = None
         self.clock = None
         self.seq = 0
+        self.capture_hooks = {}          # tests: {"spawn", "alive", "terminate", "script"} for the capture job
 
     # ------------------------------------------------------------ plumbing
 
@@ -511,7 +521,54 @@ class Pilot(object):
             fh.write(json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n")
         self.state["events"] = self.state.get("events", 0) + 1
         self.log("%s %s" % (now.strftime("%H:%M"), words))
+        self.notify_for(kind, words, data)
         return rec
+
+    def notify(self, event, title, text, key=None):
+        """One local notification (trader-alerts, off unless the config turns it on). Never in a replay."""
+        if self.replay:
+            return None
+        al = alerts_api()
+        return al.notify(self.paths.workdir, event, title, text, key=key) if hasattr(al, "notify") else None
+
+    def notify_for(self, kind, words, data):
+        if self.replay or kind not in ("fill", "exit", "kill", "blocked"):
+            return None
+        pid = data.get("position") or ""
+        if kind == "fill":
+            return self.notify("autopilot_fill", "Auto-pilot fill (paper)", words.split("; charges")[0],
+                               key="fill:%s:%s" % (pid, data.get("leg")))
+        if kind == "exit":
+            return self.notify("autopilot_exit", "Auto-pilot exit (paper)", words, key="exit:%s" % pid)
+        if kind == "kill":
+            return self.notify("kill", "Kill switch: auto-pilot", "The kill switch is on: no new auto-pilot entries "
+                               "today; its paper positions are flattened.", key="ap-kill:%s" % self.state.get("day"))
+        if re.search(r"breaker|cooling-off|LOCKED|kill switch", words, re.I):
+            m = re.search(r"(breaker|cooling-off)[^;.]*", words, re.I)
+            text = "A risk lock blocked an auto-pilot entry: %s." % (m.group(0) if m else "see the timeline")
+            return self.notify("risk_lock", "Risk lock (paper)", text, key="ap-lock:%s:%s" % (
+                self.state.get("day"), (m.group(0) if m else "")[:40]))
+        return None
+
+    def capture_live(self):
+        cc = (self.ap or {}).get("chain_capture") or {}
+        return bool(cc.get("enabled")) and not self.replay and (self.fetch or self.capture_hooks.get("force"))
+
+    def capture_job(self):
+        hooks = {k: v for k, v in self.capture_hooks.items() if k in ("spawn", "alive", "terminate", "script")}
+        return CaptureJob(self.paths, self.ap["chain_capture"], self.market.archive or
+                          os.environ.get("BT_ARCHIVE") or os.path.join(self.paths.trader, "archive"),
+                          notify=self.notify, **hooks)
+
+    def capture_tick(self, now, sess):
+        try:
+            words = self.capture_job().tick(now, sess)
+        except (OSError, ValueError) as e:
+            words = "chain capture could not start: %s" % e
+            self.notify("capture_failure", "Chain capture", words, key="capture-oserror:%s" % now.date())
+        if words:
+            self.event(now, "note", words)
+        return words
 
     def load_config(self):
         cfg = read_json(self.paths.config)
@@ -625,6 +682,8 @@ class Pilot(object):
             return "closed: %s" % (self.clock.closed_reason(day) or "no session")
         self.roll_day(day, now)
         pre, opens, close = sess
+        if self.capture_live():
+            self.capture_tick(now, sess)
         t = now.time()
         ph = self.state["phases"]
         if t < pre:
@@ -1491,10 +1550,18 @@ class Pilot(object):
         journal = self.journal_hook(day, now)
         cal = self.calibration(now)
         fwd = self.forward_update(day, now) if self.ap.get("forward_update") else {"skipped": "off in the config"}
+        ftests = self.forward_tests(day, now) if self.ap.get("forward_report") else {"skipped": "off in the config"}
+        cap = None
+        if self.capture_live():
+            try:
+                cap = self.capture_job().health(now, self.clock.session(day))
+            except (OSError, ValueError) as e:
+                cap = {"problems": [str(e)]}
         self.state["phases"]["eod"] = now.strftime("%H:%M")
         self.save()
         rep = build_report(self.paths.workdir, day, extra={"journal": journal, "calibration": cal, "forward": fwd,
-                                                             "records": recs})
+                                                             "records": recs, "forward_tests": ftests,
+                                                             "capture": cap})
         self.event(now, "eod", "end of day: %d trade(s) closed, realised %s after %s charges; report in "
                                "trader/autopilot/days/%s/" % (rep["totals"]["closed"], inr(rep["totals"]["realised"]),
                                                               inr(rep["totals"]["charges"]), day))
@@ -1626,6 +1693,42 @@ class Pilot(object):
         self.state["forward"] = out
         self.save()
         return out
+
+
+    def forward_tests(self, day, now):
+        """trader-lab's forward-test dashboard for the enabled strategies: each forward record against its
+        backtest's predicted range. A decay alert is notified and, only with "decay_demote": true, applied
+        (the lab's DEMOTE); otherwise it is a recommendation in the report."""
+        lab = lab_api()
+        if not hasattr(lab, "forward_report"):
+            return {"skipped": "this trader-lab has no forward-report"}
+        try:
+            rep = lab.forward_report(self.paths.lab, self.paths.workdir, now, sorted(self.ap["strategies"]),
+                                     cfg=self.cfg, hunt=False)
+        except lab.LabError as e:
+            return {"error": str(e)}
+        rows, demoted = [], []
+        for r in rep["strategies"]:
+            fw, pr = r["forward"], r["predicted"]
+            rows.append({"strategy": r["strategy"], "verdict": r["verdict"], "trades": fw["trades"],
+                         "mean_r": fw["mean_r"], "predicted_mean_r": (pr or {}).get("mean_r"), "where": r["where"],
+                         "decay": r["decay"], "recommendation": r["recommendation"],
+                         "to_promote": r["eligibility"]["words"], "brier": r["calibration"].get("brier"),
+                         "words": r["words"]})
+            if r["decay"]:
+                self.notify("decay_alert", "Decay alert: %s" % r["strategy"], "%s: %d forward trades average %+.3fR, "
+                            "below what its backtest predicted. Recommended: DEMOTE (lab.py forward-report)." % (
+                                r["strategy"], fw["trades"], fw["mean_r"] or 0), key="decay:%s:%s" % (r["strategy"], day))
+                if self.ap.get("decay_demote") and r["recommendation"]:
+                    try:
+                        lab.apply_forward_demote(self.paths.lab, r["strategy"], now, self.paths.workdir)
+                        demoted.append(r["strategy"])
+                        self.event(now, "note", "%s demoted by its forward test: %s" % (
+                            r["strategy"], r["recommendation"]["why"]))
+                    except lab.LabError as e:
+                        self.event(now, "note", "%s: the decay demote failed: %s" % (r["strategy"], e))
+        return {"rows": rows, "decay_alerts": rep["decay_alerts"], "demoted": demoted, "words": rep["words"],
+                "thresholds": rep["thresholds"]}
 
 
 # ---------------------------------------------------------------- end-of-day option chains
@@ -1805,6 +1908,12 @@ MSG = {
         "cal_head": "## Calibration (co-trader)",
         "demoted": "Demoted for poor calibration: {names}.",
         "journal": "Journal: {status}{why}.",
+        "ft_head": "## Forward tests (backtest range vs paper record)",
+        "ft_promote": "To PROMOTE: {words}.",
+        "ft_demote": "Recommended: DEMOTE ({why}). Apply it yourself: `{how}`",
+        "ft_demoted": "Demoted by their forward test (decay_demote is on): {names}.",
+        "cap_head": "## Intraday option-chain capture",
+        "cap_row": "Capture {state}: rounds today {rounds}; {gaps} gap(s); {restarts} restart(s).",
         "timeline": "## Timeline",
         "dns": "What this does NOT show: a paper fill is a model (fills at the bar's prices, the spec's slippage on "
                "market and stop orders); a real order can fill worse or not at all. A few days of results prove "
@@ -1835,6 +1944,12 @@ MSG = {
         "cal_head": "## Calibration (co-trader)",
         "demoted": "Kharab calibration ki wajah se demote: {names}.",
         "journal": "Journal: {status}{why}.",
+        "ft_head": "## Forward tests (backtest ki range vs paper record)",
+        "ft_promote": "PROMOTE tak: {words}.",
+        "ft_demote": "Salah: DEMOTE ({why}). Khud apply karein: `{how}`",
+        "ft_demoted": "Forward test ki wajah se demote (decay_demote on hai): {names}.",
+        "cap_head": "## Intraday option-chain capture",
+        "cap_row": "Capture {state}: aaj ke rounds {rounds}; {gaps} gap; {restarts} restart.",
         "timeline": "## Timeline",
         "dns": "Yeh kya NAHI dikhata: paper fill ek model hai (bar ke prices pe fill, market aur stop orders pe spec "
                "ki slippage); asli order isse bura fill ho sakta hai ya bilkul nahi. Kuch dinon ke results se kisi "
@@ -1915,6 +2030,29 @@ def report_md(rep, lang="en"):
             L.append(t("fwd_row", lang, name=name, before=f.get("before"), after=f.get("after"),
                        changed=t("changed", lang) if f.get("changed") else "", n=fr.get("trades", 0),
                        exp="%+.3fR" % (fr.get("expectancy_r") or 0.0), why=f.get("why") or ""))
+    ft = rep.get("forward_tests") or {}
+    if ft:
+        L += ["", t("ft_head", lang), ""]
+        if ft.get("skipped") or ft.get("error"):
+            L.append(t("skipped", lang, why=ft.get("skipped") or ft.get("error")))
+        for r in ft.get("rows") or []:
+            L.append("- " + r["words"])
+            L.append("  " + t("ft_promote", lang, words=r["to_promote"]))
+            if r.get("recommendation"):
+                L.append("  " + t("ft_demote", lang, why=r["recommendation"]["why"], how=r["recommendation"]["how"]))
+        if ft.get("demoted"):
+            L.append(t("ft_demoted", lang, names=", ".join(ft["demoted"])))
+    cap = rep.get("capture") or {}
+    if cap:
+        L += ["", t("cap_head", lang), ""]
+        today = cap.get("today") or {}
+        L.append(t("cap_row", lang, state=cap.get("state") or "not started", rounds=", ".join(
+            "%s %d" % (k, v.get("rounds", 0)) for k, v in sorted(today.items())) or "none",
+            gaps=len(cap.get("gaps") or []), restarts=cap.get("restarts_today", 0)))
+        if (cap.get("holdout") or {}).get("words"):
+            L.append(cap["holdout"]["words"] + ".")
+        for p in cap.get("problems") or []:
+            L.append("- " + p)
     cal = rep.get("calibration") or {}
     if cal:
         L += ["", t("cal_head", lang), "", cal.get("words") or cal.get("error") or ""]
@@ -1934,6 +2072,278 @@ def save_report(paths, rep):
     write_json(paths.day(rep["date"], "report.json"), rep)
     with open(paths.day(rep["date"], "report.md"), "w", encoding="utf-8") as fh:
         fh.write(report_md(rep, pick_lang(None, read_json(paths.config))))
+
+
+# ---------------------------------------------------------------- the intraday option-chain capture job
+
+CAPTURE_DEFAULTS = {
+    "enabled": True,            # the loop keeps trader-archive's capture-chains running in market hours (live only)
+    "symbols": ["NIFTY", "BANKNIFTY"],
+    "every_min": 5,             # minutes between snapshot rounds (trader-archive's minimum is 3)
+    "expiries": 2,              # nearest N expiries: NIFTY's weekly and the next one
+    "stale_min": 20,            # no heartbeat this long in market hours: stale (an NSE block pauses it 15 minutes)
+    "max_restarts": 3,          # restarts a day after a crash or a stale heartbeat, then it gives up and says so
+    "restart_gap_min": 10,      # at least this long between two starts
+    "archive": None,            # the archive folder (default: --archive, $BT_ARCHIVE, else trader/archive)
+}
+HOLDOUT_START = "2026-11-16"    # eh-14-trend-day-buying: its sealed holdout is the chain captured live from this day
+SNAP_RE = re.compile(r"^(\d{4})_(.+)\.json\.gz$")
+
+
+def capture_settings(raw):
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise AutopilotError("\"autopilot.chain_capture\" is an object (docs/forward-tests.md)")
+    bad = sorted(set(raw) - set(CAPTURE_DEFAULTS))
+    if bad:
+        raise AutopilotError("unknown \"chain_capture\" keys: %s (known: %s)" % (", ".join(bad),
+                                                                            ", ".join(sorted(CAPTURE_DEFAULTS))))
+    c = dict(CAPTURE_DEFAULTS, **raw)
+    if not isinstance(c["enabled"], bool):
+        raise AutopilotError("\"chain_capture.enabled\" is true or false")
+    syms = c["symbols"]
+    if not isinstance(syms, list) or not syms or len(syms) > 6 or \
+            not all(isinstance(x, str) and re.match(r"^[A-Z][A-Z0-9&\-]{0,19}$", x) for x in syms):
+        raise AutopilotError("\"chain_capture.symbols\" is a list of 1 to 6 NSE underlyings, e.g. [\"NIFTY\", "
+                             "\"BANKNIFTY\"]")
+    for k, lo, hi in (("every_min", 3, 60), ("expiries", 1, 4), ("stale_min", 5, 240), ("max_restarts", 0, 20),
+                      ("restart_gap_min", 1, 240)):
+        v = c[k]
+        if not isinstance(v, int) or isinstance(v, bool) or not lo <= v <= hi:
+            raise AutopilotError("\"chain_capture.%s\" is a whole number from %d to %d" % (k, lo, hi))
+    if c["stale_min"] < 2 * c["every_min"]:
+        raise AutopilotError("\"chain_capture.stale_min\" must be at least twice every_min")
+    if c["archive"] is not None and not isinstance(c["archive"], str):
+        raise AutopilotError("\"chain_capture.archive\" is a folder path or null")
+    return c
+
+
+def _parse_stamp(text):
+    if not text:
+        return None
+    try:
+        return datetime.datetime.strptime(str(text)[:19], "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        try:
+            return datetime.datetime.strptime(str(text)[:19], "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return None
+
+
+def _spawn(argv, log_path):
+    """Start the capture loop detached from this process (it outlives a restart of the auto-pilot)."""
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    fh = open(log_path, "a", encoding="utf-8")
+    kw = {"stdin": subprocess.DEVNULL, "stdout": fh, "stderr": subprocess.STDOUT, "close_fds": True}
+    if os.name == "nt":
+        kw["creationflags"] = 0x00000008 | 0x00000200      # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    else:
+        kw["start_new_session"] = True
+    try:
+        return subprocess.Popen(argv, **kw).pid
+    finally:
+        fh.close()
+
+
+def _terminate(pid):
+    try:
+        os.kill(int(pid), signal.SIGTERM)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+class CaptureJob(object):
+    """Keeps trader-archive's capture-chains running through each session: starts it at the pre-open, checks its
+    heartbeat (archive/chain/capture.json) every step, restarts it after a crash or a stale heartbeat (its own
+    process only, at most max_restarts a day, restart_gap_min apart) and says so. Its own state:
+    trader/autopilot/capture.json; the capture's output: trader/autopilot/capture.log."""
+
+    def __init__(self, paths, settings, archive_root=None, spawn=None, alive=None, terminate=None,
+                 script=None, notify=None):
+        self.paths = paths
+        self.s = settings
+        root = settings.get("archive") or archive_root or os.environ.get("BT_ARCHIVE") or \
+            os.path.join(paths.trader, "archive")
+        self.root = os.path.abspath(root)
+        self.beat_path = os.path.join(self.root, "chain", "capture.json")
+        self.lock_path = os.path.join(self.root, "chain", ".capture.lock")
+        self.state_path = os.path.join(paths.ap, "capture.json")
+        self.log_path = os.path.join(paths.ap, "capture.log")
+        self.spawn = spawn or _spawn
+        self.alive = alive or pid_alive
+        self.terminate = terminate or _terminate
+        self.script = script or os.path.join(os.path.dirname(HERE), "trader-archive", "archive.py")
+        self.notify = notify or (lambda event, title, text, key=None: None)
+
+    def argv(self):
+        return [sys.executable, self.script, "--root", self.root, "capture-chains", "--symbols",
+                ",".join(self.s["symbols"]), "--every", str(self.s["every_min"]), "--expiries",
+                str(self.s["expiries"]), "--sessions", "1"]
+
+    def snapshots(self, day, now=None, opens=None):
+        """Today's snapshot files per symbol, the strike rows in the latest one, and the gaps between rounds."""
+        out, gaps = {}, []
+        limit = 2 * int(self.s["every_min"])
+        for sym in self.s["symbols"]:
+            d = os.path.join(self.root, "chain", sym, day)
+            names = sorted(f for f in os.listdir(d) if SNAP_RE.match(f)) if os.path.isdir(d) else []
+            times = sorted(set(SNAP_RE.match(f).group(1) for f in names))
+            rows = None
+            if names:
+                latest = max(names)
+                try:
+                    with gzip.open(os.path.join(d, latest), "rt", encoding="utf-8") as fh:
+                        doc = json.load(fh)
+                    rows = len(((doc.get("data") or {}).get("records") or {}).get("data") or [])
+                except (OSError, ValueError, AttributeError):
+                    rows = None
+            mins = [int(x[:2]) * 60 + int(x[2:]) for x in times]
+            marks = list(mins)
+            if opens is not None and mins and mins[0] - opens > limit:
+                gaps.append({"symbol": sym, "from": "%02d:%02d" % divmod(opens, 60), "to": times[0][:2] + ":" +
+                             times[0][2:], "minutes": mins[0] - opens, "where": "after the open"})
+            for a, b in zip(marks, marks[1:]):
+                if b - a > limit:
+                    gaps.append({"symbol": sym, "from": "%02d:%02d" % divmod(a, 60), "to": "%02d:%02d" % divmod(b, 60),
+                                 "minutes": b - a, "where": "between rounds"})
+            if now is not None and mins and now.date().isoformat() == day:
+                m = now.hour * 60 + now.minute
+                if m <= 15 * 60 + 30 and m - mins[-1] > limit + 1:
+                    gaps.append({"symbol": sym, "from": "%02d:%02d" % divmod(mins[-1], 60), "to": "now",
+                                 "minutes": m - mins[-1], "where": "since the last round"})
+            out[sym] = {"snapshots": len(names), "rounds": len(times), "first": times[0] if times else None,
+                        "last": times[-1] if times else None, "latest_rows": rows}
+        return out, gaps
+
+    def first_day(self):
+        days = []
+        for sym in self.s["symbols"]:
+            d = os.path.join(self.root, "chain", sym)
+            if os.path.isdir(d):
+                days.extend(x for x in os.listdir(d) if re.match(r"^\d{4}-\d{2}-\d{2}$", x) and
+                            any(SNAP_RE.match(f) for f in os.listdir(os.path.join(d, x))))
+        return min(days) if days else None
+
+    def health(self, now, sess=None):
+        st = read_json(self.state_path) or {}
+        beat = read_json(self.beat_path) or {}
+        lock = read_json(self.lock_path) or {}
+        pid = lock.get("pid") or beat.get("pid")
+        running = bool(lock) and self.alive(lock.get("pid"))
+        day = now.date().isoformat()
+        opens = close = None
+        if sess:
+            opens, close = minutes(sess[1]), minutes(sess[2])
+        m = now.hour * 60 + now.minute
+        in_market = sess is not None and opens <= m <= close
+        last = _parse_stamp(beat.get("last"))
+        nxt = _parse_stamp(beat.get("next"))
+        stale_after = int(self.s["stale_min"])
+        age = round((now - last).total_seconds() / 60.0, 1) if last else None
+        stale = False
+        if running and in_market and m >= opens + stale_after:
+            if beat.get("state") == "capturing":
+                stale = nxt is not None and now > nxt + datetime.timedelta(minutes=stale_after - int(self.s["every_min"]))
+            else:
+                stale = last is None or (now - last).total_seconds() > stale_after * 60
+        snaps, gaps = self.snapshots(day, now, opens if in_market or (sess and m > close) else None)
+        first = self.first_day()
+        problems = []
+        if not os.path.isfile(self.script):
+            problems.append("trader-archive is not installed next to trader-autopilot: nothing can capture")
+        if in_market and not running:
+            problems.append("not running in market hours")
+        if stale:
+            problems.append("the heartbeat is stale: no round for %s minutes" % (age if age is not None else "?"))
+        if beat.get("last_error"):
+            problems.append("last error: %s" % str(beat["last_error"])[:160])
+        if st.get("gave_up") == day:
+            problems.append("gave up for today after %d restarts (see trader/autopilot/capture.log)" % st.get("restarts", 0))
+        if day < HOLDOUT_START:
+            hold = "the holdout of eh-14-trend-day-buying starts %s: capture must run from then" % HOLDOUT_START
+        elif first and first <= HOLDOUT_START:
+            hold = "capturing since %s, in time for the holdout from %s" % (first, HOLDOUT_START)
+        else:
+            hold = "LATE: the holdout from %s needs the chain captured live; the first snapshot is %s" % (
+                HOLDOUT_START, first or "none yet")
+        return {"enabled": self.s["enabled"], "symbols": self.s["symbols"], "every_min": self.s["every_min"],
+                "expiries": self.s["expiries"], "archive": self.root, "running": running, "pid": pid if running else None,
+                "ours": bool(running and st.get("pid") == lock.get("pid")), "state": beat.get("state"),
+                "heartbeat": {k: beat.get(k) for k in ("last", "next", "rounds", "files", "started", "stopped",
+                                                       "last_error")} if beat else None,
+                "age_min": age, "stale": stale, "stale_after_min": stale_after, "in_market": in_market,
+                "today": snaps, "gaps": gaps, "restarts_today": st.get("restarts", 0) if st.get("day") == day else 0,
+                "last_start": st.get("last_start"), "first_snapshot_day": first,
+                "holdout": {"from": HOLDOUT_START, "words": hold, "ok": not hold.startswith("LATE")},
+                "problems": problems, "log": "trader/autopilot/capture.log"}
+
+    def tick(self, now, sess):
+        """One supervision step at `now` (naive IST) in a session (pre, open, close as times). Returns the words of
+        what it did, or None."""
+        if not self.s["enabled"] or not sess:
+            return None
+        pre, opens, close = sess
+        t = now.time()
+        if t < pre or t >= close:
+            return None
+        day = now.date().isoformat()
+        st = read_json(self.state_path) or {}
+        if st.get("day") != day:
+            st = {"day": day, "starts": 0, "restarts": 0, "pid": None, "last_start": None, "gave_up": None, "notes": []}
+        h = self.health(now, sess)
+        if not os.path.isfile(self.script):
+            return self._note(st, now, "no-archive", "chain capture: trader-archive is not installed; nothing captures")
+        if h["running"] and not h["stale"]:
+            return None
+        beat = read_json(self.beat_path) or {}
+        if not h["running"] and beat.get("state") == "done" and str(beat.get("stopped") or "")[:10] == day:
+            return None                     # today's session was captured to the end
+        why = None
+        if h["running"] and h["stale"]:
+            if not h["ours"]:
+                return self._note(st, now, "stale-foreign", "chain capture: another capture-chains (pid %s) has a stale "
+                                  "heartbeat; it was not started here, so it is left alone" % h["pid"], fail=True)
+            self.terminate(h["pid"])
+            why = "its heartbeat went stale (%s min)" % h["age_min"]
+        elif st["starts"]:
+            why = "it stopped (see trader/autopilot/capture.log)"
+        if why and st["restarts"] >= int(self.s["max_restarts"]):
+            if st.get("gave_up") != day:
+                st["gave_up"] = day
+                write_json(self.state_path, st)
+                self.notify("capture_failure", "Chain capture stopped", "The intraday option-chain capture %s and was "
+                            "restarted %d times today: given up until tomorrow's pre-open." % (why, st["restarts"]),
+                            key="capture-gaveup:" + day)
+                return "chain capture: %s; %d restarts today, given up until tomorrow" % (why, st["restarts"])
+            return None
+        last = _parse_stamp(st.get("last_start"))
+        if last and (now - last).total_seconds() < int(self.s["restart_gap_min"]) * 60:
+            return None
+        pid = self.spawn(self.argv(), self.log_path)
+        st["starts"] += 1
+        if why:
+            st["restarts"] += 1
+        st.update({"pid": pid, "last_start": now.strftime("%Y-%m-%d %H:%M:%S")})
+        write_json(self.state_path, st)
+        if why:
+            self.notify("capture_failure", "Chain capture restarted", "The intraday option-chain capture %s; restarted "
+                        "(%d of %d today)." % (why, st["restarts"], int(self.s["max_restarts"])),
+                        key="capture-restart:%s:%d" % (day, st["restarts"]))
+            return "chain capture restarted (pid %s): %s" % (pid, why)
+        return "chain capture started (pid %s): %s every %d min, nearest %d expiries, into %s" % (
+            pid, ", ".join(self.s["symbols"]), self.s["every_min"], self.s["expiries"], self.root)
+
+    def _note(self, st, now, what, words, fail=False):
+        seen = st.setdefault("notes", [])
+        if what in seen:
+            return None
+        seen.append(what)
+        write_json(self.state_path, st)
+        if fail:
+            self.notify("capture_failure", "Chain capture", words, key="capture-%s:%s" % (what, st["day"]))
+        return words
 
 
 # ---------------------------------------------------------------- the lock and the loop
@@ -2229,7 +2639,62 @@ def status(workdir, now=None):
             "timeline": tl[-100:], "records": records, "strategies": lab_rows,
             "reports": sorted(os.listdir(os.path.join(paths.ap, "days")))[-30:]
             if os.path.isdir(os.path.join(paths.ap, "days")) else [],
+            "capture": _capture_or_none(workdir, ap),
             "paper_only": True, "disclaimer": DISCLAIMER}
+
+
+def _capture_or_none(workdir, ap):
+    if not ap:
+        return None
+    try:
+        return capture_health(workdir)
+    except (AutopilotError, OSError, ValueError) as e:
+        return {"problems": [str(e)]}
+
+
+def capture_health(workdir, now=None, archive=None, tick=False, hooks=None):
+    """The intraday option-chain capture job: heartbeat, today's rounds and rows, gaps, restarts, the holdout
+    deadline. tick=True also runs one supervision step (start or restart it), for a scheduler that runs this
+    instead of the loop."""
+    paths = Paths(workdir)
+    cfg = read_json(paths.config) or {}
+    paper_guard(cfg)
+    ap = settings_of(cfg)
+    now = naive(now) if now else parse_now(None)
+    clock = Clock(cfg, set())
+    sess = clock.session(now.date().isoformat())
+    if archive is None:
+        archive = os.environ.get("BT_ARCHIVE") or os.path.join(paths.trader, "archive")
+    al = alerts_api()
+    job = CaptureJob(paths, ap["chain_capture"], archive, notify=lambda e, ti, tx, key=None: al.notify(
+        paths.workdir, e, ti, tx, key=key) if hasattr(al, "notify") else None, **(hooks or {}))
+    did = job.tick(now, sess) if tick else None
+    h = job.health(now, sess)
+    h["did"] = did
+    h["session"] = [hhmm(x) for x in sess] if sess else None
+    return h
+
+
+def render_capture(h):
+    L = ["Intraday option-chain capture: %s%s" % ("RUNNING, pid %s" % h["pid"] if h["running"] else "not running",
+                                                  "" if h["enabled"] else " (switched off in the config)")]
+    if h.get("did"):
+        L.append("  now: " + h["did"])
+    hb = h.get("heartbeat") or {}
+    L.append("  %s every %d min, nearest %d expiries, into %s" % (", ".join(h["symbols"]), h["every_min"],
+                                                                  h["expiries"], h["archive"]))
+    L.append("  heartbeat: %s (last round %s, next %s; %s rounds, %s snapshots since it started)" % (
+        h.get("state") or "none", hb.get("last") or "–", hb.get("next") or "–", hb.get("rounds", 0), hb.get("files", 0)))
+    for sym, v in sorted((h.get("today") or {}).items()):
+        L.append("  today %s: %d rounds, %d snapshots, %s to %s, %s strikes in the latest" % (
+            sym, v["rounds"], v["snapshots"], v["first"] or "–", v["last"] or "–",
+            v["latest_rows"] if v["latest_rows"] is not None else "–"))
+    for g in h.get("gaps") or []:
+        L.append("  gap %s %s to %s (%d min, %s)" % (g["symbol"], g["from"], g["to"], g["minutes"], g["where"]))
+    L.append("  restarts today: %d; %s" % (h["restarts_today"], h["holdout"]["words"]))
+    for p in h["problems"]:
+        L.append("  problem: " + p)
+    return "\n".join(L)
 
 
 def render_status(s):
@@ -2293,6 +2758,12 @@ def main(argv=None):
     p.add_argument("--replay", help="read the report of this replay (its sandbox name, e.g. 2026-09-21)")
     p.add_argument("--json", action="store_true")
     p.add_argument("--lang", choices=LANGS, metavar="LANG", help="en or hi-en (Hinglish); default: the config's \"lang\", else en")
+    p = sub.add_parser("capture", help="the intraday option-chain capture job: health (or --tick: start it)")
+    p.add_argument("--workdir", default=".")
+    p.add_argument("--archive", help="the trader-archive folder (default trader/archive or $BT_ARCHIVE)")
+    p.add_argument("--tick", action="store_true", help="one supervision step now: start or restart it if due")
+    p.add_argument("--now", help="pin the clock (IST)")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("replay", help="replay past sessions from saved bars on a simulated clock (a sandbox)")
     common(p)
     p.add_argument("--date", required=True, help="the first day, YYYY-MM-DD")
@@ -2331,6 +2802,10 @@ def main(argv=None):
             rep = read_json(paths.day(day, "report.json")) or build_report(base, day)
             lang = pick_lang(a.lang, read_json(Paths(a.workdir).config))
             print(json.dumps(rep, indent=1, ensure_ascii=False) if a.json else report_md(rep, lang))
+            return 0
+        if a.cmd == "capture":
+            h = capture_health(a.workdir, parse_now(a.now) if a.now else None, a.archive, a.tick)
+            print(json.dumps(h, indent=1, ensure_ascii=False) if a.json else render_capture(h))
             return 0
         if a.cmd == "replay":
             reps = replay(a.workdir, a.date, a.to, a.data, a.archive, not a.no_relab, a.resume,

@@ -27,11 +27,12 @@ import * as tax from './pages/tax.js';
 import * as ask from './pages/ask.js';
 import * as autopilot from './pages/autopilot.js';
 import * as copilot from './pages/copilot.js';
+import * as forward from './pages/forward.js';
 
 const MODULES = {
   today, chart, scanner, portfolio, risk, settings, options, strategy, agents, about, lab, welcome, cotrader, journal,
   tax, ask,
-  autopilot, copilot,
+  autopilot, copilot, forward,
 };
 const ALIASES = { '': 'today', dashboard: 'today', onboarding: 'welcome' };
 

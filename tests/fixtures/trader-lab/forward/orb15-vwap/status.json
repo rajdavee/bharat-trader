@@ -1,0 +1,18 @@
+{
+ "name": "orb15-vwap",
+ "verdict": "WATCH",
+ "why": "fixture: set to WATCH so the dashboard treats it as a forward test (the real run REJECTs it)",
+ "spec_hash": "e51ea86b214ec56a",
+ "updated": "2026-10-01 16:00",
+ "history": [
+  {
+   "at": "2026-09-01 16:00",
+   "verdict": "WATCH",
+   "why": "every backtest gate passed (fixture)",
+   "spec_hash": "e51ea86b214ec56a"
+  }
+ ],
+ "spec_hashes": [
+  "e51ea86b214ec56a"
+ ]
+}
