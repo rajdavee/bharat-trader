@@ -2403,6 +2403,80 @@ def r_onboarding(ctx, q, body):
 # ---------------------------------------------------------------- the table
 
 # (method, path, handler, what it does, writes?)
+
+# ---------------------------------------------------------------- the Ask panel (optional, your own LLM)
+
+_CHAT = []
+ASK_PEERS = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+
+def chat_module():
+    if not _CHAT:
+        spec = importlib.util.spec_from_file_location("bt_ui_chat", os.path.join(HERE, "chat.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _CHAT.append(mod)
+    return _CHAT[0]
+
+
+def ask_relay(ctx):
+    """The relay of this UI server: one per Context, built on first use (the env decides if it is on)."""
+    r = getattr(ctx, "ask_relay", None)
+    if r is None:
+        r = ctx.ask_relay = chat_module().Relay(ctx.workdir, offline=ctx.offline, now=ctx.pinned)
+    return r
+
+
+def _ask_client(client, write):
+    """The browser session id, after the loopback check. Ask requests come from 127.0.0.1 only."""
+    client = client or {}
+    peer = client.get("peer")
+    if peer is not None and peer not in ASK_PEERS:
+        raise ApiError(403, "the Ask panel answers requests from 127.0.0.1 only")
+    sid = client.get("session")
+    if write and not sid:
+        raise ApiError(403, "no session: reload the page")
+    return sid
+
+
+def _ask(fn):
+    chat = chat_module()
+    try:
+        return fn()
+    except chat.ChatError as e:
+        raise ApiError(e.status, e.message)
+
+
+def r_ask(ctx, q, body, client=None):
+    sid = _ask_client(client, False)
+    return _ask(lambda: ask_relay(ctx).status(sid))
+
+
+def r_ask_consent(ctx, q, body, client=None):
+    sid = _ask_client(client, True)
+    on = (body or {}).get("consent")
+    if not isinstance(on, bool):
+        raise ApiError(400, "consent is true or false")
+    return _ask(lambda: ask_relay(ctx).set_consent(sid, on))
+
+
+def r_ask_send(ctx, q, body, client=None):
+    sid = _ask_client(client, True)
+    text = (body or {}).get("message")
+    if not isinstance(text, str):
+        raise ApiError(400, "message is the question, as text")
+    return _ask(lambda: ask_relay(ctx).ask(sid, text))
+
+
+def r_ask_reset(ctx, q, body, client=None):
+    sid = _ask_client(client, True)
+    return _ask(lambda: ask_relay(ctx).reset(sid))
+
+
+for _f in (r_ask, r_ask_consent, r_ask_send, r_ask_reset):
+    _f.wants_client = True
+
+
 ROUTES = [
     ("GET", "/api/meta", r_meta, "app version, workdir, offline mode, the clock, this route list", False),
     ("GET", "/api/status", r_status, "NSE open or closed, the session, the next open (?verify=1 asks NSE)", False),
@@ -2455,6 +2529,13 @@ ROUTES = [
      "trader/cotrader.json and its log, places nothing", True),
     ("POST", "/api/cotrader/draft", r_cotrader_draft, "one candidate's plan -> trader/plan.json, sized into "
      "trader/orders.json and risk-checked (a PROPOSAL: your typed yes still decides)", True),
+    ("GET", "/api/ask", r_ask, "the optional Ask panel: on or off, your LLM's format, model and host (never the key), "
+     "this session's consent", False),
+    ("POST", "/api/ask/consent", r_ask_consent, "switch this session's consent to send questions and tool results "
+     "to your own LLM on or off", True),
+    ("POST", "/api/ask", r_ask_send, "ask your own LLM; its tool calls run read-only tools and paper drafts only "
+     "(never a confirm)", True),
+    ("POST", "/api/ask/reset", r_ask_reset, "forget this session's Ask conversation", True),
 ]
 _TABLE = {(m, p): (fn, w) for m, p, fn, _, w in ROUTES}
 STREAM_PATH = "/api/stream"
@@ -2464,8 +2545,9 @@ def find(method, path):
     return _TABLE.get((method, path))
 
 
-def dispatch(ctx, method, path, query=None, body=None):
-    """(HTTP status, JSON-ready body). Unknown route = 404; a skill's own error = its message."""
+def dispatch(ctx, method, path, query=None, body=None, client=None):
+    """(HTTP status, JSON-ready body). Unknown route = 404; a skill's own error = its message.
+    client: {"session": the browser session id or None, "peer": the client's address}, for the Ask routes."""
     hit = _TABLE.get((method, path))
     if hit is None:
         if any(p == path for _, p, _, _, _ in ROUTES):
@@ -2473,6 +2555,8 @@ def dispatch(ctx, method, path, query=None, body=None):
         return 404, {"error": "no such route: %s" % path}
     fn, _ = hit
     try:
+        if getattr(fn, "wants_client", False):
+            return 200, fn(ctx, query or {}, body, client)
         return 200, fn(ctx, query or {}, body)
     except ApiError as e:
         return e.status, {"error": e.message}

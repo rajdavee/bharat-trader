@@ -7,6 +7,64 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **AI assistant integration v2** (#47): an evidence-first co-trader workflow
+  layer for any MCP-compatible assistant (47 tools, 16 prompts).
+  - New tools:
+    - `trade_brief` (read only) returns in one call the regime, today's
+      validated candidates with p, its 95% range and n, worked out fresh and
+      not logged, or the no-edge reasons; it adds the risk locks, the open
+      paper positions, today's limits used and the calibration snapshot.
+    - `best_for_regime` filters every lab run's past trades to today's
+      regime cell. Each run gets its Wilson range, shrunk p and expected R
+      with their ranges, and an "enough trades" flag; the ranking is
+      conservative.
+    - `strategy_design` turns a structured intent into a trader-lab spec
+      draft in the lab's fixed vocabulary, with every validation error. The
+      intent covers the template, symbols, a clock window, expiry day,
+      VIX/IV bounds, an uptrend filter, the regime gate, the risk budget
+      and one extra entry condition. Unknown names such as `eval` are
+      rejected and nothing is ever run.
+    - `lab_run_spec` runs a user or assistant spec through the lab, with a
+      time budget and progress.
+    - `compare_strategies` shows 2 to 8 runs side by side with Wilson and
+      mean ranges, the trials charged and today's cell.
+    - `archive_status` reports what the local archive holds.
+  - Trial-count honesty: every `lab_run` and `lab_run_spec` from the server
+    is logged in `trader/state/lab-trials.jsonl` with its strategy *family*
+    (the spec's structure without numbers, symbols or name). Later specs of
+    the family pay for the earlier ones' grid points in the deflated Sharpe
+    (`trader-lab`'s `run_and_decide` takes `extra_trials`).
+  - New prompts: `daily_cotrader_brief`, `find_best_trade_now`,
+    `design_strategy_for_window` (for example expiry day, or 09:15-10:00),
+    `stress_test_my_idea` and `review_my_week`. Each one requires the
+    evidence first: n and the 95% interval, numbers after charges, the
+    regime and what the evidence does NOT show. Each also rules out
+    promises and says that proposing is not placing: every order needs risk
+    and the user's typed yes.
+  - Paper auto-pilot tools (#45) are a documented hook until that skill
+    lands.
+- UI: the optional **Ask** page (`ui/chat.py`). It is off by default and
+  relays to the user's own LLM endpoint, configured by environment variables
+  only (`BT_LLM_BASE_URL`, `BT_LLM_API_KEY`, `BT_LLM_MODEL`, `BT_LLM_FORMAT`
+  = `chat-completions` or `messages`, plus optional extra headers and auth
+  header name).
+  - Tool calls go to the same toolkit functions: the read-only tools plus
+    `paper_order_draft`. A confirm is never offered and is refused if asked
+    for. The broker reads are left out.
+  - Privacy and access: there is a "your data goes to the LLM provider you
+    configured" notice and a consent box per session. The routes answer
+    127.0.0.1 only. The key is never logged or sent to the browser, and it
+    is scrubbed from errors.
+  - The relay runs up to 8 tool rounds per question. Routes: `/api/ask`,
+    `/api/ask/consent`, `/api/ask/reset`. See `docs/ai-chat.md`.
+- Docs: `docs/mcp.md` has a regenerated tool reference, the co-trader
+  workflow and "using your assistant as a co-trader" with example
+  conversations that show uncertainty. New `docs/ai-chat.md`.
+- Tests: MCP tests for every new tool and prompt, offline, including the
+  strategy_design vocabulary checks, trial-count increments and the
+  read-only brief. `tests/test_ai_chat.py` covers a stub LLM server for
+  both formats with multi-step tool calls, consent, key scrubbing,
+  loopback-only access, the step cap and no order from chat.
 - **`trader-cotrader`** (#44): calibrated, backtested trade candidates for
   today. `cotrader.py today [--tier research]`, `explain ID`, `calibration`,
   `log`, `--json`; writes `trader/cotrader.json`, a plan per candidate
