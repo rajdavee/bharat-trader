@@ -3,7 +3,7 @@
 // (broker, paper, live_enabled) is your own edit of the file. The broker connection card is read only.
 import { get, post } from '../api.js';
 import { h, clear, card, note, loading } from '../dom.js';
-import { statusCard, status } from '../broker.js';
+import { statusCard, marginCard, status } from '../broker.js';
 
 const LOCKED = new Set(['paper', 'broker', 'exchange', 'live_enabled']);
 const GROUPS = [
@@ -85,6 +85,7 @@ export async function render(root) {
   clear(body);
   body.appendChild(note(d.help, 'info'));
   body.appendChild(statusCard(st));
+  body.appendChild(marginCard(st.broker && st.broker !== 'paper' ? st.broker : 'kite'));
   if (!d.exists) body.appendChild(note('There is no trader/config.json in this folder yet. Saving here creates one.', 'warn'));
   const bySchema = Object.fromEntries(d.schema.map((s) => [s.key, s]));
   const form = h('form', { class: 'settings', novalidate: true });

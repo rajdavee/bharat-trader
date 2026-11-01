@@ -854,7 +854,8 @@ class BrokerRoutes(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual((st["mode"], st["broker"]), ("paper", "paper"))
         rows = {r["broker"]: r for r in st["brokers"]}
-        self.assertEqual(sorted(rows), ["dhan", "kite", "upstox"])
+        self.assertEqual(sorted(rows), ["angel", "dhan", "kite", "upstox"])
+        self.assertEqual((rows["kite"]["native_oco"], rows["angel"]["native_oco"]), ("oco", None))
         self.assertTrue(rows["kite"]["credentials"]["BT_KITE_ACCESS_TOKEN"])
         self.assertFalse(rows["upstox"]["credentials"]["BT_UPSTOX_REDIRECT"])
         self.assertEqual(rows["kite"]["token_cutoff"], "06:00")
@@ -878,7 +879,7 @@ class BrokerRoutes(unittest.TestCase):
         self.set_cfg(broker="upstox", paper=False, live_enabled={"upstox": True})
         status, p = self.get("/api/broker/positions")
         self.assertEqual((status, p["broker"], p["rows"][0]["product"]), (200, "upstox", "NRML"))
-        self.assertEqual(self.get("/api/broker/positions", {"broker": "angel"})[0], 400)
+        self.assertEqual(self.get("/api/broker/positions", {"broker": "fyers"})[0], 400)
         self.assertEqual([x for x in self.stub.hits if x["method"] != "GET"], [])
 
     def test_no_token_and_broker_errors_in_plain_words(self):
@@ -911,11 +912,11 @@ class BrokerRoutes(unittest.TestCase):
         self.assertFalse(res["saved"])
         self.assertIn("cannot be changed from this page", res["errors"][0])
         for bad, word in (({"live_enabled": {"kite": "yes"}}, "live_enabled"),
-                          ({"live_enabled": {"angel": True}}, "not a broker"),
+                          ({"live_enabled": {"fyers": True}}, "not a broker"),
                           ({"static_ip": "my home"}, "not an IP address"),
                           ({"order_rate_per_sec": 12}, "at most 9"),
                           ({"broker": "kite"}, "the paper broker only works"),
-                          ({"broker": "angel", "paper": False}, "the brokers are")):
+                          ({"broker": "fyers", "paper": False}, "the brokers are")):
             _, res = api.dispatch(self.ctx, "POST", "/api/config/validate", {}, {"config": dict(cfg, **bad)})
             self.assertIn(word, " ".join(res["errors"]), bad)
         # a live config on disk: the UI's confirm refuses, the tickets say LIVE
