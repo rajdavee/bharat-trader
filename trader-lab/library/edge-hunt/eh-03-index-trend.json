@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "id": "eh-03-index-trend",
+  "rank": 3,
+  "family": "trend-ts",
+  "title": "Time-series trend on NIFTY and BANKNIFTY futures",
+  "hypothesis": "Holding NIFTY or BANKNIFTY near-month futures only while the trailing trend signal is positive (and short when negative, in the long-short variant) gives a higher Sharpe ratio and a smaller drawdown than buy and hold, after charges and rolls.",
+  "mechanism": {
+    "kind": [
+      "behavioural",
+      "risk-premium"
+    ],
+    "text": "Under-reaction then over-reaction to information, and hedging demand; trend pays most in long bad markets."
+  },
+  "evidence": [
+    {
+      "source": "Moskowitz, Ooi and Pedersen, Journal of Financial Economics 104(2)",
+      "year": 2012,
+      "market": "58 futures, global",
+      "finding": "The past 12-month return predicts the next month; partial reversal after a year."
+    },
+    {
+      "source": "Hurst, Ooi and Pedersen, Journal of Portfolio Management 44(1)",
+      "year": 2017,
+      "market": "global, 1880-2016",
+      "finding": "Trend following positive in every decade, strongest across many markets."
+    },
+    {
+      "source": "Trend following algorithms on NIFTY closes, Indian Journal of Finance",
+      "year": 2014,
+      "market": "India, 2005-2012",
+      "finding": "80 trend rules on NIFTY: mixed results across rising, falling and trendless periods."
+    }
+  ],
+  "instrument": {
+    "segment": "FUT",
+    "underlying": "NIFTY, BANKNIFTY",
+    "side": "long or long-short"
+  },
+  "universe": {
+    "name": "nifty-banknifty-futures",
+    "point_in_time": false,
+    "rule": "Near-month futures, rolled at the close 3 sessions before expiry; notional equal to capital."
+  },
+  "holding_period": "weeks to months (monthly decisions)",
+  "turnover": {
+    "round_trips_per_year": 20,
+    "charge_drag_pct_per_year": 1.59,
+    "basis": "about 8 flips and 12 rolls a year x 0.080% futures round trip, on notional"
+  },
+  "data": {
+    "needs": [
+      "NIFTY and BANKNIFTY futures EOD 2005-2026",
+      "continuous series with a roll log"
+    ],
+    "available_now": [
+      "F&O bhavcopies 2024-01-01 to 2026-10-30",
+      "index closes 2024-2026"
+    ],
+    "blocked_by": [
+      71,
+      72
+    ]
+  },
+  "span": {
+    "train": {
+      "from": "2005-01-03",
+      "to": "2016-12-30"
+    },
+    "validation": {
+      "from": "2017-01-16",
+      "to": "2021-12-31"
+    },
+    "holdout": {
+      "from": "2022-01-17",
+      "to": "2026-10-30"
+    },
+    "embargo_days": 14
+  },
+  "parameters": {
+    "signal": [
+      "tsmom_12m",
+      "close_above_200d_average",
+      "tsmom_blend_3_6_12m"
+    ],
+    "mode": [
+      "long_flat",
+      "long_short"
+    ],
+    "underlying": [
+      "NIFTY",
+      "BANKNIFTY"
+    ]
+  },
+  "trial_budget": 12,
+  "prior_trials": {
+    "count": 0,
+    "basis": "No futures trend rule has been run in this repo."
+  },
+  "gates": {
+    "lab_defaults": true,
+    "overrides": {
+      "max_drawdown_pct": 35.0
+    },
+    "extra": {
+      "drawdown_basis": "vs_buy_and_hold",
+      "max_drawdown_vs_benchmark": 0.8,
+      "fdr_q": 0.1
+    },
+    "min_span_years": 10,
+    "span_exception": null
+  },
+  "primary_metric": "oos_net_sharpe",
+  "holdout_rule": {
+    "opened_once": true,
+    "pass_if": "Holdout net Sharpe above buy and hold's and the holdout drawdown at most 0.8 times buy and hold's."
+  },
+  "kill_criteria": [
+    "Holdout Sharpe at or below buy and hold's.",
+    "Holdout drawdown more than 0.8 times buy and hold's.",
+    "The long-short variant's short side losing money in validation (then only long-flat may continue, as a new id)."
+  ],
+  "prior": {
+    "probability": 0.15,
+    "reason": "Trend's Sharpe comes from diversification across many markets; one rising index gives a weak signal."
+  },
+  "feasibility": {
+    "score": 0.7,
+    "reason": "Index and futures history exist back to 2005 in legacy bhavcopies; needs #71 continuous futures and #72 futures engine."
+  },
+  "contamination": "trader-regime and the lab's regime split read NIFTY 50 closes for 2024 to 2026; no calendar or trend rule on index futures has been run in this repo. The holdout overlaps those sessions.",
+  "registered_on": "2026-11-01",
+  "status": "registered",
+  "outcome": null
+}

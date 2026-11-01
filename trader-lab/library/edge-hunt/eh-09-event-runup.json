@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "id": "eh-09-event-runup",
+  "rank": 9,
+  "family": "event-vol",
+  "title": "Long straddle into results, sold before the announcement",
+  "hypothesis": "An ATM straddle on an F&O stock bought 3 to 10 sessions before its results date and sold at the close before it earns a positive mean return on the premium after charges and slippage.",
+  "mechanism": {
+    "kind": [
+      "behavioural",
+      "structural"
+    ],
+    "text": "Implied volatility rises into a known event faster than theta decays the straddle."
+  },
+  "evidence": [
+    {
+      "source": "Gao, Xing and Zhang, Journal of Financial and Quantitative Analysis 53(6)",
+      "year": 2018,
+      "market": "US",
+      "finding": "Straddles bought before earnings and sold before the announcement earn positive returns."
+    },
+    {
+      "source": "SEBI study of FY25-FY26 (as summarised on tradingqna.com)",
+      "year": 2026,
+      "market": "India",
+      "finding": "About 90% of option-buyer-only traders lost money."
+    }
+  ],
+  "instrument": {
+    "segment": "OPT",
+    "underlying": "F&O stocks",
+    "side": "long premium"
+  },
+  "universe": {
+    "name": "fno-stocks-pit",
+    "point_in_time": true,
+    "rule": "Stocks in the F&O list with a results date and a traded ATM strike on the entry session."
+  },
+  "holding_period": "3 to 10 sessions",
+  "turnover": {
+    "round_trips_per_year": 200,
+    "charge_drag_pct_per_year": 0.0,
+    "basis": "costs about 5% of the premium paid a trade, mostly slippage, modelled per trade"
+  },
+  "data": {
+    "needs": [
+      "stock options EOD 2012-2026",
+      "results dates 2012-2026"
+    ],
+    "available_now": [
+      "F&O bhavcopies 2024-2026"
+    ],
+    "blocked_by": [
+      71,
+      73
+    ]
+  },
+  "span": {
+    "train": {
+      "from": "2012-01-02",
+      "to": "2019-12-31"
+    },
+    "validation": {
+      "from": "2020-01-15",
+      "to": "2023-06-30"
+    },
+    "holdout": {
+      "from": "2023-07-17",
+      "to": "2026-10-30"
+    },
+    "embargo_days": 14
+  },
+  "parameters": {
+    "entry_sessions_before": [
+      3,
+      5,
+      10
+    ],
+    "iv_percentile_cap": [
+      100,
+      50
+    ]
+  },
+  "trial_budget": 6,
+  "prior_trials": {
+    "count": 0,
+    "basis": "No option-buying rule has been run in this repo."
+  },
+  "gates": {
+    "lab_defaults": true,
+    "overrides": {},
+    "extra": {
+      "fdr_q": 0.1
+    },
+    "min_span_years": 10,
+    "span_exception": null
+  },
+  "primary_metric": "oos_mean_event_return",
+  "holdout_rule": {
+    "opened_once": true,
+    "pass_if": "Holdout mean return on premium above zero after charges over at least 100 events."
+  },
+  "kill_criteria": [
+    "Holdout mean return on premium at or below zero.",
+    "The return explained by the stock's move (delta) rather than the change in implied volatility."
+  ],
+  "prior": {
+    "probability": 0.08,
+    "reason": "A real mechanism in the US, untested in India; theta and wide stock option spreads work against it."
+  },
+  "feasibility": {
+    "score": 0.4,
+    "reason": "Same blockers as eh-08."
+  },
+  "contamination": "No results-day option trade has been run in this repo. Stock option prices for the holdout are unseen.",
+  "registered_on": "2026-11-01",
+  "status": "registered",
+  "outcome": null
+}

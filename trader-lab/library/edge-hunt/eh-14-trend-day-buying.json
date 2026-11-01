@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "id": "eh-14-trend-day-buying",
+  "rank": 14,
+  "family": "option-buying",
+  "title": "Trend-day NIFTY option buying on an opening-range break",
+  "hypothesis": "On sessions with India VIX below a cap, buying the NIFTY weekly ATM option in the direction of an opening-range break and selling by 15:15 earns a positive expectancy after charges.",
+  "mechanism": {
+    "kind": [
+      "behavioural"
+    ],
+    "text": "On a true trend day realised volatility exceeds what the morning premium priced."
+  },
+  "evidence": [
+    {
+      "source": "SEBI press release 37/2024",
+      "year": 2024,
+      "market": "India, FY22-FY24",
+      "finding": "91.5% of individual option traders lost money."
+    },
+    {
+      "source": "SEBI study of FY25-FY26 (as summarised on tradingqna.com)",
+      "year": 2026,
+      "market": "India",
+      "finding": "About 90% of option-buyer-only traders lost money."
+    }
+  ],
+  "instrument": {
+    "segment": "OPT",
+    "underlying": "NIFTY weekly options",
+    "side": "long premium"
+  },
+  "universe": {
+    "name": "nifty-weekly-options",
+    "point_in_time": false,
+    "rule": "The nearest weekly expiry, ATM strike at the signal."
+  },
+  "holding_period": "hours, out by 15:15",
+  "turnover": {
+    "round_trips_per_year": 60,
+    "charge_drag_pct_per_year": 0.0,
+    "basis": "costs about 4-6% of the premium a round trip, modelled per trade"
+  },
+  "data": {
+    "needs": [
+      "NIFTY index minute bars",
+      "India VIX",
+      "intraday option prices (model-priced in train and validation)",
+      "live captured option chains for the holdout"
+    ],
+    "available_now": [
+      "Upstox v3 index minute candles from Jan 2022 (with a token)",
+      "India VIX 2024-2026"
+    ],
+    "blocked_by": [
+      73,
+      76
+    ]
+  },
+  "span": {
+    "train": {
+      "from": "2022-01-03",
+      "to": "2024-12-31"
+    },
+    "validation": {
+      "from": "2025-01-15",
+      "to": "2026-10-30"
+    },
+    "holdout": {
+      "from": "2026-11-16",
+      "to": "2027-05-31"
+    },
+    "embargo_days": 14
+  },
+  "parameters": {
+    "opening_range_minutes": [
+      30,
+      60
+    ],
+    "min_breakout_pct": [
+      0.2,
+      0.4
+    ],
+    "vix_cap": [
+      14,
+      18
+    ],
+    "exit": [
+      "1515",
+      "trail_30pct_from_peak"
+    ]
+  },
+  "trial_budget": 16,
+  "prior_trials": {
+    "count": 6,
+    "basis": "orb15-vwap's grid: the same opening-range idea on stocks."
+  },
+  "gates": {
+    "lab_defaults": true,
+    "overrides": {},
+    "extra": {
+      "verdict_cap": "WATCH",
+      "min_holdout_trades": 30,
+      "fdr_q": 0.1
+    },
+    "min_span_years": 10,
+    "span_exception": "No historical intraday option prices: train and validation are Black-76 model prices from index minute bars and India VIX; the holdout is the live captured chain from 16 Nov 2026. About 5.4 years in all."
+  },
+  "primary_metric": "oos_expectancy_r",
+  "holdout_rule": {
+    "opened_once": true,
+    "pass_if": "Holdout expectancy after charges above zero over at least 30 trades on real captured option prices."
+  },
+  "kill_criteria": [
+    "Holdout expectancy at or below zero after charges.",
+    "Validation (model-priced) expectancy at or below zero: the holdout is then not opened."
+  ],
+  "prior": {
+    "probability": 0.03,
+    "reason": "Option buying pays the volatility risk premium; SEBI finds about 90% of buyers lose."
+  },
+  "feasibility": {
+    "score": 0.15,
+    "reason": "No historical intraday option data; model prices are weak evidence; needs #73 and #76."
+  },
+  "contamination": "The holdout is future data, unseen by construction.",
+  "registered_on": "2026-11-01",
+  "status": "registered",
+  "outcome": null
+}
