@@ -21,8 +21,8 @@ Security, because a web page from anywhere can try to talk to localhost:
 
 --offline DIR serves saved answers (DIR/yahoo-<SYMBOL>.json, DIR/chart-<SYMBOL>-<interval>.json,
 DIR/nse-marketStatus.json) and pins the clock to DIR/offline.json's "now". If DIR has a trader/
-folder and you give no --workdir, a temporary copy of it is used, so the demo never edits the
-fixtures. Ctrl-C stops the server cleanly.
+folder and you give no --workdir, a temporary copy of it is used (plus DIR/lab/ as its trader/lab/,
+saved Strategy Lab runs), so the demo never edits the fixtures. Ctrl-C stops the server cleanly.
 """
 
 import argparse
@@ -314,7 +314,15 @@ def offline_workdir(offline):
         return None
     tmp = tempfile.mkdtemp(prefix="bharat-trader-ui-")
     shutil.copytree(src, os.path.join(tmp, "trader"))
+    copy_demo_lab(offline, tmp)
     return tmp
+
+
+def copy_demo_lab(offline, workdir):
+    """DIR/lab/ (saved Strategy Lab runs, if any) becomes the demo's trader/lab/ so the Lab page has runs."""
+    lab = os.path.join(offline, "lab")
+    if os.path.isdir(lab) and not os.path.exists(os.path.join(workdir, "trader", "lab")):
+        shutil.copytree(lab, os.path.join(workdir, "trader", "lab"))
 
 
 def make_server(host="127.0.0.1", port=DEFAULT_PORT, workdir=".", offline=None, now=None, quiet=True):

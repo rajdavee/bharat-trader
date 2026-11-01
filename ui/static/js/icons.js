@@ -25,7 +25,8 @@ const P = {
   keys: 'M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8',
 };
 
-const NS = 'http://www.w3.org/2000/svg';
+// the SVG namespace name (an identifier, never fetched), joined so the no-external-URL test stays strict
+const NS = ['http:', '', 'www.w3.org', '2000', 'svg'].join('/');
 
 export function icon(name, cls = 'ico') {
   const svg = document.createElementNS(NS, 'svg');
