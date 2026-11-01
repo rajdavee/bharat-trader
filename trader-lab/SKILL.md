@@ -66,6 +66,7 @@ moves the lab folder (default `trader/lab`).
 | file | what |
 | --- | --- |
 | `library/*.json` (this folder) | the built-in specs: strategies to test, not promises |
+| `library/edge-hunt/*.json` (this folder) | pre-registered edge-hunt hypotheses (not runnable specs; `lab.py list` skips them): see docs/research/edge-hunt.md |
 | `trader/lab/<name>/spec.json` | the spec as it was run. Edit this copy to try a variant: every edit counts as another trial |
 | `trader/lab/<name>/results.json` | every number, every trade, schema `bharat-trader/lab-results/1` |
 | `trader/lab/<name>/scorecard.md` | the plain-words scorecard |

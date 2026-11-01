@@ -93,8 +93,8 @@ monthly only, contract sizes went to ₹15 to 20 lakh, premiums are collected
 upfront, and expiry days carry 2% extra exposure margin. From 1 April 2026
 STT on options sales rose from 0.1% to 0.15% of the premium and on futures
 sales from 0.02% to 0.05%. Options history before Nov 2024 comes from a
-different market; every options hypothesis keeps its holdout after the
-change.
+different market; every index-options hypothesis keeps its holdout after
+the change (stock options were always monthly and changed less).
 
 **Published anomalies decay.** McLean and Pontiff (2016) found US anomaly
 returns 26% lower out of sample and 58% lower after publication; Jacobs and

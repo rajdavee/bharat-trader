@@ -39,6 +39,13 @@ We ran everything it ships through its own tests. Nothing passed:
   rules on about 2.3 years of data counted all 527 trials it ran. 16
   survived validation and none survived the robustness and multiple-testing
   checks (Reality Check p = 0.84). See [docs/discovery.md](docs/discovery.md).
+- **The edge hunt is pre-registered before it runs.** 14 hypotheses
+  (momentum, low volatility, index trend, calendar effects, post-earnings
+  drift, the volatility risk premium, results-day options, reversal, pairs,
+  intraday and overnight index moves, trend-day option buying), each with a
+  fixed grid, a trial budget, a sealed holdout, its kill criteria and a
+  written prior (most are expected to fail). See
+  [docs/research/edge-hunt.md](docs/research/edge-hunt.md).
 - **Its own early odds were too high.** On a real prediction log (38
   predictions, December 2025 to October 2026) the probabilities averaged 48%,
   and 29% of those trades made money after charges. Calibration tracking
@@ -127,6 +134,7 @@ keeps years of NSE bhavcopies (equity and F&O), index closes, India VIX and
 broker intraday candles on your disk, adjusted for splits and bonuses. The
 **regime engine** labels every day without look-ahead. See
 [lab](docs/lab.md) · [discovery](docs/discovery.md) ·
+[edge hunt](docs/research/edge-hunt.md) ·
 [archive](docs/archive.md) · [regime](docs/regime.md).
 
 **The co-trader.** Today's candidates with evidence tiers (PROMOTED, WATCH,
