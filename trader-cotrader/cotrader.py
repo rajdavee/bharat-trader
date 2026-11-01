@@ -1433,7 +1433,7 @@ def render_calibration(rep):
         L.append("")
         L.append("Reliability (predicted vs observed):")
         for b in bins:
-            L.append("  %3.0f-%3.0f%%  n=%-4d predicted %s, observed %s (95%% %s to %s)" % (
+            L.append("  %2.0f to %3.0f%%  n=%-4d predicted %s, observed %s (95%% %s to %s)" % (
                 100 * b["lo"], 100 * b["hi"], b["n"], pc(b["mean_p"]), pc(b["observed"]), pc(b["ci"][0]),
                 pc(b["ci"][1])))
     for d in rep["demote"]:

@@ -50,6 +50,15 @@ export const GLOSSARY = {
     'minutes before it. Leave it blank if unsure; a safe default is used.'],
   paper: ['Paper trading', 'Orders are simulated against delayed prices with real charges. Nothing reaches a broker. ' +
     'Going live is a separate, deliberate step in your own terminal.'],
+  evidence_tier: ['Evidence tier', 'PROMOTED: the rule passed the lab\'s gates and its paper forward test. WATCH: it passed ' +
+    'the gates, the forward test is still running, so paper only. RESEARCH: unproven past numbers, for study or paper ' +
+    'only, never for a live order.'],
+  probability: ['Probability, with its range', 'The share of similar past trades (same rule, same kind of market) that ' +
+    'made money after charges, nudged toward the rule\'s overall rate when there are few of them. The range is where ' +
+    'the true rate plausibly sits; n is how many trades it rests on. It is not a promise about this trade.'],
+  calibration: ['Calibration', 'Whether past probabilities matched what happened: of the trades given about 40%, did ' +
+    'about 40% make money? The Brier score is the average squared miss (lower is better); a rule that keeps ' +
+    'promising more than it delivers is demoted.'],
   mcp: ['Connect an AI assistant', 'Any MCP-compatible assistant can use these tools on your trader/ folder: read the ' +
     'market, draft paper orders, run the risk check. It still needs your typed yes for any order.'],
 };

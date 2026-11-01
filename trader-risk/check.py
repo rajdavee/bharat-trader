@@ -58,6 +58,8 @@ What blocks an entry (on top):
   duplicate   the same symbol and side twice in this batch or placed today
   daily limit max_orders_per_day orders placed today
   kill        the kill switch is on for today (check.py kill)
+  research    a co-trader RESEARCH idea (plan setup cotrader-research:...) on a live
+              config: unproven ideas are paper only
   breaker     max_consecutive_losses losing trades in a row today, or a realised loss of
               max_daily_drawdown_pct of capital; cooling-off: cooloff_after_stop_min minutes
               after a stop filled; revenge: re-entering a symbol within revenge_window_min of a
@@ -2668,6 +2670,11 @@ def check(orders, cfg, portfolio=None, prices=None, state=None, today=None, now=
         # blocked list and size
         if sym in blocked:
             later.append("blocked: %s is on your blocked list" % sym)
+        o_plan = o.get("plan") if isinstance(o.get("plan"), dict) else {}
+        if kind == "entry" and not c.get("paper", True) and \
+                str(o_plan.get("setup") or "").startswith("cotrader-research"):
+            later.append("research: a co-trader RESEARCH idea is unproven (it has not passed trader-lab's gates): "
+                         "paper only, never a live order")
         if value is not None:
             if value < float(c.get("min_order_value") or 0) - PAISA:
                 later.append("size: %s is under your %s minimum order" % (inr(value), inr(c["min_order_value"])))

@@ -16,7 +16,7 @@ export const PAGES = {
   scanner: { label: 'Scanner', title: 'Scanner and watchlist', icon: 'scanner', key: 's', words: 'watchlist screener' },
   options: { label: 'Option chain', title: 'Option chain', icon: 'options', key: 'o', words: 'oi pcr max pain iv fno' },
   strategy: { label: 'Strategy builder', title: 'Strategy builder', icon: 'strategy', key: 'b', words: 'payoff legs condor spread' },
-  cotrader: { label: 'Co-trader', title: 'Co-trader', icon: 'cotrader', key: 'k', soon: true, words: 'ideas candidates' },
+  cotrader: { label: 'Co-trader', title: 'Co-trader', icon: 'cotrader', key: 'k', words: 'ideas candidates odds calibration' },
   portfolio: { label: 'Portfolio and orders', title: 'Paper portfolio and orders', icon: 'portfolio', key: 'p', words: 'positions tickets fills yes' },
   risk: { label: 'Risk', title: 'Risk', icon: 'risk', key: 'r', words: 'kill switch breakers limits verdicts' },
   autopilot: { label: 'Auto-pilot', title: 'Auto-pilot', icon: 'autopilot', key: 'u', soon: true, words: 'automatic paper' },
