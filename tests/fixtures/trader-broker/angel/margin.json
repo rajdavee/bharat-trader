@@ -1,0 +1,27 @@
+{
+ "doc_derived": true,
+ "source": "https://smartapi.angelone.in/docs/MarginCalculator (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/rest/secure/angelbroking/margin/v1/batch"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": true,
+   "message": "SUCCESS",
+   "errorcode": "",
+   "data": {
+    "totalMarginRequired": 29612.35,
+    "marginComponents": {
+     "netPremium": 5060,
+     "spanMargin": 0,
+     "marginBenefit": 79876.5,
+     "deliveryMargin": 0,
+     "nonNFOMargin": 0,
+     "totOptionsPremium": 10100
+    }
+   }
+  }
+ }
+}

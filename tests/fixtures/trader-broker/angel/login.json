@@ -1,0 +1,22 @@
+{
+ "doc_derived": true,
+ "source": "https://smartapi.angelone.in/docs/User (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/rest/auth/angelbroking/user/v1/loginByPassword"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": true,
+   "message": "SUCCESS",
+   "errorcode": "",
+   "data": {
+    "jwtToken": "TEST-JWT",
+    "refreshToken": "TEST-REFRESH",
+    "feedToken": "TEST-FEED"
+   }
+  }
+ },
+ "repairs": "the docs' example is not valid JSON (the data object has no braces): braces added; the three tokens replaced by short placeholders; the optional state field left out"
+}

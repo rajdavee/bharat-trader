@@ -1,0 +1,27 @@
+{
+ "doc_derived": true,
+ "source": "https://smartapi.angelone.in/docs/Historical (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/rest/secure/angelbroking/historical/v1/getCandleData"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": true,
+   "message": "SUCCESS",
+   "errorcode": "",
+   "data": [
+    [
+     "2023-09-06T11:15:00+05:30",
+     19571.2,
+     19573.35,
+     19534.4,
+     19552.05,
+     0
+    ]
+   ]
+  }
+ },
+ "repairs": "colons and commas missing in the docs' example: added"
+}

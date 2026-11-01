@@ -6,15 +6,18 @@ data endpoint comes back as PermissionException and is reported as NotSubscribed
 """
 
 import csv
+import json
 import hashlib
 import io
 import urllib.parse
 
-from .base import (Adapter, AuthExpired, BrokerDown, BrokerError, InsufficientFunds, InvalidInstrument,
+from .base import (Adapter, AuthExpired, BrokerDown, BrokerError, InsufficientFunds, InvalidInstrument, InvalidOrder,
                    IPNotWhitelisted, NotSubscribed, RateLimited, Rejected, canonical_symbol, ip_words, mask_id,
                    num, parse_ist, rupees, whole)
 
 STATUS = {"COMPLETE": "filled", "CANCELLED": "cancelled", "REJECTED": "rejected"}
+GTT_STATUS = {"active": "active", "triggered": "triggered", "disabled": "cancelled", "expired": "expired",
+              "cancelled": "cancelled", "rejected": "rejected", "deleted": "cancelled"}
 PRODUCT_FROM = {"BO": "MIS", "CO": "MIS", "MTF": "CNC"}       # bracket and cover orders are intraday
 INTERVALS = {"1m": "minute", "3m": "3minute", "5m": "5minute", "15m": "15minute", "30m": "30minute",
              "60m": "60minute", "1d": "day"}
@@ -25,7 +28,7 @@ class KiteAdapter(Adapter):
     title = "Zerodha Kite"
     capabilities = {"profile": True, "funds": True, "holdings": True, "positions": True, "orders": True,
                     "quotes": True, "history": True, "instruments": True, "basket_margin": True, "gtt_oco": True,
-                    "sandbox": False, "place_orders": True, "market_protection": True}
+                    "native_oco": True, "sandbox": False, "place_orders": True, "market_protection": True}
     env_names = {"api_key": "BT_KITE_API_KEY", "api_secret": "BT_KITE_API_SECRET", "redirect": "BT_KITE_REDIRECT",
                  "access_token": "BT_KITE_ACCESS_TOKEN", "token_date": "BT_KITE_TOKEN_DATE"}
     hosts = {"api": "https://api.kite.trade", "login": "https://kite.zerodha.com"}
@@ -185,6 +188,84 @@ class KiteAdapter(Adapter):
 
     def cancel_request(self, broker_order_id):
         return "DELETE", "api", "/orders/regular/%s" % urllib.parse.quote(str(broker_order_id)), {}
+
+    # ---------------------------------------------------------------- native linked exit: GTT two-leg OCO
+    linked_style = "exit_oco"
+    linked_words = ("a GTT two-leg OCO after the entry fills: the stop and the target as one trigger, the broker "
+                    "cancels the other when one fires (GTT legs are LIMIT orders)")
+
+    def _gtt_form(self, linked, inst, last_price):
+        if linked.get("linked") != "oco":
+            raise InvalidOrder("Kite's native linked order is the exit pair after the fill (leg oco)")
+        stop, target = linked["stop"], linked["target"]
+        if str(stop.get("order_type") or "").upper() != "SL" or not num(stop.get("price")):
+            raise InvalidOrder("Kite's GTT legs are LIMIT orders: give the stop a limit price (an SL stop_loss with "
+                               "a price and a trigger_price) for a native OCO, or send the exits leg by leg")
+        lp = num(last_price)
+        if not lp or lp <= 0:
+            raise InvalidOrder("Kite needs the last price for a GTT (the fill price or the latest quote)")
+        side = str(linked["side"]).upper()
+        leg = {"exchange": inst["exchange"], "tradingsymbol": inst["broker_symbol"], "transaction_type": side,
+               "quantity": int(linked["qty"]), "order_type": "LIMIT", "product": str(linked["product"]).upper()}
+        stop_leg = dict(leg, price=round(float(stop["price"]), 2))
+        target_leg = dict(leg, price=round(float(target["price"]), 2))
+        trig_stop, trig_target = round(float(stop["trigger_price"]), 2), round(float(target["price"]), 2)
+        if side == "SELL":           # a long position: the stop below, the target above
+            values, orders = [trig_stop, trig_target], [stop_leg, target_leg]
+        else:                        # a short position: the target below, the stop above
+            values, orders = [trig_target, trig_stop], [target_leg, stop_leg]
+        if not values[0] < lp < values[1]:
+            raise InvalidOrder("the last price %.2f is not between the two triggers %.2f and %.2f: the market already "
+                               "crossed one, so a GTT would fire at once. Exit by hand or with a fresh ticket"
+                               % (lp, values[0], values[1]))
+        cond = {"exchange": inst["exchange"], "tradingsymbol": inst["broker_symbol"], "trigger_values": values,
+                "last_price": round(lp, 2)}
+        return {"type": "two-leg", "condition": json.dumps(cond, separators=(",", ":")),
+                "orders": json.dumps(orders, separators=(",", ":"))}
+
+    def linked_request(self, linked, inst, last_price=None):
+        return "POST", "api", "/gtt/triggers", {"form": self._gtt_form(linked, inst, last_price)}
+
+    def linked_placed_id(self, res):
+        tid = (self._data(res) or {}).get("trigger_id")
+        return str(tid) if tid is not None else None
+
+    def linked_cancel_request(self, linked_id, record=None):
+        return "DELETE", "api", "/gtt/triggers/%s" % urllib.parse.quote(str(linked_id)), {}
+
+    def linked_modify_requests(self, linked_id, linked, inst, record=None, last_price=None):
+        return [("PUT", "api", "/gtt/triggers/%s" % urllib.parse.quote(str(linked_id)),
+                 {"form": self._gtt_form(linked, inst, last_price)})]
+
+    def linked_book(self):
+        out = []
+        for g in self._data(self.call("GET", "api", "/gtt/triggers")) or []:
+            cond, orders = g.get("condition") or {}, g.get("orders") or []
+            vals = [num(v) for v in cond.get("trigger_values") or []]
+            exit_side = str((orders[0] if orders else {}).get("transaction_type") or "").upper()
+            two = g.get("type") == "two-leg" and len(vals) == 2 and len(orders) == 2
+            if two and exit_side == "SELL":
+                (stop_t, target_t), (stop_o, target_o) = vals, orders
+            elif two:
+                (target_t, stop_t), (target_o, stop_o) = vals, orders
+            else:
+                stop_t = target_t = None
+                stop_o = target_o = orders[0] if orders else {}
+            legs = []
+            for name, o in (("stop", stop_o), ("target", target_o)):
+                res = (o or {}).get("result") or {}
+                orr = res.get("order_result") or {}
+                legs.append({"leg": name, "status": orr.get("status"), "order_id": orr.get("order_id") or None})
+            st = str(g.get("status") or "").lower()
+            out.append({"linked_id": str(g.get("id")), "style": "exit_oco" if two else "single",
+                        "symbol": cond.get("tradingsymbol"), "broker_symbol": cond.get("tradingsymbol"),
+                        "exchange": cond.get("exchange"), "product": (stop_o or {}).get("product"),
+                        "side": "BUY" if exit_side == "SELL" else "SELL", "qty": whole((stop_o or {}).get("quantity")),
+                        "entry_price": None, "stop_trigger": stop_t, "stop_price": num((stop_o or {}).get("price")),
+                        "target_price": num((target_o or {}).get("price")) if two else None,
+                        "status": GTT_STATUS.get(st, st or "unknown"), "raw_status": g.get("status"), "legs": legs,
+                        "tag": None, "time": parse_ist(g.get("created_at"))})
+        return out
 
     # ---------------------------------------------------------------- login
     def redirect(self):
