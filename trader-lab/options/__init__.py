@@ -316,6 +316,12 @@ class Chains(object):
     def forward(self, day, expiry, rate):
         """The parity forward F = K + e^(rT) (C - P), the median over the 5 traded strikes nearest the
         spot; else the expiry's future settle; else the spot."""
+        key = ("fwd", day, expiry, rate)
+        if key not in self._an:
+            self._an[key] = self._forward(day, expiry, rate)
+        return self._an[key]
+
+    def _forward(self, day, expiry, rate):
         b = self.boards[day]
         T = max(0, _dte(day, expiry)) / 365.0
         spot = b["spot"]
@@ -396,8 +402,30 @@ class Chains(object):
         return a
 
     def atm_iv(self, day, expiry, rate):
-        a = self.analysis(day, expiry, rate)
-        return a["atm_iv"] if a else None
+        """The ATM IV (%) of one expiry at the day's close: the mean of the call's and the put's IV at the
+        traded strike nearest the forward (only those two are solved)."""
+        key = ("atm", day, expiry)
+        if key in self._an:
+            return self._an[key]
+        b = self.boards.get(day)
+        out = None
+        if b is not None and expiry in b["expiries"]:
+            T = max(0, _dte(day, expiry)) / 365.0
+            F = self.forward(day, expiry, rate)
+            ks = sorted({k for (e, k, t) in b["opts"] if e == expiry}, key=lambda k: (abs(k - F), k))
+            for k in ks[:3]:
+                ivs = []
+                for kind in ("CE", "PE"):
+                    rec = b["opts"].get((expiry, k, kind))
+                    if rec and rec[3] > 0 and (rec[0] or rec[1]):
+                        v = solve_iv(rec[0] or rec[1], F, k, T, rate, kind)
+                        if v:
+                            ivs.append(v)
+                if ivs:
+                    out = sum(ivs) / len(ivs)
+                    break
+        self._an[key] = out
+        return out
 
     def iv_series(self, days=30, rate=0.0557):
         """{day: constant-maturity ATM IV (%)}: total variance interpolated between the two listed expiries
