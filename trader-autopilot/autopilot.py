@@ -1073,7 +1073,8 @@ class Pilot(object):
                     self.event(bar_at, "cancelled", "%s %s: %s" % (pos["id"], pos["symbol"], pos["closed_why"]),
                                position=pos["id"])
                     return
-                self.fill(pos, "entry", price, bar_at if price == o else inside,
+                placed = datetime.datetime.strptime(pos["placed_at"], "%Y-%m-%d %H:%M:%S")
+                self.fill(pos, "entry", price, max(bar_at if price == o else inside, placed),
                           "the LIMIT %.2f, bar of %s" % (lim, b["time"]), side="BUY")
                 fresh = True
             elif pos.get("exit_pending") and stamp > pos.get("exit_pending_bar", ""):

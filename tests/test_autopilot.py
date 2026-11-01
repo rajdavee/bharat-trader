@@ -500,6 +500,24 @@ class Breakers(unittest.TestCase):
             shutil.rmtree(wd, ignore_errors=True)
             shutil.rmtree(wd2, ignore_errors=True)
 
+    def test_trailing_stop_on_the_bars(self):
+        wd = make_wd(strategies={"t-sma20-watch": {"capital": 60000, "product": "MIS", "trail_after_r": 0.05,
+                                                   "trail_lock_r": 0}})
+        try:
+            rep = run(wd)[0]
+            ev = timeline(box(wd))
+            trail = [e for e in ev if e["kind"] == "trail"]
+            self.assertEqual(len(trail), 1)
+            # AXISBANK: entry 1249.20, stop 1187.60 (R 61.60); the 13:15 bar reached 1252.60, past 0.05R
+            self.assertEqual(trail[0]["at"], "2026-09-21 13:15:00")
+            self.assertIn("stop raised from 1187.60 to 1249.20", trail[0]["words"])
+            ax = next(t for t in read(box(wd).trades)["trades"] if t["symbol"] == "AXISBANK" and t["side"] == "SELL")
+            self.assertEqual((ax["leg"], ax["price"]), ("stop", 1248.80))    # breakeven less slippage
+            self.assertLess(ax["realised_pnl"], 0)                            # still a loss after charges
+            self.assertEqual(rep["totals"]["closed"], 2)
+        finally:
+            shutil.rmtree(wd, ignore_errors=True)
+
     def test_config_validation(self):
         bad = [{"cadence_min": 7}, {"cadence_min": 0}, {"max_positions": 0}, {"strategies": {"x": {}}},
                {"strategies": {"Bad Name": {"capital": 1}}}, {"strategies": {"ok-name": {"capital": 1, "product": "NRML"}}},
@@ -661,6 +679,56 @@ class Baskets(unittest.TestCase):
             self.assertFalse(read(p.trades))
             st = read(p.state)
             self.assertEqual(st["positions"], [])
+        finally:
+            shutil.rmtree(wd, ignore_errors=True)
+
+    def test_a_filled_basket_is_marked_and_settled_at_expiry(self):
+        """A short strangle placed on 23 Oct (LIMITs a rupee under that day's settle, so the close fills them),
+        marked at the 26 Oct close, cash-settled at the 27 Oct expiry: real chains, the paper broker's own fills."""
+        wd = self.basket_wd(capital=500000, allow_fno=True, allow_naked_short=True, max_loss_per_trade=50000,
+                            max_daily_loss=60000, max_order_value=1000000)
+        try:
+            pilot = ap.Pilot(wd, ap.Market(wd, None, ARCHIVE, fetch=False), replay=True, fetch=False)
+            cfg = pilot.load_config()
+            d1, now = "2026-10-23", ap.parse_now("2026-10-23 10:00")
+            pilot.roll_day(d1, now)
+            pilot.write_chain("NIFTY", "2026-10-22")
+            marks = ap.chain_marks(ap.eod_chain("NIFTY", d1, ARCHIVE))
+            legs = []
+            for i, (k, t) in enumerate(((22850.0, "CE"), (22250.0, "PE")), 1):
+                lim = ap.tick_price(marks[(k, t.lower(), "2026-10-27")] - 1.0, "down")
+                legs.append({"symbol": "NIFTY", "exchange": "NFO", "segment": "OPT", "instrument": "OPTIDX",
+                             "expiry": "2026-10-27", "strike": k, "option_type": t, "side": "SELL", "lots": 1,
+                             "lot_size": 65, "qty": 65, "product": "NRML", "order_type": "LIMIT", "price": lim,
+                             "validity": "DAY", "leg": i, "risk_rule": {"max_loss": 8000}})
+            path = os.path.join(pilot.paths.orders, "AP-T-basket.json")
+            ap.write_json(path, {"basket": True, "paper": True, "orders": legs})
+            res = pilot.run_risk(path, now)
+            self.assertEqual([r["verdict"] for r in res["results"]], ["PASS", "PASS"])
+            pos = {"id": "AP-T", "kind": "basket", "strategy": "t-strangle-4d", "candidate": "test", "tier": "WATCH",
+                   "symbol": "NIFTY", "product": "NRML", "qty": 2, "entry_limit": 175000.0, "order_file": path,
+                   "status": "placing", "placed_at": "2026-10-23 10:00:00", "expiry": "2026-10-27",
+                   "signal_date": "2026-10-22", "plan_date": d1, "exits": [], "timeframe": "1d"}
+            pilot.state["positions"].append(pos)
+            pilot.confirm_basket(pos, path, now)
+            self.assertEqual(pos["status"], "working")
+            for day in (d1, "2026-10-26", "2026-10-27"):
+                pilot.roll_day(day, ap.parse_now(day + " 09:00"))
+                pilot.baskets_eod(day, ap.parse_now(day + " 15:30"))
+            trades = read(pilot.paths.trades)["trades"]
+            sells = [t for t in trades if t["side"] == "SELL"]
+            self.assertEqual([(t["price"], t["qty"]) for t in sells], [(41.90, 65), (39.55, 65)])   # settle less slippage
+            for t in sells:
+                want = broker.side_charges("SELL", t["price"], t["qty"], cfg, "NRML", "OPT", d1)["total"]
+                self.assertEqual(t["charges"], want)
+            self.assertEqual(pos["premium"], 5294.25)
+            self.assertEqual(pos["mtm"], {"day": "2026-10-26", "gross": 1059.5})
+            settle = [t for t in trades if t["side"] == "SETTLE"]
+            self.assertEqual({t["leg"] for t in settle}, {"expired worthless"})       # NIFTY closed at 22,749.75
+            self.assertEqual(pos["status"], "closed")
+            self.assertIn("cash-settled at 22749.75", pos["closed_why"])
+            self.assertEqual(pos["result"]["net"], round(5294.25 - sum(t["charges"] for t in sells), 2))
+            self.assertEqual(pos["result"]["net"], 5236.89)
         finally:
             shutil.rmtree(wd, ignore_errors=True)
 
