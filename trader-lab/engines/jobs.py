@@ -344,6 +344,73 @@ class PairsJob(StockJob):
         return pairs.run(self.panel, self.chosen(int(p["formation_sessions"])), p, i, j, self.capital, self.cfg, m)
 
 
+# ---------------------------------------------------------------- option families (the options package, #73)
+
+class OptionsJob(Job):
+    """vrp-selling, event-vol and option-buying: trader-lab's options package (options/engines.py) on the
+    archive's EOD F&O chains, results dates and index minute bars, in this executor's run shape."""
+    engine = "options"
+    LABELS = {"vrp-selling": "VRP-timed iron condor", "event-vol": "results-day options",
+              "option-buying": "trend-day option buying"}
+
+    def __init__(self, doc, mkt, cfg=None):
+        Job.__init__(self, doc, mkt, cfg)
+        self.label = "options: %s" % self.LABELS.get(doc["family"], doc["family"])
+
+    def _api(self):
+        fn = getattr(core.L(), "options_api", None)
+        return fn() if fn is not None else None
+
+    def _root(self):
+        root = getattr(self.mkt, "root", None)
+        if root is None and getattr(self.mkt, "folder", None):
+            import os
+            arch = os.path.join(self.mkt.folder, "archive")
+            root = arch if os.path.isdir(arch) else None
+        return root
+
+    def blockers(self):
+        out = []
+        O = self._api()
+        if O is None or O.ENV.get("strategy") is None:
+            out.append("the options engines need trader-strategy next to trader-lab (option legs, Black-76, the "
+                       "SPAN-style margin)")
+        api = getattr(self.mkt, "api", None) or core.ENV.get("archive")
+        if self._root() is None or api is None:
+            out.append("the options engines read the local trader-archive's EOD F&O chains (archive.py backfill "
+                       "--datasets fo,index,vix,lots, and results for the event families)")
+        elif self.doc["family"] == "event-vol" and getattr(api, "results_dates", None) is None:
+            out.append("results dates history (trader-archive's results_dates, backfill the results dataset)")
+        return out
+
+    def load(self, until):
+        self.until = until
+        O = self._api()
+        E = O.engines_api()
+        self.data = {"root": self._root(), "archive": getattr(self.mkt, "api", None) or core.ENV.get("archive"),
+                     "regime": core.ENV.get("regime"), "capital": self.capital, "notes": []}
+        if self.cfg.get("symbols"):
+            self.data["symbols"] = list(self.cfg["symbols"])
+        try:
+            self.sessions = E.prepare(self.doc, self.data, self.start, until)
+        except E.EngineError as e:
+            raise Blocked(str(e))
+        for n in self.data["notes"]:
+            if n not in self.notes:
+                self.notes.append(n)
+
+    def days(self):
+        return list(getattr(self, "sessions", None) or [])
+
+    def run(self, p, a, b, m=1.0):
+        E = self._api().engines_api()
+        return E.run(self.doc, p, a, b, self.data, m)
+
+    def holdout_wait(self, today):
+        """Why the holdout cannot be opened yet (eh-14: live captured data), or None."""
+        return self._api().engines_api().holdout_wait(self.doc, self.data, today)
+
+
 JOBS = {"trend-ts": TrendJob, "calendar": CalendarJob, "overnight": OvernightJob, "intraday-momentum": IntradayJob,
         "momentum-xs": PortfolioJob, "low-volatility": PortfolioJob, "reversal": PortfolioJob, "pead": EventJob,
         "pairs": PairsJob}
@@ -352,8 +419,7 @@ JOBS = {"trend-ts": TrendJob, "calendar": CalendarJob, "overnight": OvernightJob
 def job_for(doc, mkt, cfg=None):
     fam = doc["family"]
     if fam in FAMILIES_OPTIONS:
-        raise Blocked("family %s needs the options edge engine (issue #73: VRP timing, event straddles, intraday "
-                      "option plays); this executor does not run it yet" % fam)
+        return OptionsJob(doc, mkt or market.Market(), cfg)
     if fam not in JOBS:
         raise Blocked("no engine for family %s" % fam)
     return JOBS[fam](doc, mkt or market.Market(), cfg)

@@ -199,7 +199,9 @@ def primary_value(doc, m, run):
     if pm == "oos_mean_event_return":
         ab = [t["abnormal"] for t in run["trades"] if "abnormal" in t]
         return core.mean(ab) * 100 if ab else m["expectancy_pct"]
-    raise HuntError("primary metric %s needs the options engine (#73)" % pm)
+    if pm == "oos_return_on_margin":
+        return run["extra"].get("return_on_margin_pct") or 0.0
+    raise HuntError("no primary metric %s" % pm)
 
 
 def net_value(doc, m, run):
@@ -210,7 +212,7 @@ def net_value(doc, m, run):
         return m.get("active_total_pct") or 0.0
     if pm in ("oos_expectancy_r",):
         return m["expectancy_pct"]
-    if pm == "oos_mean_event_return":
+    if pm in ("oos_mean_event_return", "oos_return_on_margin"):
         return primary_value(doc, m, run)
     return m["total_return_pct"]
 
@@ -368,7 +370,8 @@ def plan(doc, h, job, out, folder, extra_trials=0):
     pts = grid(doc)
     fam_n, fam_ids = family_trials(out, folder, doc)
     prior = int(doc["prior_trials"]["count"])
-    return {"id": doc["id"], "family": doc["family"], "engine": job.engine, "registration_hash": h,
+    return {"id": doc["id"], "family": doc["family"], "engine": getattr(job, "label", None) or job.engine,
+            "registration_hash": h,
             "grid_points": len(pts), "prior_trials": prior, "family_trials": fam_n, "family_ids": fam_ids,
             "extra_trials": int(extra_trials), "trials_counted": len(pts) + prior + fam_n + int(extra_trials),
             "windows": {k: doc["span"][k] for k in ("train", "validation", "holdout")},
@@ -461,6 +464,13 @@ def execute(path, mkt, out, now=None, progress=None, deadline=None, cancel=None,
                      len(done) / float(len(pts)))
     trials = [done[j] for j in range(len(pts))]
     res = decide(doc, h, job, trials, pl, d, now, context, path)
+    if res["verdict"] == "WAITING":
+        st.update({"phase": "waiting for the holdout", "updated": stamp, "why": res["why"]})
+        write_json(os.path.join(d, "state.json"), st)
+        write_json(os.path.join(d, "results.json"), res)
+        with open(os.path.join(d, "scorecard.md"), "w", encoding="utf-8") as fh:
+            fh.write(scorecard(doc, res))
+        return {"state": "waiting", "plan": pl, "dir": d, "why": res["why"], "results": res}
     status = STATUS_OF.get(res["verdict"], "rejected")
     outcome = res["outcome"]
     doc = set_status(path, doc, status, outcome)
@@ -529,6 +539,11 @@ def decide(doc, h, job, trials, pl, d, now, context=None, path=None):
     if failed:
         why = "%d of %d validation gates failed: %s. The holdout stays sealed." % (len(failed), len(rows),
                                                                                   "; ".join(failed))
+    elif getattr(job, "holdout_wait", None) and job.holdout_wait(now.strftime("%Y-%m-%d")):
+        # a holdout of future, live-captured data (eh-14): not opened, so not burnt, until it exists
+        verdict = "WAITING"
+        why = ("every validation gate passed, but the holdout cannot be opened yet: %s. It stays sealed; run "
+               "this again when it has ended" % job.holdout_wait(now.strftime("%Y-%m-%d")))
     else:
         holdout = open_holdout(doc, h, job, ft["params"], hold_path, now, extra, path)
         if holdout.get("error"):
@@ -761,7 +776,7 @@ def status(folder, out):
                      "phase": st.get("phase") or "not started", "holdout_opened": (ho or {}).get("opened_at"),
                      "p_value": (ho or {}).get("p_value"), "registered_ok": ok is True,
                      "problem": None if ok is True else ok,
-                     "engine": ("options (#73)" if doc["family"] in jobs.FAMILIES_OPTIONS else
+                     "engine": ("options" if doc["family"] in jobs.FAMILIES_OPTIONS else
                                 jobs.JOBS[doc["family"]].engine if doc["family"] in jobs.JOBS else "none"),
                      "prior": doc["prior"]["probability"], "outcome": o or None})
     keep = core.benjamini_hochberg(pv, q) if pv else {}

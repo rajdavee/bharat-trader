@@ -76,6 +76,29 @@ All notable changes are documented here. The format follows
   the scorecard. MCP: `edge_hunt_status`
   and `edge_hunt_run` (57 tools). The Lab page lists the hypotheses with
   their status and outcome. No real hunt was run (that is #74).
+- **Options edge v2** (#73) in `trader-lab/options/`, wired into the
+  executor (`OptionsJob`), so `lab.py hunt run` runs the VIX-timed NIFTY iron
+  condor (eh-05), the results-day short iron fly (eh-08), the pre-results
+  long straddle (eh-09) and trend-day option buying (eh-14) as registered.
+  `vol.py`: close-to-close, Parkinson and Garman-Klass realised vol, a
+  HAR-RV forecast fitted on the train window only, and the IV - RV spread
+  (India VIX or the ATM IV of the EOD chain) with no look-ahead.
+  `events.py`: implied move (ATM straddle over spot) against the realised
+  move on the first reacting session from `results_dates`, the stock's own
+  history of results moves, and an event calendar (results, RBI policy,
+  Budget, expiry). `engines.py`: the VRP condor (one a monthly cycle, delta
+  shorts, wings as % of spot, take-50% or expiry, sizing by margin and a 1%
+  tail loss, with the untimed baseline and the event days held through), the
+  results-day fly and straddle (traded strikes only, stock lots and dated
+  charges, the straddle's P&L split into move and IV change), and trend-day
+  buying (model-priced Black-76 on index bars for train and validation, the
+  captured chain's bid and ask for the holdout). The executor scores return
+  on margin, and waits instead of opening a holdout of live data that has
+  not been captured yet (eh-14: the verdict stays capped at WATCH).
+  `load_chains` and `trim_board` can keep less of each board for long
+  histories. Tests on trimmed real NSE files (HDFCBANK and ICICIBANK around
+  their 17 Oct 2026 results, NIFTY monthly chains, India VIX, NIFTY 5-minute
+  bars). No real hunt was run (that is #74).
 
 ## [0.3.0] - 2026-11-01
 

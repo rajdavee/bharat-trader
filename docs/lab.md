@@ -494,6 +494,108 @@ each list holding until the next), `results.json`, `sectors.json`,
   the stocks' own opens and closes (no basis, no lot rounding, margin not
   modelled); the scorecard says so.
 
+### Options engines (VRP timing, results-day options, trend-day buying)
+
+The option families (`vrp-selling`, `event-vol`, `option-buying`) run on
+trader-lab's `options/` package through the executor's `OptionsJob`, with
+the same Job interface as every other engine: the data is read up to the
+day the executor gives and no later, each grid point runs once a window,
+and the window's last session closes every position. The registration is
+read as it is: a parameter value that is not in its grid is refused.
+
+**Realised volatility and the spread** (`options/vol.py`). One-day
+variances by close-to-close (the squared log return), Parkinson
+(ln(H/L)^2 / 4 ln 2) and Garman-Klass (0.5 ln(H/L)^2 - (2 ln 2 - 1)
+ln(C/O)^2); a bar with no range (an index file with only a close) falls
+back to close-to-close and says so. The n-session realised vol is
+annualised with sqrt(252) (close-to-close: the sample standard deviation,
+the same number as trader-regime's). **HAR-RV** (Corsi 2009) regresses the
+mean variance of the next h sessions on the last day's, week's (5) and
+month's (22) mean variance by least squares, **on the train window only**:
+a row counts only when its whole target is inside the window, and nothing
+after the window's last day is read. The forecast on a day uses the
+variances up to that close and the train-fitted coefficients. The spread
+is IV minus RV in vol points, with IV from India VIX or from the ATM options
+of the EOD chain (the 30-day constant-maturity ATM IV, Black-76 on settle
+prices). Every value dated D is computed from data up to D's close; the
+tests change and cut everything after D and check nothing before it moves.
+
+**VRP-timed iron condor** (eh-05). One NIFTY monthly condor at a time, one a
+monthly cycle (a new one only after the previous monthly expiry), on the
+monthly expiry at least 21 calendar days away. The registered signal is
+India VIX minus the 20-session close-to-close realised vol; the condor is
+sold at the close of the first session of the cycle where it is above the
+threshold of the grid point (0, 2 or 4 vol points). Shorts at the grid's
+delta on Black-76 IV from settle prices, wings the grid's % of the spot
+from each short (rounded to the strike step). Exit at expiry settlement (the
+expiring future's final settlement price; STT on exercise for an in-the-money
+long) or, for `take_50pct_profit`, at the first close with half the credit
+earned, or at the window's end. Sizing: the fewer of half the capital over
+the margin a lot and 1% of the capital over the condor's defined-risk worst
+case a lot; a position that cannot fit one lot is booked at one lot and
+flagged. Each condor also carries the HAR-RV forecast, the ATM IV and the RBI
+policy or Budget days it was held through (a diagnostic: eh-05 registered no
+event filter, so none is applied), and every run carries the **untimed
+baseline** (the same condor every cycle) its holdout rule compares with, the
+worst loss in average credits (a kill criterion), breaches, tail losses and
+the worst week.
+
+**Results-day options** (eh-08 short iron fly, eh-09 long straddle). The
+events come from trader-archive's `results_dates`; the first reacting
+session is re-derived from the archive's sessions (after 15:30: the next
+session; a Saturday meeting: Monday), and an event whose session is more
+than a week after its date (an archive that starts later) is dropped. A
+board meeting with no time is flagged: it could react that day or the next,
+so its realised move is measured to the close after the meeting.
+
+- Implied move: the ATM straddle (call + put at the strike nearest the
+  parity forward) over the spot, at the close of the session before the
+  reacting one, on the nearest monthly expiry still alive after the exit.
+- Realised move: |close of the reacting session / close before - 1| from the
+  equity bhavcopy (else the F&O file's underlying price).
+- eh-08 sells an iron fly at that close (wings 5% or 8% of the spot) when the
+  implied move is at least the grid's ratio (1.0 or 1.2) times the stock's
+  own mean realised results move over its earlier events (at least 4,
+  dated before the entry), and buys it back at the close of the reacting
+  session or the one after. eh-09 buys the ATM straddle 3, 5 or 10 sessions
+  before the reacting session and sells it at the close before it, when the
+  stock's near-monthly ATM IV is at or under the grid's percentile of its
+  previous 252 sessions (100: no filter; at least 126 sessions needed).
+- Every strike must have traded on the entry session (the registration's
+  universe); stock lot sizes come from the bhavcopy, charges from the dated
+  F&O table per side, margin from trader-strategy's SPAN-style estimate.
+- eh-09's P&L is split into the move and the time (each leg repriced at the
+  exit with its entry IV) and the rest, the change in IV, because its kill
+  criterion is a return that came from the stock's move rather than the IV.
+  The event study (implied against realised on every event, the share where
+  realised beat implied with a 95% interval) rides along.
+
+**Trend-day option buying** (eh-14). On a session whose previous India VIX
+close is under the cap, the first bar after the opening range (30 or 60
+minutes) that closes beyond its high (low) by the grid's % buys the nearest
+weekly ATM call (put) at that bar's close; out at 15:15, or on a close 30%
+under the option's peak. No entries after 15:00. Train and validation are
+**model-priced**: Black-76 on the index bar (F = S e^(rT)) with the previous
+session's EOD ATM IV of that expiry held for the day (India VIX when there is
+no chain), the lot from the previous day's bhavcopy, slippage and charges as
+everywhere else. That price has no intraday IV move, no bid-ask spread and no
+expiry-day smile, which is why a model-priced pass only earns the holdout.
+The holdout (16 Nov 2026 to 31 May 2027) is the **live captured chain**
+(`archive.py capture-chains`, #76): entries at the ask and exits at the bid of
+the snapshot at or just before the bar (no older than 10 minutes). Until that
+window has ended and the capture covers it, the executor does not open it:
+it stops with "waiting" instead of burning a holdout on data that does not
+exist yet, and its verdict is capped at WATCH whatever it shows. The index
+minute bars it needs come from a broker's history API (Upstox from Jan 2022)
+or Yahoo's last 60 sessions.
+
+**What the executor reads from an option run.** Each trade's `ret` is its
+net over the margin (sellers) or over the premium paid (buyers; for eh-09 it
+is also its `abnormal` event return); the run's `extra` holds the return on
+margin (eh-05 and eh-08's primary metric) and the options metrics. The
+daily return series is the MTM curve for the condor and the P&L on the exit
+day for the 1 to 10 session event and intraday trades.
+
 ### Portfolio metrics (every engine)
 
 CAGR after charges, volatility, Sharpe and Sortino (annualised, no
@@ -513,6 +615,10 @@ return from the best two months.
   not its future (stock-futures continuous series are not wired in yet).
 - Survivorship and look-ahead are only as good as the point-in-time
   membership and the dated results the archive provides.
+- Option runs are end-of-day for the condor and the results trades (settle
+  prices, a stop seen at the close), the margin is an estimate on today's
+  scan parameters, and eh-14's train and validation are model prices: the
+  real spread and intraday IV are only in its live-captured holdout.
 - A WATCH is evidence, not a promise; the programme's BH cut and the paper
   forward test come after it.
 
