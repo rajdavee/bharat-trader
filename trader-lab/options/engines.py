@@ -272,8 +272,9 @@ def prepare_vrp(hyp, data, start, until):
     notes = data.setdefault("notes", [])
     try:
         chains = O.load_chains(under, root, A, start, until, band=0.12, keep_dte=63, monthly_only=True)
-    except Exception as e:  # noqa: BLE001 - the lab's LabError: no chains in the archive
-        raise EngineError(str(e))
+    except Exception:  # noqa: BLE001 - the lab's LabError: no chains in the archive
+        raise EngineError("no %s option chains in the archive from %s to %s: the run waits for the F&O history "
+                          "(archive.py backfill --from %s --datasets fo,index,vix,lots)" % (under, start, until, start))
     idx = A.load_index(under, start, until, root)
     vix = A.load_vix(start, until, root)
     if not idx or not vix:

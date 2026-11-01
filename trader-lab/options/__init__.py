@@ -19,6 +19,10 @@ trader-strategy's script (the leg templates, strike picking, Black-76 and the SP
               losses, losing streaks, time in drawdown and the share of positions whose short strike
               was breached
 
+Options edge v2 (#73), loaded by path from here: vol.py (realised vol, HAR-RV, IV - RV), events.py (implied vs
+realised moves around results, the event calendar) and engines.py (the edge-hunt executor's option
+families; trader-lab/engines/jobs.py's OptionsJob calls them).
+
 EOD only: no intraday stops, no adjustments, strikes that never traded are priced by a model.
 Education and tooling, not financial advice. Nothing here places an order.
 """
