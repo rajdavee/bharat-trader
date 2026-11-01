@@ -25,12 +25,14 @@ function render() {
   const raw = input().value.trim();
   const q = raw.toLowerCase();
   const base = items();
-  shown = base.map((it) => [score(it, q), it]).filter((x) => x[0] > 0)
-    .sort((a, b) => b[0] - a[0]).map((x) => x[1]);
+  const scored = base.map((it) => [score(it, q), it]).filter((x) => x[0] > 0).sort((a, b) => b[0] - a[0]);
+  shown = scored.map((x) => x[1]);
   if (/^\^?[A-Za-z][A-Za-z0-9&.-]{1,19}$/.test(raw)) {
     const sym = raw.toUpperCase();
-    shown.unshift({ label: 'Chart ' + sym, group: 'Symbol', icon: 'chart',
-      run: () => { location.hash = '#/chart?symbol=' + encodeURIComponent(sym); } });
+    const item = { label: 'Chart ' + sym, group: 'Symbol', icon: 'chart',
+      run: () => { location.hash = '#/chart?symbol=' + encodeURIComponent(sym); } };
+    // a page or action whose name matches wins; otherwise the symbol comes first
+    if (scored.length && scored[0][0] >= 2) shown.push(item); else shown.unshift(item);
   }
   sel = Math.min(sel, Math.max(0, shown.length - 1));
   const ul = clear(list());
