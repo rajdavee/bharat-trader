@@ -54,7 +54,7 @@ Pages are grouped by the trader's day, so each step's next step is close by
 | Today | the cockpit, the home page |
 | Discover | Chart, Scanner, Option chain |
 | Plan | Strategy builder, Co-trader |
-| Trade | Portfolio and orders, Risk, Auto-pilot (coming in v0.3) |
+| Trade | Portfolio and orders, Risk, Auto-pilot |
 | Review | Strategy Lab, Journal, Tax, Agents |
 | Setup | Settings, Setup guide, About |
 
@@ -68,8 +68,6 @@ Pages are grouped by the trader's day, so each step's next step is close by
   to a term explains it in plain words.
 - Gains and losses carry a sign and a ▲ or ▼, not only a colour; pass and block
   carry ✓ and ✕.
-- The page for Auto-pilot is a placeholder, labelled
-  "Coming in v0.3", that says what it will show.
 
 ## Pages
 
@@ -80,6 +78,7 @@ Pages are grouped by the trader's day, so each step's next step is close by
 | Tax | trader-tax's estimate for one financial year, for your CA, with the disclaimer on top: the FY picker and the book (live broker files, paper practice or both); tiles for speculative (intraday) and non-speculative (F&O) business income, short- and long-term capital gains and the ICAI business turnover; the audit check in words; the taxable amounts and the special-rate amounts with their sections and rates; every set-off step, the carry-forward table with "usable until" and what lapsed; the advance-tax dates with your results to each date; the ITR-3 schedule for each number and the dated rules; an export button. See [tax.md](tax.md) | `trader-tax/tax.py` `report`, `export` |
 | Strategy Lab | Each trader-lab run: the verdict and why, out-of-sample trades (the sample size), expectancy after charges, the Monte Carlo range of the final P&L, max drawdown, the equity curve after charges with the out-of-sample windows shaded, the gates, results by regime, the deflated Sharpe ratio, the probability of overfitting, the paper forward test, and what a backtest does not show | `trader/lab/<name>/results.json`, `status.json`, `equity.csv` from `trader-lab/lab.py run` |
 | Co-trader | Candidate cards from trader-cotrader: the evidence tier badge (PROMOTED, WATCH; RESEARCH only with "Show RESEARCH ideas"), the probability that a similar past trade made money after charges with its 95% range and n, the expected R after charges, the time-machine replay and any disagreement, the plan and size, trader-risk's verdict, why and why not, what would invalidate it, what the evidence does not show, similar past trades and Draft to paper (sized and risk-checked, nothing placed); the no-edge card when nothing qualifies; each strategy's status today; the calibration chart (predicted vs observed) with Brier scores by strategy. See [cotrader.md](cotrader.md) | trader-cotrader `run_today`, `calibration_report`; trader-budget and trader-risk for the draft |
+| Auto-pilot | Whether the paper loop runs (pid, last step), start and stop with the typed words `start paper` / `stop paper` (a live config is refused), today's timeline (pre-open brief, orders placed with trader-risk PASS and the machine yes, fills, exits, blocks with reasons, the kill switch, end of day), the open paper positions by strategy, each strategy's capital bucket and its paper forward record after charges next to the lab's verdict, today's report, and a replay of a past day in a sandbox. See [autopilot.md](autopilot.md) | trader-autopilot `status`, `replay`; `autopilot.py start` / `stop` |
 | Ask | Optional, off by default: a chat with your own LLM endpoint (set by `BT_LLM_*` environment variables only). A privacy notice and a per-session consent box come first. The conversation shows each tool call the model made (read-only tools and the paper draft only) and links a drafted ticket to Portfolio and orders for your own typed yes. See [ai-chat.md](ai-chat.md) | `ui/chat.py` relaying to your endpoint; tool calls run `mcp/toolkit.py` |
 | Setup guide | The first-run steps above | trader-budget `build_config`, `describe_config`; the settings validator; trader-broker's adapters |
 | Chart | Candles and volume at 1m, 5m or 1d; EMA 9 and 21; session VWAP; the opening-range band; the plan's entry, stop and target; trader-entry's breakout status | Yahoo bars through trader-scanner's `yahoo_get`, parsed and evaluated by trader-entry; `trader/plan.json` |
@@ -137,6 +136,7 @@ free endpoints again.
 | GET | `/api/doctor` | the last data self-test from `trader/doctor.json` (the header's Data badge) |
 | GET | `/api/agents` | the agent personas (`agents/`) and each one's paper scorecard, read only |
 | GET | `/api/cotrader` | the last co-trader run (`trader/cotrader.json`) and the calibration of its logged probabilities; `stale` when the run is not from today |
+| GET | `/api/autopilot` | the auto-pilot on paper: running or not, today's timeline, open positions by strategy, forward records and verdicts, past replays |
 | GET | `/api/lab` | Strategy Lab runs from `trader/lab/`: verdict, after-charges numbers, gates, robustness, the equity curve (at most 400 points), why panels and what a backtest does not show |
 | GET | `/api/onboarding` | the setup guide: the MCP entry for this folder, broker variables set (names only); with `?capital=&risk_pct=&max_trades=&product=&broker_profile=` the config `size.py init` would write, checked, without saving |
 | GET | `/api/stream` | Server-Sent Events: `status`, `prices`, `alerts` |
@@ -155,6 +155,9 @@ free endpoints again.
 | POST | `/api/strategy/draft` | write the legs as a paper PROPOSAL to `trader/orders.json` and the strategy to `trader/strategy.json`; refuses other proposals unless `replace`, and a non-paper config |
 | POST | `/api/cotrader/run` | `cotrader.py today`: `{"tier": "validated" or "research"}`; writes `trader/cotrader.json`, the plans and new log lines; places nothing |
 | POST | `/api/cotrader/draft` | `{"id"}`: that candidate's plan becomes `trader/plan.json` (old one kept as `.bak`), trader-budget sizes it into `trader/orders.json`, trader-risk records the verdict; paper config only, on the plan's own day; your typed yes still decides |
+| POST | `/api/autopilot/start` | `{"typed": "start paper"}`: starts the loop on PAPER in the background (the offline demo runs one step); a live config is refused |
+| POST | `/api/autopilot/stop` | `{"typed": "stop paper"}`: the loop finishes its step and stops |
+| POST | `/api/autopilot/replay` | `{"date", "to"?}`: replays past sessions in a sandbox (`trader/autopilot/replays/`); your own account is not touched |
 | GET | `/api/journal` | trader-journal's summary, read only: stats with intervals, equity curve, breakdowns, rule breaks, the counterfactual ledger, every closed trade (`?lite=1`: this week only, no bars) |
 | GET | `/api/tax` | trader-tax's report for `?fy=2025-26&book=live` (or `paper`, `all`), read only, without the per-trade rows; the years with fills |
 | POST | `/api/tax/export` | `{"fy", "book"}`: write `report.md`, `summary.csv`, `trades.csv`, `carry-forward.csv` and `tax.json` to `trader/tax/FY<year>/`; touches no order or trade record |

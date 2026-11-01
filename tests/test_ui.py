@@ -1155,6 +1155,69 @@ class CotraderRoutes(unittest.TestCase):
         self.assertIn("No validated strategy", d["run"]["no_edge"]["reasons"][0])
 
 
+class AutopilotRoutes(unittest.TestCase):
+    """The Auto-pilot page: status, start/stop with a typed confirmation (paper only), and a replay in a sandbox
+    (tests/test_autopilot.py has the loop itself)."""
+
+    def setUp(self):
+        import test_autopilot as ta
+        self.ta = ta
+        self.dir = ta.make_wd(strategies={"t-sma20-watch": {"capital": 60000, "product": "MIS"}})
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def ctx(self, now="2026-09-22 10:00"):
+        return api.Context(self.dir, offline=FIX, now=now)
+
+    def test_status_start_stop_and_the_typed_words(self):
+        ctx = self.ctx()
+        status, d = api.dispatch(ctx, "GET", "/api/autopilot", {}, None)
+        self.assertEqual(status, 200)
+        self.assertFalse(d["running"])
+        self.assertEqual((d["start_words"], d["stop_words"]), ("start paper", "stop paper"))
+        self.assertIn("t-sma20-watch", d["settings"]["strategies"])
+        self.assertIn("Paper only", d["note"])
+        for typed in (None, "", "yes", "start", "start live"):
+            self.assertEqual(api.dispatch(ctx, "POST", "/api/autopilot/start", {}, {"typed": typed})[0], 400, typed)
+        status, d = api.dispatch(ctx, "POST", "/api/autopilot/stop", {}, {"typed": "Stop  Paper"})
+        self.assertEqual(status, 200)
+        self.assertIn("no auto-pilot loop is running", d["stopped"])
+        # the offline demo runs one step on the pinned clock (a Tuesday, 10:00: the pre-open brief is done)
+        status, d = api.dispatch(ctx, "POST", "/api/autopilot/start", {}, {"typed": "start paper"})
+        self.assertEqual(status, 200, d)
+        self.assertIn("one step", d["started"])
+        self.assertEqual(d["day"], "2026-09-22")
+        self.assertFalse(d["running"])
+        self.assertEqual(d["timeline"][0]["kind"], "pre-open")
+
+    def test_a_live_config_is_refused(self):
+        cfg = json.loads(read_text(os.path.join(self.dir, "trader", "config.json")))
+        cfg.update(paper=False, broker="upstox", live_enabled={"upstox": True})
+        with open(os.path.join(self.dir, "trader", "config.json"), "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh)
+        status, d = api.dispatch(self.ctx(), "POST", "/api/autopilot/start", {}, {"typed": "start paper"})
+        self.assertEqual(status, 409)
+        self.assertIn("PAPER broker only", d["error"])
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "trader", "autopilot", "lock.json")))
+        status, d = api.dispatch(self.ctx(), "GET", "/api/autopilot", {}, None)
+        self.assertTrue(d["problems"])
+        self.assertEqual(api.dispatch(self.ctx(), "POST", "/api/autopilot/replay", {}, {"date": "2026-09-21"})[0], 409)
+
+    def test_replay_in_a_sandbox(self):
+        ctx = self.ctx()
+        for bad in ({}, {"date": "21-09-2026"}, {"date": "2026-09-21", "to": "2026-09-01"},
+                    {"date": "2026-09-01", "to": "2026-12-01"}):
+            self.assertEqual(api.dispatch(ctx, "POST", "/api/autopilot/replay", {}, bad)[0], 400, bad)
+        self.assertEqual(api.dispatch(ctx, "POST", "/api/autopilot/replay", {}, {"date": "2026-09-19"})[0], 409)  # Saturday
+        status, d = api.dispatch(ctx, "POST", "/api/autopilot/replay", {}, {"date": "2026-09-21"})
+        self.assertEqual(status, 200, d)
+        rep = d["reports"][0]
+        self.assertEqual((rep["totals"]["fills"], rep["totals"]["realised"]), (4, -255.90))
+        self.assertEqual(d["sandbox"], "trader/autopilot/replays/2026-09-21")
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "trader", "portfolio.json")))
+        _, view = api.dispatch(ctx, "GET", "/api/autopilot", {}, None)
+        self.assertEqual(view["replays"], [{"name": "2026-09-21", "days": ["2026-09-21"]}])
 class Journal(unittest.TestCase):
     """The Journal page's routes: trader-journal's own numbers, read only, plus your notes."""
 
@@ -1264,13 +1327,14 @@ class Frontend(unittest.TestCase):
         groups = re.findall(r"name: '(\w+)'", nav)
         self.assertEqual(groups, ["Discover", "Plan", "Trade", "Review", "Setup"])
 
-    def test_placeholders_say_coming_in_v03(self):
-        soon = self.js("pages", "soon.js")
-        for issue in ("45",):
-            self.assertIn("issue: %s" % issue, soon)
-        self.assertNotIn("issue: 44", soon)             # the Co-trader page is real now
-        self.assertIn("cotrader,", self.js("app.js"))
-        self.assertIn("Coming in v0.3", self.js("ui.js"))
+    def test_no_page_is_a_placeholder_any_more(self):
+        # the Co-trader (#44), Journal (#49) and Auto-pilot (#45) pages are real: no "coming in v0.3" page is left
+        self.assertFalse(os.path.exists(os.path.join(STATIC, "js", "pages", "soon.js")))
+        self.assertNotIn("soon: true", self.js("nav.js"))
+        modules = re.search(r"const MODULES = \{(.*?)\};", self.js("app.js"), re.S).group(1)
+        self.assertNotIn("soon", modules)
+        for page in ("cotrader", "journal", "autopilot"):
+            self.assertIn("import * as %s from './pages/%s.js';" % (page, page), self.js("app.js"))
 
     def test_every_module_import_resolves(self):
         for base, _, names in os.walk(os.path.join(STATIC, "js")):

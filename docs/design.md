@@ -190,8 +190,8 @@ turns transitions off.
 | Today | the cockpit (home) |
 | Discover | Chart, Scanner, Option chain |
 | Plan | Strategy builder, Co-trader |
-| Trade | Portfolio and orders, Risk, Auto-pilot (coming in v0.3) |
-| Review | Strategy Lab, Journal (coming in v0.3), Agents |
+| Trade | Portfolio and orders, Risk, Auto-pilot |
+| Review | Strategy Lab, Journal, Agents |
 | Setup | Settings, Setup guide, About |
 
 ### Writing
