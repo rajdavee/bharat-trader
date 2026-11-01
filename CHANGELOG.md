@@ -7,6 +7,28 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Hinglish output mode** (#52). `--lang hi-en`, or `"lang": "hi-en"` in
+  `trader/config.json`, turns the plain-words output into Hinglish (Hindi in
+  Roman script, trading words in English): trader-broker tickets and
+  confirmations (paper and the live linked-exit messages), trader-risk
+  verdicts with every BLOCK rule in plain words (the exact English reason and
+  its numbers stay under it), trader-alerts rings, trader-cotrader candidates,
+  explanations and the sit-out answer, the trader-autopilot daily report, the
+  trader-exit plan summary, the trader-budget sizing report and refusals, the
+  trader-journal weekly review and the MCP `trade_brief` headline. Numbers,
+  ₹, IST, tickers, JSON and the `## Safety` rule text stay English, and the
+  reply that places an order is still the English word *yes* ("haan" is
+  refused like "ok"). Each script carries its own `MSG` catalogue and a tiny
+  `t()` / `pick_lang()` helper, kept identical across skills by
+  `tests/test_repo.py`. The web UI gets a language toggle in Settings
+  (`GET`/`POST /api/lang`, which changes only `lang`) and a catalogue
+  (`ui/static/js/i18n.js`) for the navigation, Today, Co-trader, Risk and the
+  order ticket; every MCP tool takes an optional `lang` for its text
+  summaries. Style guide and the safety lines side by side:
+  [docs/hinglish.md](docs/hinglish.md). Tests: every key in both languages
+  with the same placeholders, no oversell words, the safety lines' meaning,
+  and three golden Hinglish outputs (a ticket, a risk BLOCK, the co-trader's
+  no-edge answer) from the real-data fixtures.
 - **trader-broker: native linked exits** (#34). The stop and the target as
   ONE broker-native linked order, where the broker has one: Kite GTT two-leg
   OCO after the entry fills (`place --leg oco`), Upstox multi-leg GTT and
