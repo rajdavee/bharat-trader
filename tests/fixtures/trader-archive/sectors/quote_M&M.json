@@ -1,0 +1,29 @@
+{
+ "equityResponse": [
+  {
+   "metaData": {
+    "identifier": "M&MEQN",
+    "companyName": "Mahindra & Mahindra Limited",
+    "isinCode": "INE101A01026",
+    "symbol": "M&M",
+    "series": "EQ",
+    "marketType": "N",
+    "closePrice": 2840.3
+   },
+   "secInfo": {
+    "secStatus": "Listed",
+    "listingDate": "03-Jan-1996 00:00:00",
+    "isSuspended": "Active",
+    "basicIndustry": "Passenger Cars & Utility Vehicles",
+    "index": "Nifty 50",
+    "macro": "Consumer Discretionary",
+    "sector": "Automobile and Auto Components",
+    "industryInfo": "Automobiles",
+    "boardStatus": "Main",
+    "tradingSegment": "Normal Market",
+    "classShare": "Equity"
+   },
+   "lastUpdateTime": "30-Oct-2026 16:00:00"
+  }
+ ]
+}

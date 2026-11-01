@@ -256,13 +256,21 @@ class ArchiveMarket(Market):
         return out
 
     def sectors(self):
-        fn = getattr(self.api, "sectors", None)
-        if fn is not None:
-            return fn()
+        """{symbol: NSE sector}: a sectors.json given or in the archive folder first, else the archive's dated
+        sector snapshots (trader-archive sectors(); backfill --datasets sectors). None when neither exists."""
         for p in (self.sectors_path, os.path.join(self.root, "sectors.json")):
             if p and os.path.isfile(p):
                 with open(p, encoding="utf-8") as fh:
                     return json.load(fh)
+        fn = getattr(self.api, "sectors", None)
+        if fn is not None:
+            try:
+                got = fn(root=self.root)
+            except TypeError:
+                got = fn()
+            except Exception:       # no sector snapshot in the archive yet
+                got = None
+            return got or None
         return None
 
     def intraday(self, symbol, start=None, end=None):

@@ -25,7 +25,7 @@ description: >-
   "1 minute data from Upstox", "is my data complete", "data gaps",
   "purana data download karo", or "update the archive". It never places an
   order.
-argument-hint: "[backfill --years 3 | update | status | verify | export --symbol X | intraday --symbols X | snapshot-chain | continuous | members | results | expired-options | capture-chains]"
+argument-hint: "[backfill --years 3 | update | status | verify | export --symbol X | intraday --symbols X | snapshot-chain | continuous | members | sectors | results | expired-options | capture-chains]"
 ---
 
 # trader-archive
@@ -52,6 +52,7 @@ python3 "<skill dir>/archive.py" continuous --underlying NIFTY --method back --r
 python3 "<skill dir>/archive.py" members --index NIFTY50 --date 2015-06-30    # who was in the index that day
 python3 "<skill dir>/archive.py" members --report                             # coverage and gaps of the rebuild
 python3 "<skill dir>/archive.py" results --symbol INFY --from 2015-01-01      # results dates, after-close flag
+python3 "<skill dir>/archive.py" sectors --symbol HDFCBANK                     # NSE's sector classification
 python3 "<skill dir>/archive.py" expired-options --broker upstox --underlying NIFTY --from 2026-08-01
 python3 "<skill dir>/archive.py" capture-chains --symbols NIFTY,BANKNIFTY --every 5 --sessions 0   # background
 ```
@@ -76,6 +77,7 @@ blocking): the next run of the same command carries on.
 | `indexhist` | `api/historicalOR/indicesHistory` (an index a quarter a call), only before 2012-02-21 when the daily index files start | `indexhist/<index>/YYYY.csv.gz`; `--indices` picks them (default 22 main ones, or `all`) |
 | `results` | `api/corporate-board-meetings` and `api/corporates-financial-results` (a month a call each, from 2010) | `results/YYYY/YYYY-MM_board.json.gz`, `..._filings.json.gz` |
 | `members` | niftyindices.com press-release list and its index-change PDFs; today's `ind_nifty50list.csv` (Next 50, 100, 200, 500); `symbolchange.csv`, `EQUITY_L.csv` | `members/`: each announcement's text, the lists, the reference files |
+| `sectors` | `api/master-quote` (the F&O list) and `api/NextApi/apiClient/GetQuoteApi?functionName=getSymbolData` (a stock a call): NSE's macro, sector, industry, basic industry | `sectors/YYYY/YYYY-MM-DD.json.gz`, one dated snapshot a run; fresh for 7 days |
 
 The first three datasets are opt-in (`--datasets all`, or name them). What NSE
 serves, verified 2026-11-01: equity bhavcopies from 1994-11-03, F&O from
@@ -119,6 +121,7 @@ Import `archive.py` (by path) and call, with `root=` the archive folder:
 | `load_continuous(underlying, method, start, end, roll="days:0")` | continuous futures: `bars` (with the contract held), `rolls` (the roll log), `issues`; method `none`, `back` or `ratio` |
 | `members(index, date)` | point-in-time constituents of NIFTY 50 / NEXT 50 / 100 / 200 / 500, as traded that day |
 | `membership(index)` | the rebuilt history: every composition with its dates, issues, unresolved names |
+| `sectors(symbol=None, date=None, level="sector")` | one stock's NSE classification (four levels, the snapshot date), or `{symbol: sector}` for all |
 | `results_dates(symbol, start, end)` | results events: the day, the minute out, after the close or not, the first session that could react |
 | `load_option_intraday(underlying, expiry, strike, type)` | expired-option candles fetched with `expired-options` |
 

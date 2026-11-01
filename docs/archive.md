@@ -15,7 +15,7 @@ python3 trader-archive/archive.py update                      # each evening aft
 
 Stop a backfill any time: the next run of the same command skips what is
 already stored and carries on. `--datasets eq,fo,index,vix,lots,ban,settle,ca`
-picks datasets (`all` adds the long-history `indexhist,results,members`); `--from`/`--to` pick dates; `--pause` (default 1.5 s, never
+picks datasets (`all` adds the long-history `indexhist,results,members,sectors`); `--from`/`--to` pick dates; `--pause` (default 1.5 s, never
 below 1.0 s) sets the gap between NSE calls.
 
 ## What is stored
@@ -34,6 +34,7 @@ trader/archive/
   indexhist/nifty-50/2010.csv.gz   index history before 2012-02-21, one folder per index
   results/2012/2012-01_board.json.gz, 2012-01_filings.json.gz   results meetings and filings by month
   members/                         announcement texts, today's index lists, symbol changes, companies
+  sectors/2026/2026-11-01.json.gz  NSE's sector classification of the F&O stocks, one dated snapshot a run
   optx/upstox/NIFTY/2025-04-24/22500CE_1m.csv.gz   expired-option candles from your broker
   .cache/                          derived per-symbol indexes (safe to delete)
 ```
@@ -176,6 +177,37 @@ meeting with no filing in the feed is kept with the time unknown. Dividends
 are never price-adjusted in the archive: an event study around ex-dividend
 days must add them back itself.
 
+### Sector classification
+
+`backfill --datasets sectors` stores NSE's own industry classification of
+every F&O stock: today's F&O list (`api/master-quote`) plus every stock
+future in the F&O bhavcopies you have archived for `--from`/`--to` (one file
+a month is read), then one quote call a stock
+(`api/NextApi/apiClient/GetQuoteApi?functionName=getSymbolData`), about 220
+calls at the usual pause, so 6 to 7 minutes. NSE gives four levels in the
+quote's `secInfo`: `macro` (Financial Services), `sector` (Financial
+Services), `industry` (its `industryInfo`, Banks) and `basic_industry`
+(Private Sector Bank). Each run is one dated snapshot,
+`sectors/YYYY/YYYY-MM-DD.json.gz`, with its manifest. A complete snapshot
+less than 7 days old is kept, and a stopped run carries on where it stopped.
+An old or renamed symbol (SESAGOA, now VEDL) answers with empty fields and is
+recorded as unclassified, never guessed.
+
+```
+python3 trader-archive/archive.py backfill --from 2010-01-01 --datasets fo,sectors
+python3 trader-archive/archive.py sectors --symbol HDFCBANK      # Financial Services > ... > Private Sector Bank
+python3 trader-archive/archive.py sectors --level industry       # every stock, grouped
+```
+
+`sectors(symbol, date=None)` returns one stock's four levels from the latest
+snapshot on or before `date`. With no symbol it returns `{symbol: sector}` for
+every classified stock (`level=` picks another level), which is what
+trader-lab's pairs engine reads (eh-11 pairs within NSE's sector). NSE
+publishes only today's classification, with no history. A date before the
+first snapshot therefore gets the first snapshot, flagged
+`before_first_snapshot`. A stock that changed sector years ago is grouped by
+today's sector: a limit to state in any backtest that uses it.
+
 ### Intraday option history
 
 Researched 2026-11-01:
@@ -264,13 +296,14 @@ chain = archive.load_fo_chain_eod("NIFTY", "2026-10-30", root="trader/archive")
 Also `load_daily_many`, `load_intraday`, `load_vix`, `load_index`,
 `load_ban`, `load_settle`, `load_lots`, `trading_days`, `adjustment_factors`,
 `chain_snapshots`, `chain_series`, `load_continuous`, `members`,
-`membership`, `results_dates` and `load_option_intraday`. Nothing in the read
+`membership`, `results_dates`, `sectors` and `load_option_intraday`. Nothing in the read
 API touches the network.
 
 ```python
 cont = archive.load_continuous("NIFTY", "back", "2012-01-01", "2026-10-30", roll="days:1", root="trader/archive")
 universe = archive.members("NIFTY 500", "2015-06-30", root="trader/archive")     # who was in it then
 events = archive.results_dates("INFY", "2012-01-01", root="trader/archive")
+groups = archive.sectors(root="trader/archive")                                  # {symbol: NSE sector}
 ```
 
 ## Who uses it
