@@ -38,7 +38,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 51 tools and 16 prompts from
+4. Restart the client. It should list 52 tools and 16 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real

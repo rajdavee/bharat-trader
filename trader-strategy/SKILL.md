@@ -140,8 +140,15 @@ NRML|MIS`, `--offline DIR` (saved chains and history, repeatable).
   SPAN file of 30-Oct-2026), stated error +/-15%; stocks 20% and 10 points
   (not from a file), +/-35%. Bought options only: the premium paid, exact.
   Checked against the SPAN file's own risk arrays (scan risk within 1% to 9%
-  on NIFTY 03-Nov). `broker_basket` stays `null` until a broker adapter
-  reports the broker's basket margin.
+  on NIFTY 03-Nov). **The broker's own basket margin** goes next to it
+  (`margin.broker_basket`: the broker, its total, ours and the difference)
+  when trader-broker's `ticket.py margin-check` has read it today, or once
+  by itself when the config broker's token (or `"margin_broker"`'s) is in
+  your shell: Kite `/margins/basket`, Upstox margin API, Dhan margin
+  calculator, Angel One margin API, read only. `--broker-margin BROKER` asks
+  that broker, `--no-broker-margin` skips it. It never changes our
+  estimate; the broker's figure is what it blocks. Otherwise
+  `broker_basket` stays `null`.
 - **Max loss at expiry** (`margin.max_loss`, also `expiry.max_loss`): the
   most the position can lose, exact for one expiry. It is NOT the margin: for
   a NIFTY iron condor the max loss is about ₹4,100 while a broker blocks
@@ -178,7 +185,7 @@ curve {x[], expiry[], expiry_net[], at[], at_net[], horizon, iv_shift, breakeven
 margin {label, required, low, high, error_pct, method ("span-style"|"premium"), explain, defined_risk,
         max_loss (exact, positive; null if unlimited), max_loss_unlimited, return_on_margin (%),
         span_style {method, scan_risk, worst_scenario, exposure, expiry_day_elm, premium_paid, premium_received,
-                    total, error_pct, low, high, assumptions{}}, broker_basket (null), broker_note},
+                    total, error_pct, low, high, assumptions{}}, broker_basket (null or {broker, title, at, total, our_estimate, difference, difference_pct}), broker_note},
 probability {horizon, textbook {pop, pop_gross, ev, tail_5pct, tail_5pct_avg, median, sigma, method},
              simulated {... , paths, sessions, intraday_steps, realised_vol, history{}, method} | null,
              scenarios [{iv_shift, vol, pop, ev, tail_5pct, tail_5pct_avg}]},
