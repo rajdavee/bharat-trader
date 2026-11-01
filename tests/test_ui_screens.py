@@ -3,7 +3,7 @@
 Runs only where a headless Chromium-family browser is installed, and not in CI unless
 BT_UI_SCREENS=1 (a browser in CI is optional and slow). It renders the key pages at a desktop and a
 phone width, and checks that each page drew without an error note, that the page never scrolls
-sideways, and that all 17 navigation links are present (issue #39: nothing cut off).
+sideways, and that all 18 navigation links are present (issue #39: nothing cut off).
 """
 
 import os
@@ -48,7 +48,7 @@ class Screens(unittest.TestCase):
                     self.assertEqual(fh.read(8), b"\x89PNG\r\n\x1a\n")
                 self.assertLessEqual(probe["overflow"], 0, "the page scrolls sideways")
                 self.assertEqual(probe["errors"], [])
-                self.assertEqual(probe["nav"], 17)
+                self.assertEqual(probe["nav"], 18)
 
     def test_key_pages_at_desktop_and_phone_widths(self):
         self.check(screenshots.run(self.out, KEY_PAGES, WIDTHS))

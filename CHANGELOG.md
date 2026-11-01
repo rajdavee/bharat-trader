@@ -12,7 +12,8 @@ The co-trader release: candidates only from validated rules, odds with their
 range and sample size, "no trade today" as a first-class answer, and every
 probability scored afterwards. On real data every built-in strategy, equity
 and options, is REJECTED and a 500-trial discovery found 0 finalists. The
-docs say so. See [docs/cotrader-guide.md](docs/cotrader-guide.md).
+docs say so. The bridge to real money is the live co-pilot: PROMOTED
+strategies only, one typed approval per order. See [docs/cotrader-guide.md](docs/cotrader-guide.md).
 
 ### Added
 - **`trader-archive`** (#41): a local NSE data archive. Equity and F&O
@@ -69,6 +70,18 @@ docs say so. See [docs/cotrader-guide.md](docs/cotrader-guide.md).
   dates and ITR-3 schedules. FY 2025-26 follows the 1961 Act and tax year
   2026-27 the 2025 Act, with every rule dated and sourced. Not tax advice.
   See docs/tax.md.
+- **`trader-copilot`, the live co-pilot** (#46): live proposals only for
+  PROMOTED strategies whose paper forward record meets your thresholds
+  (trades, weeks, drawdown in R, Brier score, no recent demote). Each one is
+  sized in its own live capital bucket and gets trader-risk PASS on the live
+  config and a plain live ticket. It is sent only after your exact typed
+  phrase for that order (terminal, or the UI after a 10-second countdown),
+  then trader-broker's six gates. Linked exits per broker, a shadow paper
+  twin, daily caps, an automatic live kill switch with flatten tickets, a
+  cool-off, expiry and price-move invalidation. No auto-approve. A Co-pilot
+  UI page and the read-only MCP tools `copilot_status` and
+  `copilot_proposals`. Fully autonomous live trading is not planned (#67).
+  See docs/copilot.md.
 - **Brokers phase 2** (#34): native linked exits (Kite GTT OCO, Upstox
   multi-leg GTT, Dhan Super Order) under the same six gates, with `cancel`,
   `modify-exits` and a read-only `reconcile`. An **Angel One** SmartAPI
@@ -84,8 +97,9 @@ docs say so. See [docs/cotrader-guide.md](docs/cotrader-guide.md).
   co-trader prompts (`daily_cotrader_brief`, `find_best_trade_now`,
   `design_strategy_for_window`, `stress_test_my_idea`, `review_my_week`) that
   require n, the 95% interval, after-charges numbers, the regime and what
-  the evidence does not show. The MCP server now has **53 tools and 16
-  prompts** (from 32 and 11), still with no live-order tool.
+  the evidence does not show. With the co-pilot's two read-only tools the
+  MCP server has **55 tools and 16 prompts** (from 32 and 11), still with no
+  live-order or approval tool.
 - **Ask page** (#47): optional chat with your own LLM endpoint inside the UI
   (`BT_LLM_*` environment variables only; chat-completions or messages
   format). It has a privacy notice and per-session consent, answers on
@@ -95,9 +109,9 @@ docs say so. See [docs/cotrader-guide.md](docs/cotrader-guide.md).
   grouped sidebar, drawer and phone bottom bar, a command palette, guided or
   expert detail, dark and light themes, and a "why" panel on every number.
   New pages: the **Today** cockpit, **Strategy Lab**, **Co-trader**,
-  **Auto-pilot**, **Journal**, **Tax** and **Ask**, plus a first-run **setup
-  guide**. `ui/screenshots.py` makes screenshots with a browser you already
-  have.
+  **Auto-pilot**, **Co-pilot**, **Journal**, **Tax** and **Ask**, plus a
+  first-run **setup guide**. `ui/screenshots.py` makes screenshots with a
+  browser you already have.
 - **Hinglish** (#52): `--lang hi-en` or `"lang": "hi-en"` for tickets,
   confirmations, risk verdicts, alerts, the co-trader and its sit-out answer,
   the auto-pilot report, exit plans, sizing, the weekly review and the brief.

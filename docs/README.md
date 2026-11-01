@@ -16,6 +16,7 @@ the probabilities mean, and the safety model in one place.
 | [options.md](options.md) | The option chain, Greeks (Black-76), strategies, after-charges payoffs, STT on exercise, the margin estimate and its limits, probability of profit two ways, and paper F&O (basket, margin, MTM, expiry). |
 | [lab.md](lab.md) | The Strategy Lab: why most backtests lie, the spec, the backtest, walk-forward, deflated Sharpe, overfitting odds, the gates and the paper forward test. |
 | [cotrader.md](cotrader.md) | The co-trader: evidence tiers, how a candidate's probability is made (Wilson interval, empirical-Bayes shrinkage, the time-machine second opinion), what it means and does not, ranking, the no-edge answer, and calibration (Brier score, reliability, demotion). |
+| [copilot.md](copilot.md) | The live co-pilot: the safety model first (who may trade live, the typed phrase per order, caps and the live kill, what can never approve), then a live order step by step, and why full autonomy is not built. |
 | [autopilot.md](autopilot.md) | The auto-pilot on paper: the safety model (paper only, in code), a day step by step, fills, F&O baskets at the close, how its forward record feeds the lab's promote and demote, and replay. |
 | [discovery.md](discovery.md) | Strategy discovery: why most found strategies are noise, the declared search, the purged time split, the deflated Sharpe, overfitting odds, Reality Check / SPA and FDR with the true trial count, the holdout, and the limits. |
 | [brokers.md](brokers.md) | Upstox, Zerodha Kite, Dhan and Angel One: setup, the **static IP** and **daily login** rules, read-only commands, the broker's basket margin next to our estimate, native linked stop and target (GTT OCO, Super Order), and every gate before a live order. |
@@ -28,7 +29,6 @@ the probabilities mean, and the safety model in one place.
 | [hinglish.md](hinglish.md) | Hinglish output (`--lang hi-en`, the config's `lang`, the UI toggle): what is translated, what stays English and why, the style guide and the safety lines side by side. |
 | [agents.md](agents.md) | The six agent personas, how to run them as sub-agents or over MCP, and their paper scorecards. |
 
-<!-- TODO(#46): add the live co-pilot page (copilot.md) to this table when it merges. -->
 
 ## How it works
 

@@ -1318,9 +1318,9 @@ class Frontend(unittest.TestCase):
         nav = self.js("nav.js")
         app = self.js("app.js")
         pages = re.findall(r"^  (\w+): \{ label:", nav, re.M)
-        self.assertEqual(len(pages), 17)
+        self.assertEqual(len(pages), 18)
         for want in ("today", "chart", "scanner", "options", "strategy", "cotrader", "ask", "portfolio", "risk",
-                     "autopilot", "lab", "journal", "tax", "agents", "settings", "welcome", "about"):
+                     "autopilot", "copilot", "lab", "journal", "tax", "agents", "settings", "welcome", "about"):
             self.assertIn(want, pages)
         modules = re.search(r"const MODULES = \{(.*?)\};", app, re.S).group(1)
         for p in pages:

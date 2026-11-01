@@ -47,7 +47,7 @@ it honestly from then on.
 | after 15:30 | journal | `journal.py sync` | Journal |
 | weekend | weekly review | `journal.py review --week last`, `cotrader.py calibration` | Journal, Co-trader |
 | any day | promote or demote | automatic, via `lab.py forward NAME` | Strategy Lab |
-| live, PROMOTED only | co-pilot | see [below](#7-the-live-co-pilot-promoted-only) | |
+| live, PROMOTED only | co-pilot | `copilot.py propose`, `approve ID` | Co-pilot |
 
 ### 1. Pre-open brief (08:45 to 09:15)
 
@@ -169,13 +169,38 @@ strategy stops trading the next session without anyone stepping in. See
 
 ### 7. The live co-pilot (PROMOTED only)
 
-> **TODO (#46):** the live co-pilot (per-order approval for PROMOTED
-> strategies) is still under review. This section and its link to
-> `docs/copilot.md` will be added when it merges.
+`trader-copilot` is the only bridge from this loop to real money, and it is
+slow on purpose: one live order, one typed approval.
 
-Until then a live order is possible only through `trader-broker` by hand,
-after every gate in [brokers.md](brokers.md). The auto-pilot cannot trade
-live, and no switch exists to make it.
+```bash
+python3 trader-copilot/copilot.py eligibility      # which strategies may trade live, and why not
+python3 trader-copilot/copilot.py propose          # live tickets from PROMOTED candidates, nothing sent
+python3 trader-copilot/copilot.py approve CP-20261029-1
+python3 trader-copilot/copilot.py caps             # today's live orders, capital at risk, live loss
+```
+
+- **Eligible:** only a PROMOTED strategy whose paper forward record meets
+  your thresholds (trades, weeks, drawdown in R, the Brier score of its odds,
+  no recent demote). Everything else stays on paper, and the eligibility
+  table says why.
+- **Each proposal** is a co-trader candidate sized in the co-pilot's own
+  live capital bucket, with trader-risk PASS on your live config and a plain
+  live ticket (max loss with charges, linked exits, evidence, calibration,
+  the broker's margin).
+- **You approve each order** by typing its exact phrase (`yes live BUY 42
+  RELIANCE`) in the terminal, or in the UI's Co-pilot page after a
+  10-second countdown. The phrase is tied to that proposal and works once.
+  Then trader-broker's six live gates and the static-IP preflight apply.
+- **Caps:** daily live orders, capital at risk and live loss, with an
+  automatic live kill switch, a cool-off after a loss, and proposals that
+  expire or are invalidated by a price move. Every live order gets a shadow
+  paper twin.
+
+There is no auto-approve, and no assistant can approve (the MCP tools
+`copilot_status` and `copilot_proposals` are read only). Fully autonomous
+live trading is not planned; the reasons are in
+[#67](https://github.com/rajdavee/bharat-trader/issues/67). See
+[copilot.md](copilot.md).
 
 ## What a probability means, and what it does not
 
@@ -233,7 +258,8 @@ or more outcomes, is demoted.
 
 Connect the MCP server (see [mcp.md](mcp.md#install), or the
 [README's quick start](../README.md#3-from-your-ai-assistant-mcp)). It gives
-your assistant 53 tools and 16 prompts and no live-order tool. The
+your assistant 55 tools and 16 prompts and no live-order tool (the
+co-pilot's two tools are read only). The
 co-trader prompts tell the assistant to show n and the 95% interval with
 every rate, give numbers after charges, name the regime, say what the
 evidence does NOT show, and never promise a result.
@@ -272,19 +298,20 @@ cannot confirm anything. See [ai-chat.md](ai-chat.md).
 | Evidence tiers | RESEARCH ideas are blocked by trader-risk whenever the config is live. | [cotrader.md](cotrader.md#where-candidates-come-from) |
 | Auto-pilot | Paper only, checked in code in four places. Its machine yes is labelled `"actor": "autopilot"`, and `place` refuses any yes you did not type. | [autopilot.md](autopilot.md#the-safety-model) |
 | AI assistant | The MCP server has no live-order tool. The Ask page cannot confirm. | [mcp.md](mcp.md#security-model) |
+| Live co-pilot | PROMOTED strategies with enough paper record only; your exact typed phrase per order; daily caps and a live kill switch; no auto-approve. | [copilot.md](copilot.md) |
 | Live orders | Six gates: the broker in config, `"paper": false`, `live_enabled`, risk PASS for that exact ticket, your typed yes, and today's static-IP preflight. You run `ticket.py place` yourself. | [brokers.md](brokers.md) |
 | Kill switch | `check.py kill` stops new entries. The auto-pilot also flattens on paper. | [configuration.md](configuration.md) |
 
 What it will never do: call a trade guaranteed, sure-shot or risk-free;
 trade a RESEARCH idea live; place a live order without you; or run fully
-autonomous live trading. Under SEBI's retail-algo framework, that last one
-would be a separate decision for the maintainer, and it is not built.
+autonomous live trading. That last one is an open decision, marked not
+planned, in [#67](https://github.com/rajdavee/bharat-trader/issues/67).
 
 ## Read next
 
 [cotrader.md](cotrader.md) (the method) · [lab.md](lab.md) (the gates) ·
 [discovery.md](discovery.md) (the search) · [autopilot.md](autopilot.md) ·
-[journal.md](journal.md) · [regime.md](regime.md) · [mcp.md](mcp.md) ·
+[copilot.md](copilot.md) · [journal.md](journal.md) · [regime.md](regime.md) · [mcp.md](mcp.md) ·
 [archive.md](archive.md)
 
 Education and tooling, not financial advice.

@@ -41,7 +41,7 @@ Every item below is in the code; the [CHANGELOG](../CHANGELOG.md) has the detail
 | 7 | UI | ✅ `ui/serve.py`: dashboard, candlestick charts with levels, scanner and watchlist, option chain, strategy builder with payoff chart, paper portfolio with F&O by strategy, risk panel, agent team, settings. A "why" panel explains every number. See [ui.md](ui.md). |
 | 8 | Data | ✅ `trader-doctor`: self-test of every data source with since-when history and fallbacks. |
 | 9 | Docs | ✅ Getting started, F&O guide, broker setup, UI guide, an honest comparison table, a docs index. |
-| 10 | MCP | ✅ `mcp/server.py`: 32 tools and 11 prompts at v0.2 (53 and 16 in v0.3) for any MCP-compatible assistant; paper only, no live-order tool. See [mcp.md](mcp.md). |
+| 10 | MCP | ✅ `mcp/server.py`: 32 tools and 11 prompts at v0.2 (55 and 16 in v0.3) for any MCP-compatible assistant; paper only, no live-order tool. See [mcp.md](mcp.md). |
 | 11 | Strategy Lab | ✅ `trader-lab`: after-charges backtests, walk-forward, deflated Sharpe, probability of backtest overfitting, pre-registered gates, paper forward test with automatic demotion. See [lab.md](lab.md). |
 | 12 | Agent team | ✅ Six personas in `agents/` with paper scorecards, as sub-agent files and MCP prompts. See [agents.md](agents.md). |
 
@@ -76,8 +76,8 @@ detail, and the [co-trader guide](cotrader-guide.md) puts it together.
 | 4 | Strategy Lab phase 2 ([#35](https://github.com/rajdavee/bharat-trader/issues/35)) | ✅ Multi-leg option strategies backtested on the archive's EOD chains with charges, walk-forward, DSR/PBO and gates. All five library specs REJECT on 703 real sessions; the expiry-day iron fly comes closest. See [lab.md](lab.md#options-strategies). |
 | 5 | Co-trader ([#44](https://github.com/rajdavee/bharat-trader/issues/44)) | ✅ `trader-cotrader`: candidates from lab-validated rules with evidence tiers, after-charges odds with a 95% range and n, a second opinion, ranking per unit risk, the no-edge answer, and calibration tracking with demotion. See [cotrader.md](cotrader.md). |
 | 6 | Paper auto-pilot ([#45](https://github.com/rajdavee/bharat-trader/issues/45)) | ✅ `trader-autopilot`: the co-trader loop on paper on the NSE clock; forward records drive promote and demote; replay. Paper only, enforced in code. See [autopilot.md](autopilot.md). |
-| 7 | Live co-pilot ([#46](https://github.com/rajdavee/bharat-trader/issues/46)) | In progress. Per-order approval for PROMOTED strategies only. Fully autonomous live trading is not built, and would be a separate decision. |
-| 8 | AI integration v2 ([#47](https://github.com/rajdavee/bharat-trader/issues/47)) | ✅ Co-trader workflow tools and prompts, honest trial counting, 53 tools and 16 prompts; the optional Ask page with your own LLM. See [mcp.md](mcp.md), [ai-chat.md](ai-chat.md). |
+| 7 | Live co-pilot ([#46](https://github.com/rajdavee/bharat-trader/issues/46)) | ✅ `trader-copilot`: live proposals only for PROMOTED strategies with enough paper record, your exact typed phrase per order, daily caps, a live kill switch and a shadow paper twin; no auto-approve. Fully autonomous live trading is an open decision, marked not planned: [#67](https://github.com/rajdavee/bharat-trader/issues/67). See [copilot.md](copilot.md). |
+| 8 | AI integration v2 ([#47](https://github.com/rajdavee/bharat-trader/issues/47)) | ✅ Co-trader workflow tools and prompts, honest trial counting, 53 tools and 16 prompts (55 with the co-pilot's two read-only tools); the optional Ask page with your own LLM. See [mcp.md](mcp.md), [ai-chat.md](ai-chat.md). |
 | 9 | UI redesign ([#48](https://github.com/rajdavee/bharat-trader/issues/48), [#39](https://github.com/rajdavee/bharat-trader/issues/39)) | ✅ Design system, grouped navigation that works on a phone, Today, Strategy Lab, Co-trader, Auto-pilot, Journal, Tax and Ask pages, the setup guide. See [ui.md](ui.md), [design.md](design.md). |
 | 10 | Journal and counterfactuals ([#49](https://github.com/rajdavee/bharat-trader/issues/49)) | ✅ `trader-journal`: entries from paper, live and five brokers' trade books; stats with intervals; rule breaks; the counterfactual ledger; the weekly review. See [journal.md](journal.md). |
 | 11 | Tax ([#50](https://github.com/rajdavee/bharat-trader/issues/50)) | ✅ `trader-tax`: a dated, sourced financial-year estimate for your CA under the 1961 and 2025 Acts. See [tax.md](tax.md). |
@@ -99,7 +99,9 @@ and following declined candidates in the counterfactual ledger.
 - **Paper earns promotion.** Only the lab's pre-registered rules and the
   paper forward record promote a strategy. Nobody can promote one by hand.
 - **No autonomous live trading.** The auto-pilot is paper only, in code.
-  Live orders need a person's typed yes for every order.
+  The live co-pilot needs a person's typed phrase for every order. Full
+  autonomy is an open decision, marked not planned, in
+  [#67](https://github.com/rajdavee/bharat-trader/issues/67).
 
 ## v0.4.0: ideas (not committed)
 
