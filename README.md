@@ -69,7 +69,7 @@ the same machinery tracks it on paper and demotes it when it decays.
   on your machine.
 - **Agent-native.** Twenty-three [Agent Skills](https://agentskills.io), six
   agent personas, and an [MCP](https://modelcontextprotocol.io/) server with
-  59 tools and 16 prompts for any MCP-compatible AI assistant.
+  60 tools and 16 prompts for any MCP-compatible AI assistant.
 - **Zero-install UI.** `python3 ui/serve.py --open` opens a web app on
   `127.0.0.1` that never loads anything from the internet. It works on a
   phone too.
@@ -335,7 +335,7 @@ Add the server to your MCP client's configuration:
 }
 ```
 
-Restart the client. It should list 59 tools and 16 prompts. Start with the
+Restart the client. It should list 60 tools and 16 prompts. Start with the
 `daily_cotrader_brief` prompt, or just ask: *"what's the best trade right
 now, and how sure are we?"*, *"which of my lab strategies has an edge in
 today's regime?"*, *"design an expiry-day NIFTY strategy and test it once"*,
@@ -383,7 +383,7 @@ all of these together, run on your own machine:
 
 | | after-charges payoff | honest-odds simulation | out-of-sample lab | calibrated odds, sit-out answer | multi-broker paper F&O | local-first | MCP | dated rules |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates, equity and options | ✅ range and n on every rate, Brier and reliability tracked, "no trade today" | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 59 tools, 16 prompts | ✅ effective date and source per rule |
+| **bharat-trader** | ✅ every leg, with STT on exercise | ✅ textbook vs bootstrap, IV shifts, EV and tail | ✅ walk-forward, deflated Sharpe, overfitting odds, pre-registered gates, equity and options | ✅ range and n on every rate, Brier and reliability tracked, "no trade today" | ✅ Upstox, Kite, Dhan, Angel, Groww charge profiles | ✅ 127.0.0.1, no account | ✅ 60 tools, 16 prompts | ✅ effective date and source per rule |
 | Typical free option-analytics apps | ◐ often gross only | ◐ one model-based PoP | — | — | ◐ one broker, forward only | — hosted, broker login | — rarely | ◐ |
 | Typical paid backtesting platforms | ◐ often | ◐ | ◐ backtests, rarely overfitting statistics | — rarely | ◐ their own simulator | — hosted, your strategies on their servers | — rarely | ◐ |
 | Typical open-source NSE toolkits | ◐ | — rarely | — rarely | — rarely | ◐ a few, often needing a live broker session | ✅ | ◐ some | — rarely |
