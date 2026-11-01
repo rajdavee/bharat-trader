@@ -294,7 +294,7 @@ def rings(ctx, qs=None):
     if qs is None:
         qs, errors = quotes(ctx, syms)
     try:
-        hit, _ = alerts.evaluate(rules, qs, status, state, now)
+        hit, _ = alerts.evaluate(rules, qs, status, state, now, ui_lang(ctx))
     except alerts.AlertError as e:
         raise ApiError(422, str(e))
     rung = state.get("rung", {}) if isinstance(state, dict) else {}
@@ -817,6 +817,8 @@ def r_risk(ctx, q, body):
                                   "delta per 1% move, vega rupees per vol point, theta rupees per calendar day",
                                   {k: v for k, v in fno.items() if k.startswith("max_net") or k.startswith("max_theta")},
                                   "trader-risk book_greeks (Black-76)", now_s)},
+            "rule_words": {r: risk.t("rule_" + r, ui_lang(ctx)) for r in risk.RULES} if ui_lang(ctx) != "en"
+            else None,
             "disclaimer": DISCLAIMER}
 
 
@@ -2366,9 +2368,35 @@ def _calibration(ctx):
     return rep
 
 
+def ui_lang(ctx):
+    """trader/config.json's "lang" (en or hi-en)."""
+    lang = ctx.config().get("lang")
+    return lang if lang in LANGS else "en"
+
+
+def cotrader_words(doc, lang):
+    """The run's plain-words text in lang (the run itself stays as written, in English): the headline, the sit-out
+    answer and each candidate's why, invalidation, evidence and what it does not show."""
+    if not isinstance(doc, dict) or lang == "en" or not doc.get("candidates") and not doc.get("no_edge"):
+        return None
+    ct = skill("cotrader")
+    out = {"lang": lang, "explain": {}}
+    try:
+        out["headline"] = ct.headline(doc, lang)
+        out["no_edge"] = ct.no_edge(doc, lang) if doc.get("no_edge") else None
+        for c in doc.get("candidates") or []:
+            x = c.get("explain") or {}
+            if x.get("inputs"):
+                out["explain"][c["id"]] = ct.explain_words(c, c["evidence"], c["second_opinion"], x["inputs"], lang)
+    except (KeyError, TypeError, ValueError):
+        return None                           # an older cotrader.json: the English text it has is shown
+    return out
+
+
 def cotrader_view(ctx):
     doc = ctx.read("cotrader.json")
-    return {"run": doc, "calibration": _calibration(ctx), "limits": COTRADER_LIMITS,
+    return {"run": doc, "words": cotrader_words(doc, ui_lang(ctx)), "calibration": _calibration(ctx),
+            "limits": COTRADER_LIMITS,
             "how": "Refresh here, or in a terminal: python3 trader-cotrader/cotrader.py today (add --tier research "
                    "for the unproven ideas). It reads trader/lab/ and writes trader/cotrader.json.",
             "stale": bool(doc) and str(doc.get("as_of", ""))[:10] != ctx.today(),

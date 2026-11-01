@@ -4,6 +4,7 @@ import { get, post } from '../api.js';
 import { h, clear, card, kv, note, table, loading } from '../dom.js';
 import { inr, num, when, whenUtc } from '../fmt.js';
 import { why } from '../why.js';
+import { t, ruleWords } from '../i18n.js';
 
 const MONEY = new Set(['capital', 'max_loss_per_trade', 'max_daily_loss', 'max_order_value', 'min_order_value',
   'max_premium_per_trade', 'max_premium_per_day', 'max_net_vega', 'max_theta_paid_per_day', 'max_scenario_loss']);
@@ -16,7 +17,12 @@ function value(k, v) {
   return String(v);
 }
 
-function results(res, whyInfo) {
+function reason(x, words) {
+  const plain = ruleWords(x, words);
+  return plain ? h('li', null, h('b', null, plain), h('br'), h('span', { class: 'small muted' }, x)) : h('li', null, x);
+}
+
+function results(res, whyInfo, words) {
   const head = h('p', null,
     h('span', { class: 'badge pass' }, `${res.pass} PASS`), ' ', h('span', { class: 'badge block' }, `${res.block} BLOCK`),
     ` at ${res.now_ist} IST · cash after the passed orders `, why(inr(res.cash_after), whyInfo, 'the verdicts'),
@@ -25,7 +31,7 @@ function results(res, whyInfo) {
     h('div', { class: 'verdict-head' }, h('span', { class: 'badge ' + (r.verdict === 'PASS' ? 'pass' : 'block') }, r.verdict),
       ` #${r.index} ${r.side} ${r.qty} ${r.contract || r.symbol} (${r.product}), ${r.kind}`),
     (r.info || []).length ? h('ul', { class: 'small' }, r.info.map((x) => h('li', null, x))) : null,
-    (r.reasons || []).length ? h('ul', { class: 'reasons' }, r.reasons.map((x) => h('li', null, x))) : null,
+    (r.reasons || []).length ? h('ul', { class: 'reasons' }, r.reasons.map((x) => reason(x, words))) : null,
     (r.warnings || []).length ? h('ul', { class: 'warnings small' }, r.warnings.map((x) => h('li', null, '~ ' + x))) : null));
   return [head, (res.warnings || []).map((w) => note(w, 'warn')), h('ul', { class: 'verdicts' }, items)];
 }
@@ -149,8 +155,8 @@ function bookCard(d) {
 }
 
 export async function render(root) {
-  root.appendChild(h('h1', { class: 'page-title' }, 'Risk'));
-  root.appendChild(h('p', { class: 'page-lede explain' }, 'Trade: every order is checked against your own limits before it can be confirmed. The kill switch stops new entries for the day; exits always pass.'));
+  root.appendChild(h('h1', { class: 'page-title' }, t('risk.title')));
+  root.appendChild(h('p', { class: 'page-lede explain' }, t('risk.lede')));
   const body = h('div');
   root.appendChild(body);
   const refresh = async (flash) => {
@@ -158,7 +164,7 @@ export async function render(root) {
     const d = await get('/api/risk');
     clear(body);
     if (flash) body.appendChild(flash);
-    const btn = h('button', { type: 'button', class: 'btn primary' }, 'Run risk check');
+    const btn = h('button', { type: 'button', class: 'btn primary' }, t('risk.run'));
     btn.addEventListener('click', async () => {
       btn.disabled = true;
       try {
@@ -173,15 +179,15 @@ export async function render(root) {
     body.appendChild(breakersCard(d.breakers, d.rate));
     body.appendChild(bookCard(d));
     const last = d.last_check;
-    body.appendChild(card('Recorded verdicts (what the paper broker trusts)',
+    body.appendChild(card(t('risk.recorded'),
       last ? h('p', { class: 'small muted' }, `Checked ${whenUtc(last.checked_at)} for ${last.date}` +
         (last.prices_as_of ? `, prices as of ${when(last.prices_as_of)}` : '')) : null,
       d.stale ? note(`These verdicts are from ${last.date}, not today. Run the check again.`, 'warn') : null,
-      last ? results(last, d.why.verdict) : note('No risk check recorded yet.', 'info'),
+      last ? results(last, d.why.verdict, d.rule_words) : note('No risk check recorded yet.', 'info'),
       h('div', { class: 'row' }, btn)));
-    body.appendChild(card('Preview now (not recorded)', d.preview ? results(d.preview, d.why.verdict)
+    body.appendChild(card(t('risk.preview'), d.preview ? results(d.preview, d.why.verdict, d.rule_words)
       : note(d.preview_error || 'No trader/orders.json to check (trader-budget writes it).', d.preview_error ? 'warn' : 'info')));
-    body.appendChild(card('Your limits (trader/config.json, defaults filled in)', table(['Rule', 'Value'],
+    body.appendChild(card(t('risk.limits'), table(['Rule', 'Value'],
       d.limits.concat(d.fno_limits || []).map((l) => h('tr', null, h('td', null, h('code', null, l.key)), h('td', null, value(l.key, l.value)))),
       { dense: true, caption: 'Risk limits' }), h('a', { href: '#/settings', class: 'more' }, 'Edit in Settings →')));
     body.appendChild(h('p', { class: 'muted small' }, d.disclaimer));

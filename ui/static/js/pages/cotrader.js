@@ -7,6 +7,7 @@ import { inr, num } from '../fmt.js';
 import { help } from '../why.js';
 import { metric, empty, skeleton, failure, pageHead, toast } from '../ui.js';
 import { plot } from '../plot.js';
+import { t } from '../i18n.js';
 
 const STATE = { plots: [], off: [], research: false };
 const redraw = () => STATE.plots.forEach((p) => p.redraw());
@@ -34,26 +35,25 @@ function list(items, cls) {
   return items && items.length ? h('ul', { class: cls || null }, items.map((x) => h('li', null, x))) : null;
 }
 
-function candidateCard(c, onDraft, draftable) {
+function candidateCard(c, onDraft, draftable, words) {
   const ev = c.evidence;
   const p = c.plan;
   const s = c.sizing || {};
   const so = c.second_opinion || {};
-  const x = c.explain || {};
+  const x = (words && words.explain && words.explain[c.id]) || c.explain || {};
   const tiles = h('div', { class: 'metrics' },
-    metric({ label: 'Made money after charges, in the past', term: 'probability', value: share(ev.p),
+    metric({ label: t('ct.p_label'), term: 'probability', value: share(ev.p),
       sub: `95% ${share(ev.p_lo)} to ${share(ev.p_hi)}; n = ${num(ev.trades_cell, 0)} here, ${num(ev.trades_all, 0)} in all`,
       tone: ev.trades_cell < 10 ? 'warn' : null,
-      explain: ev.trades_cell < 10 ? 'Few trades in this kind of market: it leans on the rule\'s overall rate.'
-        : 'The share of similar past trades, not a promise about this one.' }),
-    metric({ label: 'Expected result per trade, after charges', term: 'expectancy', value: rmult(ev.ev_r),
+      explain: ev.trades_cell < 10 ? t('ct.p_few') : t('ct.p_explain') }),
+    metric({ label: t('ct.ev_label'), term: 'expectancy', value: rmult(ev.ev_r),
       sub: ev.ev_lo !== null && ev.ev_lo !== undefined ? `95% ${rmult(ev.ev_lo)} to ${rmult(ev.ev_hi)}` +
         (c.ev_rupees !== null && c.ev_rupees !== undefined ? `; about ${inr(c.ev_rupees)}` : '') : '',
-      explain: 'In units of the amount risked at the stop.' }),
-    metric({ label: 'Time-machine replay', value: so.available ? share(so.p_green) + ' green' : '–',
+      explain: t('ct.ev_explain') }),
+    metric({ label: t('ct.tm_label'), value: so.available ? share(so.p_green) + ' green' : '–',
       sub: so.available ? `${rmult(so.avg_r_net)} after charges` : (so.why || ''),
       tone: (c.disagreements || []).length ? 'warn' : null,
-      explain: (c.disagreements || []).length ? 'Disagrees with the history: see below.' : 'A second opinion from the stock\'s own bars.' }));
+      explain: (c.disagreements || []).length ? t('ct.tm_disagrees') : t('ct.tm_explain') }));
   const bk = c.basket;
   const plan = bk ? kv([
     ['Basket', `${bk.structure} on ${c.date}, expiry ${bk.expiry}, ${bk.legs} legs (NRML, one position)`],
@@ -71,9 +71,9 @@ function candidateCard(c, onDraft, draftable) {
     ['Rank', `#${c.rank} (score ${num(c.score, 3)}${c.rho_with ? `; correlation ${num(c.rho, 2)} with ${c.rho_with}` : ''})`],
   ]);
   const why = h('div', null,
-    h('h3', { class: 'sub' }, 'Why this trade'), h('p', null, x.why || ''),
-    h('h3', { class: 'sub' }, 'What would invalidate it'), list(x.invalidation),
-    (c.why_not || []).length ? h('div', null, h('h3', { class: 'sub' }, 'Why not (your rules)'), list(c.why_not)) : null,
+    h('h3', { class: 'sub' }, t('ct.why')), h('p', null, x.why || ''),
+    h('h3', { class: 'sub' }, t('ct.invalidate')), list(x.invalidation),
+    (c.why_not || []).length ? h('div', null, h('h3', { class: 'sub' }, t('ct.why_not')), list(c.why_not)) : null,
     (c.disagreements || []).length ? note('Disagreement: ' + c.disagreements.join('; '), 'warn') : null);
   const sim = (c.similar || []).length ? h('details', null, h('summary', null, 'Nearest similar past trades'),
     table(['Signal', 'Stock', 'Regime', { label: 'Result', num: true }, { label: 'Net', num: true }, 'Exit'],
@@ -82,21 +82,21 @@ function candidateCard(c, onDraft, draftable) {
       { dense: true, caption: 'Similar past trades' })) : null;
   const draft = h('button', { type: 'button', class: 'btn primary', disabled: !draftable(c),
     title: draftable(c) ? 'Size it and run the risk check; nothing is placed' : 'Only a ready plan for today can be drafted',
-    onclick: () => onDraft(c) }, 'Draft to paper');
+    onclick: () => onDraft(c) }, t('ct.draft'));
   return card(h('span', null, c.symbol, ' ', h('code', { class: 'muted small' }, c.strategy)),
     h('div', { class: 'card-head' }, h('div', null, tierBadge(c.tier), ' ', help('evidence_tier'), ' ', riskBadge(c)),
       h('span', { class: 'small muted' }, c.label)),
     tiles, h('div', { class: 'cols' }, plan, why),
-    h('div', { class: 'note warn' }, h('b', null, 'What the evidence does not show. '), list(x.does_not_show)),
+    h('div', { class: 'note warn' }, h('b', null, t('ct.dns')), list(x.does_not_show)),
     h('p', { class: 'small muted' }, 'Evidence: ', ev.basis), sim,
     h('div', { class: 'row' }, draft, h('code', { class: 'small muted' }, `python3 trader-cotrader/cotrader.py explain ${c.id}`)));
 }
 
 export function noEdgeCard(ne, research) {
-  return card('No trade today',
+  return card(t('ct.no_trade'),
     h('p', null, h('b', null, ne.headline)),
-    h('h3', { class: 'sub' }, 'Why'), list(ne.reasons),
-    (ne.would_change || []).length ? h('div', null, h('h3', { class: 'sub' }, 'What would change that'), list(ne.would_change)) : null,
+    h('h3', { class: 'sub' }, t('ct.ne_why')), list(ne.reasons),
+    (ne.would_change || []).length ? h('div', null, h('h3', { class: 'sub' }, t('ct.ne_change')), list(ne.would_change)) : null,
     h('p', { class: 'small muted' }, 'Market now: ', ne.regime_now || '–', research ? '' : '. RESEARCH ideas are hidden.'));
 }
 
@@ -154,10 +154,9 @@ export async function render(root, ctx) {
   }
   const toggle = h('input', { type: 'checkbox', id: 'ct-research' });
   toggle.checked = STATE.research;
-  const refresh = h('button', { type: 'button', class: 'btn' }, 'Refresh candidates');
-  root.append(...pageHead('Co-trader', 'Candidates from backtested rules, each with its evidence tier, the odds with a ' +
-    'range and sample size, the result after charges and your risk check. Most days there is no edge, and that is the answer.',
-  h('div', { class: 'row' }, h('label', { class: 'small' }, toggle, ' Show RESEARCH ideas (unproven)'), refresh)));
+  const refresh = h('button', { type: 'button', class: 'btn' }, t('ct.refresh'));
+  root.append(...pageHead(t('nav.cotrader'), t('ct.lede'),
+  h('div', { class: 'row' }, h('label', { class: 'small' }, toggle, t('ct.show_research')), refresh)));
   const body = h('div', null, skeleton(5));
   root.appendChild(body);
 
@@ -179,14 +178,14 @@ export async function render(root, ctx) {
     const shown = all.filter((c) => STATE.research || c.tier !== 'RESEARCH');
     const ready = shown.filter((c) => c.status === 'ready');
     body.appendChild(h('div', { class: 'metrics' },
-      metric({ label: 'Ready candidates', value: num(ready.length, 0), sub: `${shown.length - ready.length} blocked by your rules`,
-        explain: 'Ready means trader-risk passed it; your typed yes still decides.' }),
-      metric({ label: 'Market now', term: 'regime', value: (run.regime_now || {}).words ? (run.regime_now.words.split(': ')[1] || run.regime_now.words) : '–',
-        sub: `as of ${run.as_of} IST`, explain: 'Each strategy is judged on its record in this kind of market.' }),
+      metric({ label: t('ct.ready'), value: num(ready.length, 0), sub: t('ct.blocked_sub', { n: shown.length - ready.length }),
+        explain: t('ct.ready_explain') }),
+      metric({ label: t('ct.market_now'), term: 'regime', value: (run.regime_now || {}).words ? (run.regime_now.words.split(': ')[1] || run.regime_now.words) : '–',
+        sub: `as of ${run.as_of} IST`, explain: t('ct.market_explain') }),
       metric({ label: 'View', term: 'evidence_tier', value: run.view === 'research' ? 'All tiers' : 'PROMOTED + WATCH',
         sub: run.hidden_research ? `${run.hidden_research} RESEARCH strategies hidden` : '' })));
     if (d.stale) body.appendChild(note(`This run is from ${run.as_of} IST, not today: refresh for today's bars.`, 'warn'));
-    if (run.no_edge) body.appendChild(noEdgeCard(run.no_edge, run.view === 'research'));
+    if (run.no_edge) body.appendChild(noEdgeCard((d.words && d.words.no_edge) || run.no_edge, run.view === 'research'));
     const draftable = (c) => c.status === 'ready';
     const onDraft = async (c) => {
       try {
@@ -197,9 +196,9 @@ export async function render(root, ctx) {
         toast(e.message || String(e), 'error');
       }
     };
-    for (const c of shown) body.appendChild(candidateCard(c, onDraft, draftable));
+    for (const c of shown) body.appendChild(candidateCard(c, onDraft, draftable, d.words));
     if ((run.passed_over || []).length) {
-      body.appendChild(card('Passed over', h('ul', null, run.passed_over.slice(0, 20).map((x) =>
+      body.appendChild(card(t('ct.passed_over'), h('ul', null, run.passed_over.slice(0, 20).map((x) =>
         h('li', null, h('b', null, x.symbol), ` (${x.strategy}, ${x.tier}): ${x.why}`)))));
     }
     const sc = strategiesCard(run);

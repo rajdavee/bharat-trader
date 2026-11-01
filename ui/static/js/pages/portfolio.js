@@ -6,6 +6,7 @@ import { inr, num, int, signed, tone, when } from '../fmt.js';
 import { why } from '../why.js';
 import { accountCard, status } from '../broker.js';
 import { plot } from '../plot.js';
+import { t as tr } from '../i18n.js';
 
 const PLOTS = [];
 
@@ -33,23 +34,22 @@ function ticketCard(t, refresh) {
     }
   };
   const box = h('article', { class: 'ticket', 'aria-label': 'Order ' + t.index },
-    h('header', { class: 'ticket-head' }, h('strong', null, `Order ${t.index}`), ' ',
+    h('header', { class: 'ticket-head' }, h('strong', null, tr('pf.order', { n: t.index })), ' ',
       h('span', { class: 'badge ' + badge }, t.status), h('span', { class: 'badge paper' }, 'PAPER')),
     h('ul', { class: 'ticket-lines' }, parts.map((p) => h('li', null, p))),
-    t.why ? h('p', { class: 'small muted' }, 'why: ' + t.why) : null,
-    kv([['Most it can lose at the stop', why(inr(t.max_loss), t.explain ? t.explain.max_loss : null,
+    t.why ? h('p', { class: 'small muted' }, tr('pf.why') + t.why) : null,
+    kv([[tr('pf.most_loss'), why(inr(t.max_loss), t.explain ? t.explain.max_loss : null,
       'this loss')], ['Fingerprint', h('code', null, t.fingerprint)]]),
-    h('details', null, h('summary', null, 'The broker-neutral order'), h('pre', { class: 'json' }, JSON.stringify(t.order, null, 2))));
+    h('details', null, h('summary', null, tr('pf.neutral')), h('pre', { class: 'json' }, JSON.stringify(t.order, null, 2))));
   if (t.ready) {
     const id = 'yes-' + t.index;
     const input = h('input', { id, type: 'text', class: 'yes-input', autocomplete: 'off', spellcheck: 'false',
       placeholder: 'yes', 'aria-describedby': id + '-hint' });
-    const go = h('button', { type: 'submit', class: 'btn primary' }, 'Record my reply');
-    const no = h('button', { type: 'button', class: 'btn' }, 'Decline');
+    const go = h('button', { type: 'submit', class: 'btn primary' }, tr('pf.record'));
+    const no = h('button', { type: 'button', class: 'btn' }, tr('pf.decline'));
     const f = h('form', { class: 'yes-form' },
-      h('label', { for: id }, 'Your reply, word for word'),
-      h('p', { id: id + '-hint', class: 'small muted' }, 'Type yes to place this ONE order on the paper account. ' +
-        'The paper broker refuses “ok”, “sure”, a yes to all, or a yes that names another stock or amount.'),
+      h('label', { for: id }, tr('pf.reply')),
+      h('p', { id: id + '-hint', class: 'small muted' }, tr('pf.reply_hint')),
       h('div', { class: 'row' }, input, go, no));
     f.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -205,8 +205,8 @@ function strategyCard(s, refresh) {
 }
 
 export async function render(root) {
-  root.appendChild(h('h1', { class: 'page-title' }, 'Paper portfolio and orders'));
-  root.appendChild(h('p', { class: 'page-lede explain' }, 'Trade and manage: proposals become paper orders only after a risk check PASS and your typed yes. Positions are marked to delayed prices, after charges.'));
+  root.appendChild(h('h1', { class: 'page-title' }, tr('pf.title')));
+  root.appendChild(h('p', { class: 'page-lede explain' }, tr('pf.lede')));
   const body = h('div');
   root.appendChild(body);
   const live = h('div');
