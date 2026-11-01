@@ -24,6 +24,8 @@ import ipaddress
 import json
 import os
 import re
+import subprocess
+import sys
 import threading
 import time
 
@@ -46,6 +48,7 @@ SKILLS = {
     "regime": ("trader-regime", "regime"),
     "discover": ("trader-discover", "discover"),
     "cotrader": ("trader-cotrader", "cotrader"),
+    "autopilot": ("trader-autopilot", "autopilot"),
 }
 # how long a live answer is reused, in seconds (free endpoints: be polite)
 TTL = {"quotes": 15, "nse": 120, "chart-1m": 30, "chart-5m": 60, "chart-1d": 900, "history": 900}
@@ -76,7 +79,8 @@ def skill_errors():
     out = []
     for name, cls in (("alerts", "AlertError"), ("entry", "EntryError"), ("risk", "RiskError"),
                       ("broker", "TicketError"), ("budget", "SizeError"), ("scanner", "ScanError"),
-                      ("options", "OptionsError"), ("strategy", "StrategyError"), ("cotrader", "CotraderError")):
+                      ("options", "OptionsError"), ("strategy", "StrategyError"), ("cotrader", "CotraderError"),
+                      ("autopilot", "AutopilotError")):
         out.append(getattr(skill(name), cls))
     return tuple(out)
 
@@ -2282,6 +2286,120 @@ def r_cotrader_draft(ctx, q, body):
                     "typed yes; a blocked one cannot be placed."}
 
 
+# ---------------------------------------------------------------- routes: auto-pilot (paper only)
+
+AUTOPILOT_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+AUTOPILOT_NOTE = ("Paper only: the auto-pilot refuses a live config and never places a live order. It trades PROMOTED "
+                  "and WATCH strategies from trader-lab inside your limits; a few days of paper results prove little "
+                  "either way.")
+
+
+def _autopilot_data(ctx):
+    """Offline demo: the saved bars next to the fixtures (trader-lab's), else none (the archive or the cache)."""
+    if ctx.offline:
+        for cand in (os.path.join(ctx.offline, "trader-lab"), os.path.join(os.path.dirname(ctx.offline), "trader-lab")):
+            if os.path.isdir(cand):
+                return cand
+    return None
+
+
+def autopilot_view(ctx):
+    ap = skill("autopilot")
+    s = ap.status(ctx.workdir)
+    day = s.get("day")
+    report = None
+    if day:
+        report = ctx.read("autopilot", "days", day, "report.json")
+    replays = []
+    rdir = ctx.path("autopilot", "replays")
+    if os.path.isdir(rdir):
+        for name in sorted(os.listdir(rdir))[-20:]:
+            days = os.path.join(rdir, name, "trader", "autopilot", "days")
+            replays.append({"name": name, "days": sorted(os.listdir(days)) if os.path.isdir(days) else []})
+    s.update({"report": report, "replays": replays, "start_words": ap.START_WORDS, "stop_words": ap.STOP_WORDS,
+              "note": AUTOPILOT_NOTE, "how": "In a terminal: python3 trader-autopilot/autopilot.py start (Ctrl-C or "
+                                            "autopilot.py stop ends it); status, report and replay --date D too."})
+    return s
+
+
+def r_autopilot(ctx, q, body):
+    """The auto-pilot: running or not, today's timeline, open paper positions, each strategy's forward record."""
+    return autopilot_view(ctx)
+
+
+def _typed(body, words):
+    typed = (body or {}).get("typed")
+    if not isinstance(typed, str) or " ".join(typed.lower().split()) != words:
+        raise ApiError(400, "type the words %s to confirm" % words)
+
+
+def r_autopilot_start(ctx, q, body):
+    """Start the loop on PAPER (typed confirmation "start paper"). A live config is refused before anything; in
+    the offline demo it runs one step on the pinned clock and stops."""
+    ap = skill("autopilot")
+    _typed(body, ap.START_WORDS)
+    cfg = ctx.read("config.json")
+    try:
+        ap.paper_guard(cfg if isinstance(cfg, dict) else {})
+        ap.settings_of(cfg if isinstance(cfg, dict) else {})
+    except ap.AutopilotError as e:
+        raise ApiError(409, str(e))
+    if ap.status(ctx.workdir)["running"]:
+        raise ApiError(409, "the auto-pilot is already running in this folder")
+    script = os.path.join(ROOT, "trader-autopilot", "autopilot.py")
+    argv = [sys.executable, script, "start", "--workdir", ctx.workdir]
+    if ctx.offline:
+        argv += ["--once", "--offline"] + ctx.now_args()
+        data = _autopilot_data(ctx)
+        if data:
+            argv += ["--data", data]
+        with ctx.cmd_lock:
+            p = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
+        if p.returncode:
+            raise ApiError(409, (p.stderr or p.stdout).decode("utf-8", "replace").strip()[-400:])
+        out = autopilot_view(ctx)
+        out["started"] = "one step (offline demo): %s" % p.stdout.decode("utf-8", "replace").strip()
+        return out
+    log = ctx.path("autopilot", "loop.log")
+    os.makedirs(os.path.dirname(log), exist_ok=True)
+    with open(log, "ab") as fh:
+        subprocess.Popen(argv, stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, cwd=ctx.workdir,
+                         start_new_session=True)
+    time.sleep(0.5)
+    out = autopilot_view(ctx)
+    out["started"] = "the loop is starting on paper (log: trader/autopilot/loop.log)"
+    return out
+
+
+def r_autopilot_stop(ctx, q, body):
+    """Ask the running loop to finish its step and stop (typed confirmation "stop paper")."""
+    ap = skill("autopilot")
+    _typed(body, ap.STOP_WORDS)
+    ok, words = ap.request_stop(ctx.workdir)
+    out = autopilot_view(ctx)
+    out["stopped"] = words
+    return out
+
+
+def r_autopilot_replay(ctx, q, body):
+    """Replay a past session in a sandbox (trader/autopilot/replays/): your own account is not touched."""
+    ap = skill("autopilot")
+    day, to = (body or {}).get("date"), (body or {}).get("to")
+    if not isinstance(day, str) or not AUTOPILOT_DATE.match(day) or (to and not AUTOPILOT_DATE.match(str(to))):
+        raise ApiError(400, "date (and to) are YYYY-MM-DD")
+    if to and to < day:
+        raise ApiError(400, "to is on or after date")
+    if to and (datetime.date.fromisoformat(to) - datetime.date.fromisoformat(day)).days > 31:
+        raise ApiError(400, "replay at most a month at a time")
+    with ctx.cmd_lock:
+        try:
+            reps = ap.replay(ctx.workdir, day, to or None, _autopilot_data(ctx), None, True)
+        except ap.AutopilotError as e:
+            raise ApiError(409, str(e))
+    return {"reports": [r for r in reps if r], "paper": True, "note": AUTOPILOT_NOTE,
+            "sandbox": "trader/autopilot/replays/%s" % (day + (("_" + to) if to and to != day else ""))}
+
+
 # ---------------------------------------------------------------- routes: first-run setup
 
 def _mcp_snippet(ctx):
@@ -2357,6 +2475,13 @@ ROUTES = [
     ("GET", "/api/regime", r_regime, "market regime now: trend, vol bucket, gap, expiry and events: ?symbols=", False),
     ("GET", "/api/cotrader", r_cotrader, "the last co-trader run (trader/cotrader.json): tiered candidates, odds with "
      "ranges and n, risk verdicts, no-edge reasons; the calibration of logged probabilities", False),
+    ("GET", "/api/autopilot", r_autopilot, "the auto-pilot on paper: running or not, today's timeline, open paper "
+     "positions by strategy, each strategy's forward record and verdict, past replays", False),
+    ("POST", "/api/autopilot/start", r_autopilot_start, "start the auto-pilot on PAPER (typed: start paper); a live "
+     "config is refused", True),
+    ("POST", "/api/autopilot/stop", r_autopilot_stop, "stop the auto-pilot after its step (typed: stop paper)", True),
+    ("POST", "/api/autopilot/replay", r_autopilot_replay, "replay a past session in a sandbox on a simulated clock "
+     "(your account is not touched)", True),
     ("POST", "/api/risk/check", r_risk_check, "run trader-risk on trader/orders.json and record the verdicts", True),
     ("POST", "/api/risk/kill", r_risk_kill, "kill switch on: no new entries today (exits still pass)", True),
     ("POST", "/api/risk/unkill", r_risk_unkill, "lift the kill switch: the typed word unkill", True),

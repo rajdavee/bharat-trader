@@ -19,7 +19,7 @@ export const PAGES = {
   cotrader: { label: 'Co-trader', title: 'Co-trader', icon: 'cotrader', key: 'k', words: 'ideas candidates odds calibration' },
   portfolio: { label: 'Portfolio and orders', title: 'Paper portfolio and orders', icon: 'portfolio', key: 'p', words: 'positions tickets fills yes' },
   risk: { label: 'Risk', title: 'Risk', icon: 'risk', key: 'r', words: 'kill switch breakers limits verdicts' },
-  autopilot: { label: 'Auto-pilot', title: 'Auto-pilot', icon: 'autopilot', key: 'u', soon: true, words: 'automatic paper' },
+  autopilot: { label: 'Auto-pilot', title: 'Auto-pilot', icon: 'autopilot', key: 'u', words: 'automatic paper loop replay forward record' },
   lab: { label: 'Strategy Lab', title: 'Strategy Lab', icon: 'lab', key: 'l', words: 'backtest scorecard equity walk-forward' },
   journal: { label: 'Journal', title: 'Journal', icon: 'journal', key: 'j', soon: true, words: 'review notes mistakes' },
   agents: { label: 'Agents', title: 'Agent team', icon: 'agents', key: 't', words: 'personas scorecards team' },
