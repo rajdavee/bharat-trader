@@ -912,25 +912,148 @@ def account_words(cfg):
 BROKER_TITLES = {"upstox": "Upstox", "kite": "Zerodha Kite", "dhan": "Dhan"}
 
 
-def render(order, idx, total, cfg, risk, state, today):
+# ---------------------------------------------------------------- messages: English and Hinglish (--lang hi-en)
+# The yes stays the English word "yes" in every language: parse_yes() reads only that, on purpose.
+
+MSG = {
+    "en": {
+        "order_head": "ORDER {i} of {n}, {account}",
+        "acct_paper": "PAPER account (no real money)",
+        "acct_live": "LIVE at {broker} (real money)",
+        "why": "  why: {text}",
+        "note": "  note: {text}",
+        "neutral": "  The broker-neutral order:",
+        "reply_live": "  Reply \"yes\" to approve this one order for your {broker} account (real money), or \"no\" to "
+                      "skip it. Your yes is recorded; the order goes out only with ticket.py place.",
+        "reply_paper": "  Reply \"yes\" to place this one order on the paper account, or \"no\" to skip it.",
+        "footer": "\nOne order at a time: a yes covers one ticket, never the batch. Education and tooling, not "
+                  "financial advice.",
+        "st_NOT READY": "NOT READY: ",
+        "st_BLOCKED": "BLOCKED by trader-risk: ",
+        "st_READY": "READY: trader-risk PASS, waiting for your yes",
+        "st_DONE": "DONE: ",
+        "pp_stop": "then a stop-loss: ",
+        "pp_target": "then a target: ",
+        "pp_oco": " (when the stop or the target fills, the other is cancelled)",
+        "pp_value": "order value about ",
+        "pp_loss": "loss if the stop fills at ",
+        "pp_about": ": about ",
+        "pp_worse": " (a stop can fill worse in a fast market)",
+        "not_recorded": "Not recorded: {why}. Ask the user again with the ticket for order {i}.",
+        "recorded": "Recorded your yes for order {i}, word for word: \"{text}\".",
+        "live_wait": "Nothing is sent yet. This is a LIVE {broker} order (real money): {plain}.",
+        "live_place": "To send it, run in your own terminal: python3 ticket.py place --index {i} (it checks every gate "
+                      "first: live_enabled, today's trader-risk PASS, this yes, and today's preflight).",
+        "paper_placed": "Placed on the PAPER account as {id}: {plain}.",
+        "when_fills": "When it fills: ticket.py fill --index {i} --price P (or the fresh price in trader/prices.json).",
+        "declined": "Recorded: you said no to order {i} ({plain}). Nothing was sent.",
+    },
+    "hi-en": {
+        "order_head": "ORDER {i} / {n}, {account}",
+        "acct_paper": "PAPER account (asli paisa nahi)",
+        "acct_live": "LIVE, {broker} pe (asli paisa)",
+        "why": "  kyun: {text}",
+        "note": "  dhyan dein: {text}",
+        "neutral": "  Broker-neutral order:",
+        "reply_live": "  Sirf is EK order ko apne {broker} account (asli paisa) ke liye approve karne ke liye \"yes\" "
+                      "likhiye, ya chhodne ke liye \"no\". Aapka yes record hoga; order sirf ticket.py place se hi "
+                      "jaata hai.",
+        "reply_paper": "  Sirf is EK order ko paper account pe place karne ke liye \"yes\" likhiye, ya chhodne ke liye "
+                       "\"no\".",
+        "footer": "\nEk baar mein ek order: ek yes sirf ek ticket ke liye hai, poore batch ke liye kabhi nahi. Yeh "
+                  "education aur tooling hai, financial advice nahi.",
+        "st_NOT READY": "TAIYAAR NAHI: ",
+        "st_BLOCKED": "trader-risk ne BLOCK kiya: ",
+        "st_READY": "READY: trader-risk PASS, aapke yes ka intezaar",
+        "st_DONE": "HO GAYA: ",
+        "pp_stop": "phir stop-loss: ",
+        "pp_target": "phir target: ",
+        "pp_oco": " (stop ya target mein se ek fill hote hi doosra cancel)",
+        "pp_value": "order value lagbhag ",
+        "pp_loss": "agar stop ",
+        "pp_about": " pe fill ho to nuksaan lagbhag ",
+        "pp_worse": " (tez market mein stop isse bure price pe bhi fill ho sakta hai)",
+        "not_recorded": "Record nahi hua: {why}. User ko order {i} ka ticket dikhakar dobara poochiye.",
+        "recorded": "Order {i} ke liye aapka yes, word for word, record hua: \"{text}\".",
+        "live_wait": "Abhi kuch bhi bheja nahi gaya. Yeh LIVE {broker} order hai (asli paisa): {plain}.",
+        "live_place": "Bhejne ke liye apne terminal mein khud chalaiye: python3 ticket.py place --index {i} (yeh pehle "
+                      "har gate check karta hai: live_enabled, aaj ka trader-risk PASS, yeh yes, aur aaj ka preflight).",
+        "paper_placed": "PAPER account pe {id} ke roop mein place hua: {plain}.",
+        "when_fills": "Fill hone par: ticket.py fill --index {i} --price P (ya trader/prices.json ka fresh price).",
+        "declined": "Record hua: aapne order {i} ko no kaha ({plain}). Kuch bhi bheja nahi gaya.",
+    },
+}
+
+
+# ---------------------------------------------------------------- message catalogue helper (same in every skill with MSG)
+LANGS = ("en", "hi-en")
+
+
+def pick_lang(flag=None, cfg=None):
+    """The output language: --lang beats the config's "lang"; "hi-en" is Hinglish (Roman script), else English."""
+    for v in (flag, cfg.get("lang") if isinstance(cfg, dict) else None):
+        v = str(v or "").strip().lower().replace("_", "-")
+        if v == "hinglish":
+            v = "hi-en"
+        if v in LANGS:
+            return v
+    return "en"
+
+
+def t(key, lang="en", **kw):
+    """MSG[lang][key] filled with kw (str.format); the English text when a language or key is missing."""
+    text = (MSG.get(lang) or {}).get(key)
+    if text is None:
+        text = MSG["en"][key]
+    return text.format(**kw) if kw else text
+# ---------------------------------------------------------------- end of message catalogue helper
+
+
+def plain_words(order, cfg=None, lang="en"):
+    """plain_parts() in lang: the fixed phrases are swapped; the order's own words and numbers stay as they are."""
+    parts = plain_parts(order, cfg)
+    if lang == "en":
+        return parts
+    out = []
+    for part in parts:
+        for k in ("pp_stop", "pp_target", "pp_oco", "pp_value", "pp_worse"):
+            part = part.replace(t(k), t(k, lang))
+        if part.startswith(t("pp_loss")):
+            part = t("pp_loss", lang) + part[len(t("pp_loss")):].replace(t("pp_about"), t("pp_about", lang), 1)
+        out.append(part)
+    return out
+
+
+def status_words(label, lang="en"):
+    """status_of()'s label in lang (its English prefix swapped; what follows stays as it is)."""
+    if lang == "en":
+        return label
+    for k in ("st_READY", "st_NOT READY", "st_BLOCKED", "st_DONE"):
+        if label.startswith(t(k)):
+            return t(k, lang) + label[len(t(k)):]
+    return label
+
+
+def render(order, idx, total, cfg, risk, state, today, lang="en"):
     ready, label, rv = status_of(order, risk, state, today)
     acct, live = account_words(cfg)
-    lines = ["ORDER %d of %d, %s" % (idx, total, acct)]
-    for part in plain_parts(order, cfg):
+    if lang != "en":
+        acct = t("acct_live", lang, broker=BROKER_TITLES.get(live, live)) if live else t("acct_paper", lang)
+    lines = [t("order_head", lang, i=idx, n=total, account=acct)]
+    for part in plain_words(order, cfg, lang):
         lines.append("  " + part)
     if order.get("why"):
-        lines.append("  why: " + order["why"])
-    lines.append("  " + label)
+        lines.append(t("why", lang, text=order["why"]))
+    lines.append("  " + status_words(label, lang))
     for w in (rv or {}).get("warnings", []):
-        lines.append("  note: " + w)
-    lines.append("  The broker-neutral order:")
+        lines.append(t("note", lang, text=w))
+    lines.append(t("neutral", lang))
     for l in json.dumps(neutral(order), indent=2, ensure_ascii=False).splitlines():
         lines.append("    " + l)
     if ready and live:
-        lines.append("  Reply \"yes\" to approve this one order for your %s account (real money), or \"no\" to skip "
-                     "it. Your yes is recorded; the order goes out only with ticket.py place." % BROKER_TITLES[live])
+        lines.append(t("reply_live", lang, broker=BROKER_TITLES[live]))
     elif ready:
-        lines.append("  Reply \"yes\" to place this one order on the paper account, or \"no\" to skip it.")
+        lines.append(t("reply_paper", lang))
     return "\n".join(lines), ready
 
 
@@ -1197,13 +1320,13 @@ def cmd_show(a):
         print(json.dumps(out[0] if a.index else out, indent=2, ensure_ascii=False))
         return 0 if any(t["ready"] for t in out) else 1
     blocks, any_ready = [], False
+    lang = pick_lang(getattr(a, "lang", None), cfg)
     for i, o in picks:
-        text, ready = render(o, i, len(orders), cfg, risk, state, today)
+        text, ready = render(o, i, len(orders), cfg, risk, state, today, lang)
         blocks.append(text)
         any_ready = any_ready or ready
     print("\n\n".join(blocks))
-    print("\nOne order at a time: a yes covers one ticket, never the batch. Education and tooling, "
-          "not financial advice.")
+    print(t("footer", lang))
     return 0 if any_ready else 1
 
 
@@ -1222,8 +1345,10 @@ def cmd_confirm(a):
     if not ready:
         raise TicketError("order %d is not ready: %s" % (a.index, label))
     ok, why = parse_yes(a.yes_text, order, [o.get("symbol", "") for o in orders], cfg)
+    lang = pick_lang(getattr(a, "lang", None), cfg)
+    words = " / ".join(plain_words(order, cfg, lang))
     if not ok:
-        print("Not recorded: %s. Ask the user again with the ticket for order %d." % (why, a.index))
+        print(t("not_recorded", lang, why=why, i=a.index))
         return 1
     gross, ch, total = loss_at_stop(order, cfg)
     n = len(records(state, today=today, status="placed")) + 1
@@ -1241,16 +1366,15 @@ def cmd_confirm(a):
         rec.pop("paper_order_id")
         state.setdefault("orders", []).append(rec)
         write_json(a.state, state)
-        print("Recorded your yes for order %d, word for word: \"%s\"." % (a.index, a.yes_text))
-        print("Nothing is sent yet. This is a LIVE %s order (real money): %s." % (BROKER_TITLES[live], plain(order, cfg)))
-        print("To send it, run in your own terminal: python3 ticket.py place --index %d (it checks every gate first: "
-              "live_enabled, today's trader-risk PASS, this yes, and today's preflight)." % a.index)
+        print(t("recorded", lang, i=a.index, text=a.yes_text))
+        print(t("live_wait", lang, broker=BROKER_TITLES[live], plain=words))
+        print(t("live_place", lang, i=a.index))
         return 0
     state.setdefault("orders", []).append(rec)
     write_json(a.state, state)
-    print("Recorded your yes for order %d, word for word: \"%s\"." % (a.index, a.yes_text))
-    print("Placed on the PAPER account as %s: %s." % (rec["paper_order_id"], plain(order, cfg)))
-    print("When it fills: ticket.py fill --index %d --price P (or the fresh price in trader/prices.json)." % a.index)
+    print(t("recorded", lang, i=a.index, text=a.yes_text))
+    print(t("paper_placed", lang, id=rec["paper_order_id"], plain=words))
+    print(t("when_fills", lang, i=a.index))
     return 0
 
 
@@ -1288,7 +1412,8 @@ def cmd_decline(a):
            "plain": plain(order, cfg), "status": "declined", "yes_text": a.reply or "no"}
     state.setdefault("orders", []).append(rec)
     write_json(a.state, state)
-    print("Recorded: you said no to order %d (%s). Nothing was sent." % (a.index, plain(order, cfg)))
+    lang = pick_lang(getattr(a, "lang", None), cfg)
+    print(t("declined", lang, i=a.index, plain=" / ".join(plain_words(order, cfg, lang))))
     return 0
 
 
@@ -3504,6 +3629,7 @@ def main(argv=None):
         p.add_argument("--config", default="trader/config.json")
         p.add_argument("--risk", default="trader/state/risk.json")
         p.add_argument("--state", default="trader/state/broker.json")
+        p.add_argument("--lang", choices=LANGS, help="messages in en or hi-en (Hinglish); default: the config's lang")
         clock(p)
 
     def fno_inputs(p):
