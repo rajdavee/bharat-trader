@@ -18,7 +18,7 @@ STDLIB = set(getattr(sys, "stdlib_module_names", ())) | {
     "abc", "argparse", "array", "ast", "base64", "binascii", "bisect", "bz2", "cmath", "calendar", "collections", "contextlib", "copy", "csv",
     "dataclasses", "datetime", "decimal", "email", "enum", "functools", "getpass", "glob", "gzip", "hashlib",
     "fractions", "heapq", "hmac", "html", "http", "importlib", "io", "ipaddress", "itertools", "json", "logging", "math", "os",
-    "operator", "pathlib", "pickle", "queue", "random", "re", "secrets", "shlex", "shutil", "socket", "ssl", "statistics", "string", "struct",
+    "operator", "pathlib", "pickle", "queue", "random", "re", "secrets", "shlex", "shutil", "socket", "ssl", "statistics", "string", "struct", "subprocess",
     "sys", "tempfile", "textwrap", "threading", "time", "types", "typing", "unicodedata", "urllib", "uuid", "webbrowser",
     "warnings", "weakref", "zipfile", "zlib"}
 

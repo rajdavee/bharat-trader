@@ -176,6 +176,16 @@ path: `size.py --plan FILE --write` (trader-budget), `check.py`
 (trader-risk), `ticket.py show` and the user's typed yes (trader-broker).
 The lab itself never sizes, checks or places anything.
 
+`lab.py forward-report` is the forward-test dashboard: each strategy's
+forward record against the range its backtest's out-of-sample trades
+predicted for a record that long, a control chart, decay alerts (a DEMOTE
+recommendation, applied only with `--demote NAME`), the co-trader's Brier
+score and the trades to PROMOTE. See [forward-tests.md](forward-tests.md).
+
+```bash
+python3 trader-lab/lab.py forward-report
+```
+
 ## What a run does NOT prove
 
 The scorecard lists these every time, with the run's own numbers: the past is

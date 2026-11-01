@@ -143,6 +143,14 @@ For each stock and day the tools work out:
 | --- | --- | --- |
 | `lang` | "en" | The language of the plain-words output: `en`, or `hi-en` for Hinglish (Hindi in Roman script, trading words in English; see [hinglish.md](hinglish.md)). A command's `--lang` wins over it; JSON output stays English. |
 
+## Notifications and forward tests
+
+| key | default | meaning |
+| --- | --- | --- |
+| `notify` | off | local notifications: `enabled`, `desktop`, `webhook` (the URL comes from `BT_NOTIFY_WEBHOOK`, never this file), `quiet_hours`, `min_gap_min`, `max_per_hour`, `events`. See [notifications.md](notifications.md) |
+| `forward_tests` | the documented thresholds | the forward-test dashboard: `z`, `min_judge`, `decay_min_trades`, `decay_run`, `cusum_k`, `cusum_h`. See [forward-tests.md](forward-tests.md) |
+| `autopilot.chain_capture` | on, NIFTY and BANKNIFTY | the intraday option-chain capture the auto-pilot supervises. See [forward-tests.md](forward-tests.md) |
+
 ## Charges
 
 `include_charges: true` makes sizing and the risk check count the round-trip

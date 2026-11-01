@@ -1520,6 +1520,26 @@ def save(workdir, doc):
             for r in new:
                 fh.write(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n")
     doc["logged"] = len(new)
+    fresh = [r for r in new if r.get("tier") in ("PROMOTED", "WATCH")]
+    if fresh:
+        notify_event(workdir, "cotrader_candidate", "Co-trader: %d new candidate%s" % (
+            len(fresh), "" if len(fresh) == 1 else "s"), "; ".join(
+            "%s %s (%s, %s)" % (r["symbol"], r["strategy"], r["tier"], pc(r["p"])) for r in fresh[:4]) +
+            (" and %d more" % (len(fresh) - 4) if len(fresh) > 4 else "") +
+            ". Odds are estimates with wide ranges; every order still needs trader-risk and your yes.",
+            key="cand:%s:%s" % (doc["as_of"][:10], ",".join(sorted(r["id"] for r in fresh))[:120]))
+
+
+def notify_event(workdir, event, title, text, key=None):
+    """Best effort: one local notification through trader-alerts when it is installed next to this folder (off
+    unless trader/config.json turns notifications on). Never raises."""
+    try:
+        al = _sibling("trader-alerts", "alerts", required=False)
+        if al is not None and hasattr(al, "notify"):
+            return al.notify(workdir, event, title, text, key=key)
+    except Exception:  # noqa: BLE001 - a notification must never stop the co-trader
+        return None
+    return None
 
 
 def find_candidate(workdir, cid):

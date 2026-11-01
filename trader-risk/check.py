@@ -3418,6 +3418,29 @@ def _paths(ap):
     ap.add_argument("--offline", action="store_true", help="never ask NSE for the ban list or lot sizes")
 
 
+def notify_event(config_path, event, title, text, key=None, now=None):
+    """Best effort: one local notification through trader-alerts when it is installed next to this folder and
+    the config is the usual <workdir>/trader/config.json (off unless that config turns notifications on). Only a
+    short summary leaves the machine. Never raises: a notification must not change a verdict."""
+    try:
+        tdir = os.path.dirname(os.path.abspath(config_path))
+        if os.path.basename(tdir) != "trader":
+            return None
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trader-alerts", "alerts.py")
+        if not os.path.isfile(path):
+            return None
+        import importlib.util
+        mod = sys.modules.get("bt_risk_alerts")
+        if mod is None:
+            spec = importlib.util.spec_from_file_location("bt_risk_alerts", path)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules["bt_risk_alerts"] = mod
+            spec.loader.exec_module(mod)
+        return mod.notify(os.path.dirname(tdir), event, title, text, now=now, key=key)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def cmd_kill(argv):
     ap = argparse.ArgumentParser(prog="check.py kill", description="Kill switch: block every new entry today.")
     _paths(ap)
@@ -3433,6 +3456,8 @@ def cmd_kill(argv):
     write_json(a.kill, doc)
     print("KILL SWITCH ON for %s from %s IST (%s). Every new entry is blocked today; exits still pass. "
           "Lift it with: check.py unkill" % (doc["date"], now.strftime("%H:%M"), doc["reason"]))
+    notify_event(a.config, "kill", "Kill switch ON", "Kill switch on for %s from %s IST: every new entry is blocked "
+                 "today; exits still pass." % (doc["date"], now.strftime("%H:%M")), key="kill:" + doc["date"])
     rec = read_json(a.risk, "risk verdicts", required=False)
     if rec:
         rec, n = revoke_entries(rec, doc)
@@ -3683,6 +3708,9 @@ def main(argv=None):
     except (RiskError, RulesError) as e:
         print("check.py: %s" % e, file=sys.stderr)
         return 1
+    locks = (res.get("breakers") or {}).get("locks") or []
+    if locks:
+        notify_event(a.config, "risk_lock", "Risk lock", locks[0], key="lock:%s:%s" % (today, locks[0][:40]))
     print(json.dumps(res, indent=2, ensure_ascii=False) if a.json else report(res, pick_lang(a.lang, cfg)))
     return 1 if res["block"] else 0
 

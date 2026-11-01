@@ -19,7 +19,11 @@ description: >-
   square off by 3:10", "is market open today", "is NSE open", "aaj market
   khula hai?", "is tomorrow a holiday", "when does the market open", "Muhurat
   trading time", "get me the price of TCS", or right after trader-exit writes
-  a plan.
+  a plan. Also the pack's local notifications (off by default): a desktop
+  pop-up and an optional webhook of your own for co-trader candidates,
+  auto-pilot fills, co-pilot proposals, risk locks, decay alerts and chain
+  capture failures; use for "notify me", "phone pe bata dena", "send me a
+  desktop notification", "test my notifications".
 argument-hint: "[NSE symbol] [price]"
 ---
 
@@ -68,6 +72,7 @@ quote files instead of the network.
 | `trader/state/alerts.json` | which rules rang and when, so each rings once |
 | `trader/prices.json` | the latest quotes, merged in, for trader-budget and trader-risk |
 | `trader/portfolio.json` | the symbols held, for `quote --holdings` |
+| `trader/notify/state.json`, `log.jsonl` | local notifications: what was sent (for the limits) and each decision |
 
 `trader/prices.json` looks like this (times IST):
 
@@ -199,6 +204,44 @@ watched; with `add --opening-bell` the bell rings at 09:15.
 
 It never places, cancels or changes an order, never claims a quote is
 live, and never predicts where a price is going.
+
+## Local notifications (off by default)
+
+The other skills tell you about a few events through this skill's helper
+folder `notify/` (loaded by path from `alerts.py`; nothing else is imported):
+new co-trader candidates, auto-pilot paper fills and exits, a LIVE co-pilot
+proposal waiting for your approval, a circuit-breaker lock or a kill switch,
+a strategy's forward record falling below its backtest's range (a decay
+alert), and the intraday chain capture stopping. Nothing is sent until you
+turn it on in `trader/config.json`:
+
+```json
+"notify": {"enabled": true, "desktop": true, "webhook": false,
+           "quiet_hours": ["22:00", "07:00"], "min_gap_min": 5, "max_per_hour": 12,
+           "events": {"cotrader_candidate": true, "autopilot_fill": false}}
+```
+
+- **Desktop**: macOS `osascript`, Linux `notify-send`, Windows a toast through
+  PowerShell. Best effort: a missing tool is logged, never an error.
+- **Webhook** (`"webhook": true`): a JSON POST to the URL in the environment
+  variable `BT_NOTIFY_WEBHOOK` (your own phone-push service). The URL is never
+  written anywhere. The body is only `{"source", "event", "title", "text",
+  "at"}`: a short summary of at most 200 characters, with the value of every
+  secret-looking environment variable and any long token-like string replaced
+  by `[redacted]`. Never positions, keys or approval phrases.
+- **Limits**: each event's toggle, quiet hours (IST, may wrap midnight), one
+  notification per event each `min_gap_min` minutes (the ones held back are
+  counted into the next), the same lock or candidate once a day, and
+  `max_per_hour` across all events. Decisions go to `trader/notify/log.jsonl`.
+
+```bash
+python3 "<skill dir>/alerts.py" notify status
+python3 "<skill dir>/alerts.py" notify test                     # through the configured channels
+python3 "<skill dir>/alerts.py" notify test --channel webhook   # one channel, even while off
+```
+
+A notification is information, never an order. See
+[docs/notifications.md](../docs/notifications.md).
 
 ## Hinglish
 

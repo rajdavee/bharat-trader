@@ -258,7 +258,7 @@ or more outcomes, is demoted.
 
 Connect the MCP server (see [mcp.md](mcp.md#install), or the
 [README's quick start](../README.md#3-from-your-ai-assistant-mcp)). It gives
-your assistant 57 tools and 16 prompts and no live-order tool (the
+your assistant 59 tools and 16 prompts and no live-order tool (the
 co-pilot's two tools are read only). The
 co-trader prompts tell the assistant to show n and the 95% interval with
 every rate, give numbers after charges, name the regime, say what the
