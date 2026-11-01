@@ -29,7 +29,7 @@ TOOLS = ["market_status", "scan_daily", "scan_orb", "news", "entry_check", "exit
          "strategy_build",
          "strategy_price", "broker_status", "broker_holdings", "broker_positions", "broker_margin_check", "doctor", "persona_scorecards", "regime_now",
          "cotrader_candidates", "cotrader_explain", "calibration_report",
-         "journal_summary", "journal_stats", "counterfactual_report",
+         "journal_summary", "journal_stats", "counterfactual_report", "tax_summary",
          "archive_status", "strategy_design", "lab_run_spec", "compare_strategies", "best_for_regime", "trade_brief",
          "autopilot_status", "autopilot_replay", "autopilot_start", "autopilot_stop"]
 # a variant of the orb15-vwap library spec on two stocks: what an assistant would pass to lab_run_spec
@@ -92,6 +92,7 @@ CALLS = [
     ("journal_summary", {}),
     ("journal_stats", {"by": "persona"}),
     ("counterfactual_report", {}),
+    ("tax_summary", {"fy": "2026-27"}),
     ("paper_order_draft", {}),
     ("paper_order_confirm", {"index": 1, "risk_fingerprint": FP, "yes_text": "yes 42 RELIANCE"}),
 ]
@@ -853,6 +854,26 @@ class Resources(ServerCase):
         self.assertIn("# Weekly review 2026-W44", doc["contents"][0]["text"])
         self.assertEqual(self.code(self.c.request("resources/read", {"uri": "bharat-trader://trader/journal/imports"})),
                          -32602)
+
+    def test_tax_summary(self):
+        journal = load("trader-journal", "journal")
+        journal.do_import(journal.Paths(self.c.workdir), os.path.join(FIX, "trader-tax", "zerodha-tradebook-fy2025-26.csv"),
+                          "zerodha", None, {})
+        r = self.result(self.c.call("tax_summary", {"fy": "2025-26"}))
+        d = r["structuredContent"]["data"]
+        self.assertEqual(d["fy"], "2025-26")
+        self.assertEqual(d["turnover"]["total"], 25420.5)
+        self.assertEqual(d["heads"]["non_speculative"]["futures"]["gross"], 15060.0)
+        self.assertNotIn("trades", d)
+        self.assertNotIn("source", d["rules"][0])              # section and date only, unless rules=true
+        self.assertIn("not tax advice", d["disclaimer"])
+        self.assertIn("chartered accountant", " ".join(r["structuredContent"]["notes"]))
+        full = self.result(self.c.call("tax_summary", {"fy": "2025-26", "rules": True}))["structuredContent"]["data"]
+        self.assertIn("source", full["rules"][0])
+        d27 = self.result(self.c.call("tax_summary", {"fy": "2026-27"}))["structuredContent"]["data"]
+        self.assertEqual(d27["act"], "Income-tax Act, 2025")
+        self.assertTrue(self.result(self.c.call("tax_summary", {"fy": "2016-17"})).get("isError"))
+        self.assertEqual(len(broker_records(self.c.workdir)), 0)
 
     def test_regime_now_offline(self):
         d = self.result(self.c.call("regime_now", {"symbols": "NIFTY,BANKNIFTY"}))["structuredContent"]["data"]

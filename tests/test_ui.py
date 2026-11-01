@@ -1262,6 +1262,47 @@ class Journal(unittest.TestCase):
         self.assertEqual(self.s.post("/api/journal/note", {"id": eid, "text": "x"}, token=False)[0], 403)
 
 
+class Tax(unittest.TestCase):
+    """The Tax page's routes: trader-tax's own report, read only, plus the export to trader/tax/."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.s = Running()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.s.close()
+
+    def test_tax_is_trader_taxs_report(self):
+        status, d = self.s.get("/api/tax?fy=2026-27")
+        self.assertEqual(status, 200, d)
+        tx = api.skill("tax")
+        now = api.Context(self.s.dir, UIFIX).now_ist().replace(tzinfo=None, microsecond=0)
+        want = tx.report(tx.Paths(self.s.dir), 2026, "live", None, None, now)
+        self.assertEqual(d["heads"]["speculative"]["income"], want["heads"]["speculative"]["income"])
+        self.assertEqual(d["turnover"]["total"], want["turnover"]["total"])
+        self.assertEqual(d["heads"]["speculative"]["trades"], 3)   # the demo's imported Zerodha week, all intraday
+        self.assertEqual(d["act"], "Income-tax Act, 2025")
+        self.assertIn("2026-27", d["years"])
+        self.assertNotIn("trades", d)
+        self.assertIn("not tax advice", d["disclaimer"])
+        self.assertIn("5.11", d["why"]["turnover"]["source"])
+        status, p = self.s.get("/api/tax?fy=2026-27&book=paper")
+        self.assertEqual(status, 200)
+        self.assertTrue(p["notes"][0].startswith("PRACTICE"))
+        self.assertEqual(self.s.get("/api/tax?fy=26")[0], 400)
+        self.assertEqual(self.s.get("/api/tax?book=mine")[0], 400)
+        self.assertEqual(self.s.get("/api/tax?fy=2016-17")[0], 422)
+
+    def test_export_needs_the_token_and_writes_trader_tax(self):
+        self.assertEqual(self.s.post("/api/tax/export", {"fy": "2026-27"}, token=False)[0], 403)
+        status, res = self.s.post("/api/tax/export", {"fy": "2026-27", "book": "live"})
+        self.assertEqual(status, 200, res)
+        self.assertEqual(res["folder"], os.path.join("trader", "tax", "FY2026-27"))
+        for f in ("report.md", "summary.csv", "trades.csv", "carry-forward.csv", "tax.json"):
+            self.assertTrue(os.path.isfile(os.path.join(self.s.dir, res["folder"], f)), f)
+
+
 class Frontend(unittest.TestCase):
     """The v2 shell: one nav list, every page module present, the CSP unchanged, no inline code."""
 
@@ -1277,9 +1318,9 @@ class Frontend(unittest.TestCase):
         nav = self.js("nav.js")
         app = self.js("app.js")
         pages = re.findall(r"^  (\w+): \{ label:", nav, re.M)
-        self.assertEqual(len(pages), 16)
+        self.assertEqual(len(pages), 17)
         for want in ("today", "chart", "scanner", "options", "strategy", "cotrader", "ask", "portfolio", "risk",
-                     "autopilot", "lab", "journal", "agents", "settings", "welcome", "about"):
+                     "autopilot", "lab", "journal", "tax", "agents", "settings", "welcome", "about"):
             self.assertIn(want, pages)
         modules = re.search(r"const MODULES = \{(.*?)\};", app, re.S).group(1)
         for p in pages:

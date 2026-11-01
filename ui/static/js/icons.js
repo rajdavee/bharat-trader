@@ -13,6 +13,7 @@ const P = {
   autopilot: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M12 12l4-4M12 7v1M7 12h1M16 12h1',
   lab: 'M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3M7.5 15h9',
   journal: 'M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11M9 8h6',
+  tax: 'M6 3h12v18l-3-2l-3 2l-3-2l-3 2zM9 8h6M9 12h6M9 16h3',
   agents: 'M12 4a3 3 0 1 0 0 6a3 3 0 1 0 0-6M5 20c0-3.5 3-6 7-6s7 2.5 7 6',
   settings: 'M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4',
   welcome: 'M5 12l4 4L19 6',
