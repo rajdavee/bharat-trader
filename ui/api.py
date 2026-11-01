@@ -50,6 +50,7 @@ SKILLS = {
     "cotrader": ("trader-cotrader", "cotrader"),
     "autopilot": ("trader-autopilot", "autopilot"),
     "journal": ("trader-journal", "journal"),
+    "tax": ("trader-tax", "tax"),
 }
 # how long a live answer is reused, in seconds (free endpoints: be polite)
 TTL = {"quotes": 15, "nse": 120, "chart-1m": 30, "chart-5m": 60, "chart-1d": 900, "history": 900}
@@ -1774,6 +1775,62 @@ def r_journal_note(ctx, q, body):
     return {"ok": True, "id": eid, "notes": cur["notes"], "tags": cur["tags"]}
 
 
+# ---------------------------------------------------------------- routes: the tax estimate
+
+FY_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
+def _tax_args(ctx, q):
+    tx = skill("tax")
+    fy, book = (q or {}).get("fy") or None, (q or {}).get("book") or "live"
+    if fy is not None and (not isinstance(fy, str) or not FY_RE.match(fy)):
+        raise ApiError(400, "fy: a financial year like 2025-26")
+    if book not in tx.BOOKS:
+        raise ApiError(400, "book: live, paper or all")
+    return tx, tx.Paths(ctx.workdir), fy, book, ctx.now_ist().replace(tzinfo=None, microsecond=0)
+
+
+def tax_view(ctx, q):
+    """trader-tax's report for one financial year, read only (no per-trade rows; the export has them)."""
+    tx, paths, fy, book, now = _tax_args(ctx, q)
+    try:
+        d = tx.report(paths, tx.parse_fy(fy) if fy else None, book, None, None, now)
+        years = tx.years(paths, "all")
+    except tx.TaxError as e:
+        raise ApiError(422, str(e))
+    out = tx.summary_view(d)
+    current = tx.fy_label(tx.fy_of(now.date()))
+    out["years"] = sorted(set(years) | {current, d["fy"]}, reverse=True)
+    out["why"] = {
+        "turnover": why("sum over squared-off trades of |profit or loss| (F&O per opening lot closed, intraday per "
+                        "stock a day)", {"intraday": d["turnover"]["intraday"], "futures": d["turnover"]["futures"],
+                                         "options": d["turnover"]["options"]},
+                        "ICAI Guidance Note on Tax Audit (Revised 2026), para 5.11", d["as_of"],
+                        "Only to decide whether a tax audit applies."),
+        "ltcg": why("gains above the yearly exemption x the rate on each sale date; shares bought before 1 Feb 2018 "
+                    "at the higher of cost and the lower of the 31 Jan 2018 value and the sale value",
+                    {"exemption": d["taxable"]["ltcg_exempt"]}, "s.112A / 2025 Act s.198", d["as_of"]),
+    }
+    return out
+
+
+def r_tax(ctx, q, body):
+    key = ("tax", (q or {}).get("fy"), (q or {}).get("book"), ctx.now_ist().strftime("%Y-%m-%d %H:%M"))
+    return ctx.cached(key, 20, lambda: tax_view(ctx, q))
+
+
+def r_tax_export(ctx, q, body):
+    """Write the year's report.md and CSVs to trader/tax/FY<year>/. Touches no order or trade record."""
+    tx, paths, fy, book, now = _tax_args(ctx, body or {})
+    try:
+        d = tx.report(paths, tx.parse_fy(fy) if fy else None, book, None, None, now)
+        res = tx.export(paths, d)
+    except tx.TaxError as e:
+        raise ApiError(422, str(e))
+    return {"ok": True, "folder": os.path.relpath(res["folder"], ctx.workdir), "files": res["files"],
+            "disclaimer": d["disclaimer"]}
+
+
 # ---------------------------------------------------------------- routes: agent personas and their scorecards
 
 AGENTS = os.path.join(ROOT, "agents")
@@ -2628,6 +2685,9 @@ ROUTES = [
      "previews the config size.py init would write (save it with POST /api/config)", False),
     ("GET", "/api/journal", r_journal, "trade journal: stats with intervals, equity curve, breakdowns, rule breaks, "
                                         "counterfactual ledger, every closed trade (?lite=1: this week only)", False),
+    ("GET", "/api/tax", r_tax, "tax ESTIMATE for one financial year (trader-tax): income per head, ICAI turnover and "
+     "the audit check, set-off and carry-forward, special-rate amounts, advance-tax dates, ITR-3 schedules: "
+     "?fy=2025-26&book=live|paper|all", False),
     ("GET", "/api/regime", r_regime, "market regime now: trend, vol bucket, gap, expiry and events: ?symbols=", False),
     ("GET", "/api/cotrader", r_cotrader, "the last co-trader run (trader/cotrader.json): tiered candidates, odds with "
      "ranges and n, risk verdicts, no-edge reasons; the calibration of logged probabilities", False),
@@ -2653,6 +2713,8 @@ ROUTES = [
      True),
     ("POST", "/api/strategy/draft", r_strategy_draft, "write the legs as a paper PROPOSAL to trader/orders.json", True),
     ("POST", "/api/journal/note", r_journal_note, "add your note and tags to one journal entry", True),
+    ("POST", "/api/tax/export", r_tax_export, "write the year's tax estimate to trader/tax/FY<year>/ (report.md, "
+     "CSVs, tax.json)", True),
     ("POST", "/api/doctor/run", r_doctor_run, "run the data self-test now and update trader/doctor.json", True),
     ("POST", "/api/cotrader/run", r_cotrader_run, "run the co-trader now (tier validated or research); writes "
      "trader/cotrader.json and its log, places nothing", True),

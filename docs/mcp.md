@@ -38,7 +38,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 51 tools and 16 prompts from
+4. Restart the client. It should list 52 tools and 16 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -130,6 +130,7 @@ message.
 | `journal_summary` | **Trade journal summary.** The user's trade journal (trader-journal), rebuilt from paper fills (trader/state/trades.json) and imported broker trade books: closed trades after charges, expectancy with its 95% range, win rate with its Wilson interval, profit factor, drawdown, streaks, this week's numbers, the rule-break log (risk overrides, trades after a circuit-breaker lock, revenge trades, oversizing, entries outside the window, late exits, fills with no ticket), the overtrading index, the cost drag, the counterfactual ledger's totals and the latest trades. Read only. | `recent`? | read-only |
 | `journal_stats` | **Trade journal statistics.** Statistics of the user's closed trades after charges (trader-journal): expectancy with its range, win rate with its Wilson 95% interval, profit factor, average win and loss, max drawdown and streaks, optionally broken down by strategy, persona, regime (NIFTY's trend and volatility the close before), time of day, weekday or instrument, for all trades or one ISO week; with the behaviour flags. Read only. | `by`?, `week`? | read-only |
 | `counterfactual_report` | **Counterfactual ledger.** What the trades the user did not take would have done (trader-journal): every co-trader candidate skipped or blocked by risk (trader/cotrader/log.jsonl) and every trader-risk BLOCK of the user's own order, replayed on the bars after it with trader-lab's no-look-ahead fill rules (next bar's open plus slippage, stop first, flat-by or maximum holding, net of charges): per group the plans, how many were replayed, taken anyway or unresolved, what the losers would have lost (saved) and the winners made (cost), with the caveats. Read only; bars from the local archive or the lab cache, never fetched. | `group`?, `since`?, `until`?, `limit`? | read-only |
+| `tax_summary` | **Tax estimate for a financial year.** A financial-year tax ESTIMATE of the user's trading (trader-tax), for discussion with a CA: each trade classified as intraday equity (speculative business income), F&O (non-speculative business income) or delivery shares (short-term gains at the s.111A rate, long-term above the yearly exemption at the s.112A rate, with the 31 Jan 2018 grandfathering); charges per head (STT deductible for business, not for capital gains); business turnover the ICAI Guidance Note way (the absolute sum of profits and losses) with the tax-audit check in words; current-year set-off, brought-forward losses, what carries forward and until when; the special-rate amounts; the advance-tax dates; the ITR-3 schedule for each number; what needs the user's input. FY 2025-26 under the Income-tax Act, 1961; tax year 2026-27 under the Income-tax Act, 2025. Read only. | `fy`?, `book`?, `rules`? | read-only |
 | `archive_status` | **Market data archive status.** What the local NSE archive (trader-archive) holds: each dataset (equity and F&O bhavcopies, indices, India VIX, ban list, settlement prices, lot sizes, corporate actions) with its files, rows, first and last day and when it was fetched, intraday bars and option-chain snapshots, in plain words. The lab's options backtests and the regime's IV ranks read it. Read only, no network. | none | read-only |
 | `strategy_design` | **Design a strategy (a lab spec draft).** Turn a structured intent (instrument, timeframe or time window such as the 09:15-10:00 open drive or expiry day, regime conditions, risk budget, style = a library template) into a trader-lab spec draft in the lab's fixed, safe vocabulary (fields, session values, indicators, comparisons; no code), with every validation error, the strategy family and how many trials that family already has. Never runs anything: lab_run_spec tests the draft. | `template`, `name`?, `symbols`?, `window_from`?, `window_to`?, `days_to_expiry`?, `weekdays`?, `vix_min`?, `vix_max`?, `iv_rank_min`?, `iv_rank_max`?, `trend`?, `regime_gate`?, `capital`?, `risk_per_trade_pct`?, `max_trades_per_day`?, `lots`?, `target_r`?, `stop_atr_mult`?, `profit_target_pct`?, `stop_loss_mult`?, `params`?, `extra_entry`?, `note`? | read-only |
 | `lab_run_spec` | **Strategy lab: run your own spec.** Run a spec the user or the assistant wrote (JSON text, e.g. from strategy_design) through the same lab as lab_run: after-charges backtest, walk-forward, deflated Sharpe, overfitting odds, gates and a verdict. Trial-count honesty: every spec run here is logged in trader/state/lab-trials.jsonl and increments the multiple-testing count of its strategy family, so later variants face a higher bar; the result says how many trials were counted. Writes trader/lab/<name>/. Sends progress, stops at max_seconds. Places nothing. | `spec`, `seed`?, `max_seconds`? | writes trader/ (replaces a file, keeps a .bak); network |
@@ -303,6 +304,13 @@ rule-break log, and what the skipped and blocked trades would have done. They
 never write; bars come from the local archive or the lab cache, never the
 network. See [journal.md](journal.md).
 
+`tax_summary` is trader-tax's financial-year estimate (`fy`, `book`): income
+per head, the ICAI turnover and the audit check in words, set-off and
+carry-forward, the special-rate amounts, the advance-tax dates and the ITR-3
+schedule for each number. It never writes, and its note tells the assistant
+to present it as an estimate for the user's CA, never as tax advice. See
+[tax.md](tax.md).
+
 `regime_now` is the regime read for today (trader-regime `now --json`):
 trend, volatility bucket, gap, expiry and event flags and the time-of-day
 bucket, with every input. See [regime.md](regime.md).
@@ -407,6 +415,9 @@ looking for a pass. A paper ticket always ends with your own typed yes.
 - "Review my week: what did risk block, and which rule did I nearly break?"
 - "Does the 15-minute opening-range breakout survive charges out of sample?
   Run it in the lab and tell me which gates it failed."
+
+- "What does my FY 2025-26 look like for tax: intraday, F&O and capital
+  gains, my F&O turnover, and do I need an audit? I'll take it to my CA."
 
 - "Give me today's co-trader brief: regime, candidates with their odds and n,
   and how well past odds were calibrated."

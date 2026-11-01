@@ -5,7 +5,7 @@ export const GROUPS = [
   { name: 'Discover', pages: ['chart', 'scanner', 'options'] },
   { name: 'Plan', pages: ['strategy', 'cotrader', 'ask'] },
   { name: 'Trade', pages: ['portfolio', 'risk', 'autopilot'] },
-  { name: 'Review', pages: ['lab', 'journal', 'agents'] },
+  { name: 'Review', pages: ['lab', 'journal', 'tax', 'agents'] },
   { name: 'Setup', pages: ['settings', 'welcome', 'about'] },
 ];
 
@@ -23,6 +23,7 @@ export const PAGES = {
   autopilot: { label: 'Auto-pilot', title: 'Auto-pilot', icon: 'autopilot', key: 'u', words: 'automatic paper loop replay forward record' },
   lab: { label: 'Strategy Lab', title: 'Strategy Lab', icon: 'lab', key: 'l', words: 'backtest scorecard equity walk-forward' },
   journal: { label: 'Journal', title: 'Journal', icon: 'journal', key: 'j', words: 'review notes mistakes trades win rate expectancy counterfactual' },
+  tax: { label: 'Tax', title: 'Tax estimate', icon: 'tax', key: 'x', words: 'income tax itr itr-3 f&o turnover audit capital gains stcg ltcg speculative carry forward advance tax ca' },
   agents: { label: 'Agents', title: 'Agent team', icon: 'agents', key: 't', words: 'personas scorecards team' },
   settings: { label: 'Settings', title: 'Settings', icon: 'settings', key: 'e', words: 'config capital limits broker' },
   welcome: { label: 'Setup guide', title: 'Setup guide', icon: 'welcome', key: 'w', words: 'onboarding first run wizard assistant mcp' },

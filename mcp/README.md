@@ -27,7 +27,7 @@ Client configuration (the usual command + args shape):
 | file | what it is |
 | --- | --- |
 | `server.py` | JSON-RPC 2.0 over stdio and streamable HTTP; MCP revision 2026-07-28 plus the handshake-based 2025-11-25, 2025-06-18 and 2025-03-26; lifecycle, tools, resources, prompts, pagination, cancellation, progress, logging, elicitation, rate limit |
-| `toolkit.py` | the 51 tools (including the paper auto-pilot: `autopilot_status`, `autopilot_replay`, `autopilot_start`, `autopilot_stop`; and the co-trader workflow layer: `trade_brief`, `best_for_regime`, `strategy_design`, `lab_run_spec` with the trial ledger, `compare_strategies`, `archive_status`), the `trader/` resources and the 16 prompts (5 workflows, 5 co-trader prompts, 6 agent personas). Each tool calls a skill's own function, or its own command line with `--json`, through `ui/api.py`'s loader: one implementation of every number |
+| `toolkit.py` | the 52 tools (including the paper auto-pilot: `autopilot_status`, `autopilot_replay`, `autopilot_start`, `autopilot_stop`; and the co-trader workflow layer: `trade_brief`, `best_for_regime`, `strategy_design`, `lab_run_spec` with the trial ledger, `compare_strategies`, `archive_status`), the `trader/` resources and the 16 prompts (5 workflows, 5 co-trader prompts, 6 agent personas). Each tool calls a skill's own function, or its own command line with `--json`, through `ui/api.py`'s loader: one implementation of every number |
 
 Tools: `market_status`, `scan_daily`, `scan_orb`, `news`, `entry_check`,
 `exit_plan`, `timemachine_run`, `size_trade`, `risk_check`, `risk_scenarios`,

@@ -7,6 +7,32 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **`trader-tax`** (#50): a financial-year tax ESTIMATE for discussion with
+  a CA, not tax advice. `tax.py report | export | rules | years | import`.
+  Each trade is classified as intraday equity (speculative business
+  income), F&O (non-speculative business income) or delivery shares
+  (short-term gains at 15% / 20% from 23 Jul 2024 under s.111A, long-term
+  at 10% / 12.5% above Rs 1 lakh / Rs 1.25 lakh under s.112A, with the
+  31 Jan 2018 grandfathering). Charges go where each head allows them
+  (STT deductible for business, not for capital gains). Business turnover
+  follows ICAI's Guidance Note on Tax Audit (Revised 2026, para 5.11), with
+  the options-premium question shown both ways, and the s.44AB audit check
+  and the s.44AD interplay are explained in words. Current-year set-off,
+  brought-forward losses (4 years speculative, 8 years other business and
+  capital losses, lapsed and late-filed ones flagged), what carries
+  forward, the special-rate amounts, the advance-tax dates and the ITR-3
+  schedule for each number. FY 2025-26 is reported under the Income-tax
+  Act, 1961 and tax year 2026-27 under the Income-tax Act, 2025, with the
+  section map and the s.536 transition for older losses. Inputs: imported
+  broker trade books (trader-journal's importers), paper fills for practice,
+  and `trader/tax/` holdings, carry-forward, expenses and profile files.
+  `export` writes `report.md`, CSVs and `tax.json` to
+  `trader/tax/FY2025-26/`. See docs/tax.md for the rules table and sources.
+- **UI** (#50): a Tax page under Review (the FY and book pickers, heads,
+  turnover and audit check, set-off and carry-forward, special rates,
+  advance tax, ITR-3 schedules, export), from `GET /api/tax` and
+  `POST /api/tax/export`.
+- **MCP** (#50): `tax_summary` (read only; 52 tools in all).
 - **`trader-autopilot`** (#45): the co-trader loop, run by itself on the
   PAPER account. `autopilot.py start [--once] [--dry-run] | stop | status |
   report [--date] | replay --date D [--to D2]`. A resumable stdlib loop on the
