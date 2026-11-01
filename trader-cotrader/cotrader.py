@@ -1078,6 +1078,12 @@ def no_edge(doc):
     if doc.get("hidden_research"):
         change.append("%d RESEARCH strategies are hidden: today --tier research shows their ideas, labelled %s."
                       % (doc["hidden_research"], RESEARCH_LABEL))
+    research = [r for r in rows if r["tier"] == "RESEARCH" and r["in_view"]]
+    if research:
+        n_mis = sum(1 for r in research if str(r.get("status") or "").startswith("regime mismatch"))
+        n_quiet = sum(1 for r in research if str(r.get("status") or "").startswith("no live trigger"))
+        reasons.append("RESEARCH ideas: none ready either (%d strategies: %d regime mismatch, %d no live trigger, "
+                       "%d other)." % (len(research), n_mis, n_quiet, len(research) - n_mis - n_quiet))
     if not reasons:
         reasons.append("Nothing qualified today.")
     return {"decision": "sit out", "headline": "No trade today: sitting out is the decision, not a failure.",
