@@ -392,8 +392,8 @@ class ExpiryDay(unittest.TestCase):
         self.assertEqual(mon["basket"]["margin"]["expiry_day_elm"], 0.0)
         F = tue["basket"]["margin"]
         shorts = [o for o in legs if o["side"] == "SELL"]
-        fwd = STRANGLE["forward"]
-        self.assertAlmostEqual(F["expiry_day_elm"], sum(fwd * o["qty"] * 0.02 for o in shorts), delta=1.0)
+        spot = STRANGLE["spot"]          # NSE: the notional of a short option is on the underlying's close
+        self.assertAlmostEqual(F["expiry_day_elm"], sum(spot * o["qty"] * 0.02 for o in shorts), delta=1.0)
         self.assertAlmostEqual(F["expiry_day_elm_added"], F["expiry_day_elm"], places=2)
         self.assertAlmostEqual(F["used"] - mon["basket"]["margin"]["used"], F["expiry_day_elm"], delta=1.0)
         self.assertTrue(any("expiry day" in w and "2% more margin" in w for w in tue["warnings"]))

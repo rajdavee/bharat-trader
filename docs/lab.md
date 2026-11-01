@@ -253,12 +253,14 @@ exercise rate (0.125% before 1 April 2026, 0.15% from then), everything else
 expires. Each side of a leg is charged with the dated F&O table on its own
 date (brokerage, STT, exchange, SEBI, stamp, GST).
 
-**Margin and R.** trader-strategy's SPAN-style estimate of the whole position
-at entry (16 price and IV scenarios plus exposure margin on every short leg)
-and again for the expiry day itself when the position is still open then
-(2% more exposure on short index options expiring that day). The larger is
-the margin it blocks. R = net / margin, so expectancy and the gates read as
-return on margin a trade.
+**Margin and R.** trader-strategy's SPAN + ELM estimate of the whole position
+at entry (16 price and IV scenarios less the net option value, plus exposure
+margin on every short leg, hedged or not, as NSE charges it) and again for the
+expiry day itself when the position is still open then (2% more exposure on
+short index options expiring that day). The larger is the margin it blocks.
+R = net / margin, so expectancy and the gates read as return on margin a
+trade. The method's version (`margin_model`) is in results.json, in each
+trade's `margin_detail` and in the scorecard; see docs/options.md, Margin.
 
 **Robustness.** The same machinery as equity specs: the grid, walk-forward
 (120 sessions to choose, the next 60 scored), the parameter neighbourhood,
@@ -408,7 +410,8 @@ approximate before about 2018) is copied into the scorecard's "does NOT
 show" list.
 `--data DIR` reads a plain folder instead: `SYMBOL-1d.csv(.gz)` bars,
 `^NSEI-1d.csv(.gz)`, `members.json` (`{"NIFTY 200": {"YYYY-MM-DD": [symbols]}}`,
-each list holding until the next), `results.json`, `sectors.json`,
+each list holding until the next), `results.json`, `sectors.json` (else, on the
+archive, trader-archive's dated NSE sector snapshots: `backfill --datasets sectors`),
 `continuous/UNDERLYING.csv(.gz)` (`date,expiry,lot,open,high,low,close,roll,next_close`).
 
 ### Futures engine

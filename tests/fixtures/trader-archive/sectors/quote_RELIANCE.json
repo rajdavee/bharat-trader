@@ -1,0 +1,29 @@
+{
+ "equityResponse": [
+  {
+   "metaData": {
+    "identifier": "RELIANCEEQN",
+    "companyName": "Reliance Industries Limited",
+    "isinCode": "INE002A01018",
+    "symbol": "RELIANCE",
+    "series": "EQ",
+    "marketType": "N",
+    "closePrice": 1164.9
+   },
+   "secInfo": {
+    "secStatus": "Listed",
+    "listingDate": "29-Nov-1995 00:00:00",
+    "isSuspended": "Active",
+    "basicIndustry": "Refineries & Marketing",
+    "index": "Nifty 50",
+    "macro": "Energy",
+    "sector": "Oil Gas & Consumable Fuels",
+    "industryInfo": "Petroleum Products",
+    "boardStatus": "Main",
+    "tradingSegment": "Normal Market",
+    "classShare": "Equity"
+   },
+   "lastUpdateTime": "30-Oct-2026 16:00:00"
+  }
+ ]
+}

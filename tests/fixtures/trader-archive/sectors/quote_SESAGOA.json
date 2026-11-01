@@ -1,0 +1,29 @@
+{
+ "equityResponse": [
+  {
+   "metaData": {
+    "identifier": "SESAGOAEQN",
+    "companyName": null,
+    "isinCode": null,
+    "symbol": "SESAGOA",
+    "series": "EQ",
+    "marketType": "N",
+    "closePrice": 0
+   },
+   "secInfo": {
+    "secStatus": null,
+    "listingDate": null,
+    "isSuspended": "Active",
+    "basicIndustry": null,
+    "index": "",
+    "macro": null,
+    "sector": null,
+    "industryInfo": null,
+    "boardStatus": null,
+    "tradingSegment": null,
+    "classShare": null
+   },
+   "lastUpdateTime": "30-Oct-2026 16:00:00"
+  }
+ ]
+}

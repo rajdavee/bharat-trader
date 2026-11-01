@@ -130,17 +130,21 @@ NRML|MIS`, `--offline DIR` (saved chains and history, repeatable).
   (₹ per 1 point, and in lots), gamma per point, theta ₹ per calendar day,
   vega ₹ per vol point.
 - **Margin required** (the headline; `margin.required`): what a broker would
-  block, estimated. With any short option or future it is a SPAN-style
-  estimate: the worst of 16 scenarios on the WHOLE position (moves of 0, 1/3,
-  2/3 and 1 x the price scan each way with IV up and down by the vol scan,
-  plus 3 x the scan at 30% weight), so bought wings cut the scanning risk;
-  plus exposure on the notional of EVERY short option and future, hedged or
-  not (2% index, 3.5% stocks, 2% more on index shorts on their expiry day);
-  plus premium paid. Index scan 9.3% and vol scan 4 points (NIFTY in NSE's
-  SPAN file of 30-Oct-2026), stated error +/-15%; stocks 20% and 10 points
-  (not from a file), +/-35%. Bought options only: the premium paid, exact.
-  Checked against the SPAN file's own risk arrays (scan risk within 1% to 9%
-  on NIFTY 03-Nov). **The broker's own basket margin** goes next to it
+  block, estimated, with the method's version in `margin.margin_model`. With
+  any short option or future it is NSE Clearing's method, estimated: SPAN risk
+  (the worst of 16 scenarios on the WHOLE position: moves of 0, 1/3, 2/3 and 1
+  x the price scan each way with IV up and down by the vol scan, plus 3 x the
+  scan at 30% weight, so bought wings cut it; plus a calendar charge across
+  expiries) less the net option value; plus exposure on the underlying's
+  notional of EVERY short option and future, hedged or not (2% index, 3% over
+  10% out of the money, 5% after 9 months; 3.5% stocks; 2% more on index
+  shorts on their expiry day, when the expiring legs also lose the calendar
+  benefit); plus the net premium paid on a debit. Index scan 9.3% and vol scan
+  4 points (NSE's SPAN file of 30-Oct-2026), stated error +/-15%; stocks 20%
+  and 10 points (the file's 75th percentile), +/-35%. Bought options only: the
+  premium paid, exact. Checked against the SPAN file's own risk arrays
+  (hedged NIFTY structures within 3%, naked at or above the exchange's figure
+  within 8%; docs/options.md). **The broker's own basket margin** goes next to it
   (`margin.broker_basket`: the broker, its total, ours and the difference)
   when trader-broker's `ticket.py margin-check` has read it today, or once
   by itself when the config broker's token (or `"margin_broker"`'s) is in
@@ -182,10 +186,11 @@ expiry {breakevens[], breakevens_after_charges[], breakeven_shift[{gross, after_
         max_profit_after_charges, max_loss_after_charges, exact, reward_risk},
 charges {at_forward_expiry, at_forward_expiry_detail[], rates_from{}, note},
 curve {x[], expiry[], expiry_net[], at[], at_net[], horizon, iv_shift, breakevens_at[], spot, forward, expected_move{}},
-margin {label, required, low, high, error_pct, method ("span-style"|"premium"), explain, defined_risk,
+margin {label, required, low, high, error_pct, method ("span-style"|"premium"), margin_model, explain, defined_risk,
         max_loss (exact, positive; null if unlimited), max_loss_unlimited, return_on_margin (%),
-        span_style {method, scan_risk, worst_scenario, exposure, expiry_day_elm, premium_paid, premium_received,
-                    total, error_pct, low, high, assumptions{}}, broker_basket (null or {broker, title, at, total, our_estimate, difference, difference_pct}), broker_note},
+        span_style {model, method, scan_risk, worst_scenario, calendar_charge, short_option_minimum, span_risk,
+                    net_option_value, span, exposure, expiry_day_elm, premium_paid (net debit), premium_paid_gross,
+                    premium_received, total, error_pct, low, high, calendar_benefit, assumptions{}}, broker_basket (null or {broker, title, at, total, our_estimate, difference, difference_pct}), broker_note},
 probability {horizon, textbook {pop, pop_gross, ev, tail_5pct, tail_5pct_avg, median, sigma, method},
              simulated {... , paths, sessions, intraday_steps, realised_vol, history{}, method} | null,
              scenarios [{iv_shift, vol, pop, ev, tail_5pct, tail_5pct_avg}]},

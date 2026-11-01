@@ -80,20 +80,143 @@ DEFAULT_PATHS = 10000
 IV_SCENARIOS = (-5.0, 0.0, 5.0)         # vol points, for the simulation's IV-shift scenarios
 TAIL = 0.05                             # the tail in "5% tail loss"
 
-# SPAN-style margin estimate. NIFTY's price scan was 2,143.94 on spot 23,053.10 (9.30%) and its vol
-# scan 4 vol points in NSE's SPAN file of 30-Oct-2026 (nsccl.20261030.s.zip). The stock row is not
-# from a file: F&O stocks' scans run about 12% to 25%, so 20% is a middle and the error bound is wider.
-# Exposure (ELM): 2% of notional on short index options and index futures (practice, not a circular),
-# 3.5% for stocks (NSE ael file, "OTH" rows), plus 2% on short index options on their expiry day
-# (SEBI, 20-Nov-2024). Verify against your broker's basket margin before trading.
+# ---------------------------------------------------------------- SPAN-style margin model (shared block)
+# The same block in trader-strategy, trader-risk and trader-broker (tests/test_repo.py keeps the copies
+# identical). An estimate of what NSE Clearing's SPAN + extreme loss margin (ELM) would block, from the rules:
+#   SPAN risk  = the worst loss of 16 scenarios on the WHOLE position (price 0, +/-1/3, +/-2/3, +/-1 x the price
+#                scan, each with IV up and down by the vol scan; +/-3 x the scan at 30% weight), plus the
+#                calendar-spread charge across expiries, at least the short-option minimum
+#   SPAN       = SPAN risk less the net option value (long premium minus short premium, at today's value), not
+#                below 0 ("Total SPAN Margin requirement is equal to SPAN Risk Requirement less the net option
+#                value": NSE, NSE Clearing SPAN page). A credit spread therefore needs about its width
+#   ELM        = on EVERY short option, hedged or not, on the underlying's notional ("no extreme loss margin is
+#                levied on long positions, there cannot be any offset": NSE, equity derivatives margins page):
+#                index 2% (3% when the strike is over 10% out of the money, 5% after 9 months), stocks 3.5%
+#                (5.25% over 30% out of the money); futures 2% / 3.5%, a calendar spread on a third of the far leg
+#   expiry day 2% more ELM on short index options expiring that day, hedged or not, and no calendar benefit for
+#                the expiring contracts (SEBI circular of 01-Oct-2024, from 20-Nov-2024)
+#   premium    the net premium paid on a debit structure is paid up front, so it is added; a credit is not used
+# Parameters: NSE SPAN file nsccl.20261030.s.zip (NIFTY and BANKNIFTY price scan 9.30% of spot, the minimum NSE
+# states; volScan 4 points; calendar charge 409 a unit on NIFTY spot 23,053.10 = 1.77%; short-option minimum 0).
+# Stocks: the scan is 14.2% at least; across the file's 247 underlyings the median was 16.7% and the 75th
+# percentile 20.1%, so 20% (and a wider error bound) without the stock's own file.
+MARGIN_MODEL = "nse-span-elm-v2 (2026-11)"
 SPAN_DEFAULTS = {
-    "index": {"scan_pct": 9.3, "vol_scan": 4.0, "elm_pct": 2.0, "error_pct": 15,
-              "source": "NSE SPAN file 30-Oct-2026: NIFTY priceScan 2143.94 / spot 23053.10, volScan 0.04"},
-    "stock": {"scan_pct": 20.0, "vol_scan": 10.0, "elm_pct": 3.5, "error_pct": 35,
-              "source": "typical F&O stock scan (12% to 25%), not read from a SPAN file; ELM from NSE's ael file"},
+    "index": {"scan_pct": 9.3, "scan_pct_long_dated": 17.7, "vol_scan": 4.0, "elm_pct": 2.0,
+              "elm_deep_otm_pct": 3.0, "deep_otm_pct": 10.0, "elm_long_dated_pct": 5.0, "calendar_pct": 1.77,
+              "som_pct": 0.0, "error_pct": 15,
+              "source": "NSE SPAN file 30-Oct-2026: NIFTY priceScan 2143.94 / spot 23053.10 (9.30%), volScan 0.04, "
+                        "calendar 409 a unit; ELM per NSE's margins page"},
+    "stock": {"scan_pct": 20.0, "scan_pct_long_dated": 20.0, "vol_scan": 10.0, "elm_pct": 3.5,
+              "elm_deep_otm_pct": 5.25, "deep_otm_pct": 30.0, "elm_long_dated_pct": 3.5, "calendar_pct": 2.3,
+              "som_pct": 0.0, "error_pct": 35,
+              "source": "75th percentile F&O stock scan in NSE's SPAN file of 30-Oct-2026 (median 16.7%), not the "
+                        "stock's own; ELM per NSE's margins page"},
 }
 EXPIRY_DAY_ELM_PCT = 2.0
 EXTREME_MOVE, EXTREME_WEIGHT = 3.0, 0.30
+LONG_DATED_YEARS = 0.75          # "residual maturity of more than 9 months"
+
+
+def _span_b76(F, K, T, r, iv, cp):
+    """Black-76 value and delta per unit; at or after expiry the intrinsic value."""
+    import math
+    if T <= 1e-9 or not iv or F <= 0 or K <= 0:
+        v = max(0.0, F - K) if cp == "CE" else max(0.0, K - F)
+        return v, (1.0 if F > K else 0.0) if cp == "CE" else (-1.0 if F < K else 0.0)
+    s = max(0.005, iv / 100.0)
+    d1 = (math.log(F / K) + 0.5 * s * s * T) / (s * math.sqrt(T))
+    d2 = d1 - s * math.sqrt(T)
+    n = lambda x: 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))  # noqa: E731
+    df = math.exp(-r * T)
+    if cp == "CE":
+        return df * (F * n(d1) - K * n(d2)), df * n(d1)
+    return df * (K * n(-d2) - F * n(-d1)), -df * n(-d1)
+
+
+def span_elm(rows, kind, today=None, params=None):
+    """The SPAN + ELM estimate for one underlying's legs. rows: [{"fut": bool, "cp": "CE"/"PE"/None, "strike",
+    "expiry" (ISO), "qty" (signed units), "F" (the expiry's forward), "spot" (the underlying's close, else F),
+    "T" (years left), "iv" (percent), "rate", "price" (premium a unit, else today's value)}]. today: ISO date,
+    for the expiry-day rules. params: overrides of SPAN_DEFAULTS[kind]."""
+    p = dict(SPAN_DEFAULTS["index" if kind == "index" else "stock"])
+    p.update({k: v for k, v in (params or {}).items() if v is not None and k in p})
+    vs = p["vol_scan"]
+
+    def scan_of(r):
+        return p["scan_pct_long_dated"] if kind == "index" and r["T"] > LONG_DATED_YEARS else p["scan_pct"]
+
+    def val(r, m=0.0, dv=0.0):
+        F = r["F"] * (1.0 + m * scan_of(r) / 100.0)
+        if r["fut"]:
+            return F, 1.0
+        return _span_b76(F, float(r["strike"]), r["T"], r.get("rate") or 0.0,
+                         (r["iv"] + dv) if r.get("iv") else None, r["cp"])
+
+    spot = next((r.get("spot") for r in rows if r.get("spot")), None) or (rows[0]["F"] if rows else 0.0)
+    shorts = [r for r in rows if not r["fut"] and r["qty"] < 0]
+    futs = [r for r in rows if r["fut"]]
+    points = [(m, dv, 1.0) for m in (0.0, 1 / 3.0, -1 / 3.0, 2 / 3.0, -2 / 3.0, 1.0, -1.0) for dv in (vs, -vs)]
+    points += [(EXTREME_MOVE, 0.0, EXTREME_WEIGHT), (-EXTREME_MOVE, 0.0, EXTREME_WEIGHT)]
+    expiring = [r for r in rows if today and r["expiry"] == today]
+    split = kind == "index" and 0 < len(expiring) < len(rows)
+    groups = [expiring, [r for r in rows if r not in expiring]] if split else [rows]
+    scan, at, calendar = 0.0, None, 0.0
+    for g in groups:
+        base = sum(r["qty"] * val(r)[0] for r in g)
+        worst, w_at = 0.0, None
+        for m, dv, w in points:
+            loss = (base - sum(r["qty"] * val(r, m, dv)[0] for r in g)) * w
+            if loss > worst + 1e-9:
+                worst, w_at = loss, {"move_pct": round(m * p["scan_pct"], 2), "vol": dv, "weight": w}
+        if worst >= scan:
+            at = w_at
+        scan += worst
+        deltas = {}
+        for r in g:
+            deltas[r["expiry"]] = deltas.get(r["expiry"], 0.0) + r["qty"] * val(r)[1]
+        if len(deltas) > 1:
+            pairs = min(sum(d for d in deltas.values() if d > 0), -sum(d for d in deltas.values() if d < 0))
+            calendar += pairs * spot * p["calendar_pct"] / 100.0
+    som = sum(-r["qty"] for r in shorts) * spot * p["som_pct"] / 100.0
+    risk = max(scan + calendar, som)
+    nov = sum(r["qty"] * val(r)[0] for r in rows if not r["fut"])
+    span = max(0.0, risk - nov) if (shorts or futs) else 0.0
+    exposure = extra = 0.0
+    for r in shorts:
+        k, s0 = float(r["strike"]), r.get("spot") or r["F"]
+        otm = (k - s0) / s0 * 100.0 if r["cp"] == "CE" else (s0 - k) / s0 * 100.0
+        rate = p["elm_deep_otm_pct"] if otm > p["deep_otm_pct"] else p["elm_pct"]
+        if kind == "index" and r["T"] > LONG_DATED_YEARS:
+            rate = max(rate, p["elm_long_dated_pct"])
+        exposure += -r["qty"] * s0 * rate / 100.0
+        if kind == "index" and today and r["expiry"] == today:
+            extra += -r["qty"] * s0 * EXPIRY_DAY_ELM_PCT / 100.0
+    net = {}
+    for r in futs:
+        net.setdefault(r["expiry"], [0.0, r["F"]])[0] += r["qty"]
+    longs = sum(q for q, _ in net.values() if q > 0)
+    shorts_f = -sum(q for q, _ in net.values() if q < 0)
+    pairable = not (kind == "index" and today in net)
+    matched = min(longs, shorts_f) if pairable and len(net) > 1 else 0.0
+    far_F = net[max(net)][1] if net else 0.0
+    gross = sum(abs(q) * F for q, F in net.values())
+    exposure += (gross - 2 * matched * far_F + matched * far_F / 3.0) * p["elm_pct"] / 100.0 if net else 0.0
+    prem = [(r["qty"], r["price"] if r.get("price") is not None else val(r)[0]) for r in rows if not r["fut"]]
+    paid = sum(q * v for q, v in prem if q > 0)
+    received = sum(-q * v for q, v in prem if q < 0)
+    net_paid = max(0.0, paid - received)
+    total = span + exposure + extra + net_paid
+    err = p["error_pct"] if (shorts or futs) else 0
+    return {"model": MARGIN_MODEL, "method": "span-style" if (shorts or futs) else "premium",
+            "scan_risk": scan, "worst_scenario": at, "calendar_charge": calendar, "short_option_minimum": som,
+            "span_risk": risk, "net_option_value": nov, "span": span, "exposure": exposure,
+            "expiry_day_elm": extra, "premium_paid": net_paid, "premium_paid_gross": paid,
+            "premium_received": received, "total": total, "error_pct": err,
+            "low": total * (1 - err / 100.0), "high": total * (1 + err / 100.0),
+            "calendar_benefit": not split, "params": p}
+
+# ---------------------------------------------------------------- end of the SPAN-style margin model
 
 NSE_HOLIDAYS = {  # Capital Market segment (F&O follows it), NSE holiday master; Diwali Laxmi Pujan is a Sunday
     "2026-01-15", "2026-01-26", "2026-02-15", "2026-03-03", "2026-03-21", "2026-03-26",
@@ -785,7 +908,8 @@ def resolve_legs(specs, markets, near=None, fill="mid", lot_size=None):
         F, T, r = a["forward"], a["t_years"], a.get("rate", DEFAULT_RATE)
         leg = {"side": sp["side"], "lots": int(sp["lots"]), "lot_size": int(lot), "qty": int(sp["lots"]) * int(lot),
                "instrument": "FUT" if sp["kind"] == "FUT" else "OPT", "option_type": None if sp["kind"] == "FUT"
-               else sp["kind"], "strike": None, "expiry": a["expiry"], "forward": F, "t_years": T, "rate": r}
+               else sp["kind"], "strike": None, "expiry": a["expiry"], "forward": F, "t_years": T, "rate": r,
+               "spot": a.get("spot")}
         notes = []
         if sp["kind"] == "FUT":
             leg.update({"price": _r(F, 2), "price_source": "forward", "bid": None, "ask": None, "iv": None,
@@ -1086,64 +1210,42 @@ def defined_risk(legs):
 
 # ---------------------------------------------------------------- margin
 
-def span_style(pos, kind, scan=None, asof=None):
-    """What a broker would block: a SPAN-style estimate for the whole position.
+def span_rows(legs):
+    """trader-strategy's priced legs as rows for span_elm (signed units, the chain's premium)."""
+    return [{"fut": l["instrument"] == "FUT", "cp": l["option_type"], "strike": l["strike"], "expiry": l["expiry"],
+             "qty": _sign(l) * l["qty"], "F": l["forward"], "spot": l.get("spot"), "T": l["t_years"],
+             "iv": l.get("iv"), "rate": l.get("rate") or 0.0, "price": l["price"]} for l in legs]
 
-    With a short option or a future: scanning risk (the worst loss over 16 scenarios on the WHOLE
-    position, so bought wings cut it: price moves of 0, +/-1/3, +/-2/3, +/-1 x the price scan, each with
-    IV up and down by the vol scan, and +/-3 x the scan at 30% weight) + exposure (ELM) on the notional
-    of EVERY short option and future, hedged or not (exposure is per short leg; the hedge benefit comes
-    through SPAN only) + 2% more on index shorts on their expiry day + premium paid on bought options.
-    Only bought options: the premium paid, nothing else (no SPAN is collected on a long option)."""
-    p = dict(SPAN_DEFAULTS[kind])
-    p.update({k: v for k, v in (scan or {}).items() if v is not None})
-    F = pos.ref
-    ps = F * p["scan_pct"] / 100.0
-    vs = p["vol_scan"]
-    paid = sum(l["price"] * l["qty"] for l in pos.legs if l["instrument"] == "OPT" and l["side"] == "BUY")
-    received = sum(l["price"] * l["qty"] for l in pos.legs if l["instrument"] == "OPT" and l["side"] == "SELL")
-    assumptions = {"price_scan": _r(ps, 2), "scan_pct": p["scan_pct"], "vol_scan_points": vs,
-                   "elm_pct": p["elm_pct"], "source": p["source"]}
-    if not any(l["instrument"] == "FUT" or l["side"] == "SELL" for l in pos.legs):
-        return {"method": "premium", "scan_risk": 0.0, "worst_scenario": None, "exposure": 0.0,
-                "expiry_day_elm": 0.0, "premium_paid": _r(paid, 2), "premium_received": 0.0, "total": _r(paid, 2),
-                "error_pct": 0, "low": _r(paid, 2), "high": _r(paid, 2), "assumptions": assumptions}
-    base = pos.gross(F, 0.0)
-    worst, at = 0.0, None
-    for m in (0.0, 1 / 3.0, -1 / 3.0, 2 / 3.0, -2 / 3.0, 1.0, -1.0):
-        for dv in (vs, -vs):
-            loss = base - pos.gross(F + m * ps, 0.0, dv)
-            if loss > worst:
-                worst, at = loss, {"move": _r(m * ps, 2), "vol": dv}
-    for m in (EXTREME_MOVE, -EXTREME_MOVE):
-        loss = (base - pos.gross(F + m * ps, 0.0)) * EXTREME_WEIGHT
-        if loss > worst:
-            worst, at = loss, {"move": _r(m * ps, 2), "vol": 0.0, "weight": EXTREME_WEIGHT}
-    exposure, extra = 0.0, 0.0
+
+def span_style(pos, kind, scan=None, asof=None):
+    """What a broker would block: the SPAN + ELM estimate for the whole position (span_elm, the shared block).
+
+    With a short option or a future: SPAN (the worst of 16 price and IV scenarios on the WHOLE position, so
+    bought wings cut it, plus the calendar charge, less the net option value) + exposure (ELM) on the
+    notional of EVERY short option, hedged or not, + 2% more on index shorts on their expiry day + the net
+    premium paid on a debit. Only bought options: the premium paid, nothing else."""
     day = asof.date().isoformat() if asof else None
-    for l in pos.legs:
-        notional = l["forward"] * l["qty"]
-        if l["instrument"] == "FUT" or l["side"] == "SELL":
-            exposure += notional * p["elm_pct"] / 100.0
-        if kind == "index" and l["instrument"] == "OPT" and l["side"] == "SELL" and day == l["expiry"]:
-            extra += notional * EXPIRY_DAY_ELM_PCT / 100.0
-    total = worst + exposure + extra + paid
-    return {"method": "span-style", "scan_risk": _r(worst, 2), "worst_scenario": at, "exposure": _r(exposure, 2),
-            "expiry_day_elm": _r(extra, 2), "premium_paid": _r(paid, 2), "premium_received": _r(received, 2),
-            "total": _r(total, 2), "error_pct": p["error_pct"],
-            "low": _r(total * (1 - p["error_pct"] / 100.0), 2), "high": _r(total * (1 + p["error_pct"] / 100.0), 2),
-            "assumptions": assumptions}
+    m = span_elm(span_rows(pos.legs), kind, day, scan)
+    p = m["params"]
+    ref = next((l.get("spot") for l in pos.legs if l.get("spot")), None) or pos.ref
+    assumptions = {"price_scan": _r(ref * p["scan_pct"] / 100.0, 2), "scan_pct": p["scan_pct"],
+                   "vol_scan_points": p["vol_scan"], "elm_pct": p["elm_pct"], "calendar_pct": p["calendar_pct"],
+                   "source": p["source"]}
+    out = {k: (_r(v, 2) if isinstance(v, float) else v) for k, v in m.items() if k != "params"}
+    out["assumptions"] = assumptions
+    return out
 
 
 def margin_estimate(pos, kind, max_loss, scan=None, asof=None, max_profit=None):
     """Margin required (the headline: what a broker would block, estimated) and, apart from it, the
     exact max loss and the return on margin.
 
-    required     the SPAN-style estimate (span_style), +/- error_pct; only bought options: the premium
+    required     the SPAN + ELM estimate (span_style), +/- error_pct; only bought options: the premium
     max_loss     the most the position can lose at expiry (positive rupees), exact for one expiry; None
                  when unlimited. It is NOT the margin: a broker blocks SPAN + exposure, usually far more
-                 for a hedged credit spread
+                 for a hedged credit spread (exposure is charged on every short leg, hedged or not)
     return_on_margin   max profit at expiry / required, in %, None when either is unlimited or missing
+    margin_model the version of the margin method, for scorecards and comparisons
     broker_basket stays None until the broker's own basket margin is read (attach_broker_margin)."""
     span = span_style(pos, kind, scan, asof)
     req = span["total"]
@@ -1156,17 +1258,18 @@ def margin_estimate(pos, kind, max_loss, scan=None, asof=None, max_profit=None):
                    "blocked. The premium is also the most you can lose.")
     else:
         label = "Margin required (estimate, +/-%d%%)" % err
-        explain = ("A SPAN-style estimate of what a broker blocks, +/-%d%%: the worst of 16 price and IV "
-                   "scenarios on the whole position (price scan %s%% of the forward, IV scan %s points), so "
-                   "bought wings cut it; plus %s%% exposure on the notional of every short option and future, "
-                   "hedged or not%s; plus premium paid. Brokers differ on whether premium received offsets it. "
-                   "Not the exchange's SPAN file: check your broker's basket margin." % (
+        explain = ("A SPAN-style estimate (SPAN + exposure) of what a broker blocks, +/-%d%%: the worst of 16 price and IV "
+                   "scenarios on the whole position (price scan %s%% of the underlying, IV scan %s points), so "
+                   "bought wings cut it, less the net option value (a credit spread needs about its width); plus "
+                   "%s%% exposure (ELM) on the notional of every short option, hedged or not, as NSE charges it%s; "
+                   "plus the net premium paid on a debit. Not the exchange's own SPAN run: check your broker's "
+                   "basket margin." % (
                        err, fnum(span["assumptions"]["scan_pct"], 1), fnum(span["assumptions"]["vol_scan_points"], 0),
                        fnum(span["assumptions"]["elm_pct"], 1),
                        ", and 2% more on index shorts expiring today" if span["expiry_day_elm"] else ""))
     return {"label": label, "required": req, "low": span["low"], "high": span["high"], "error_pct": err,
-            "method": span["method"], "explain": explain, "defined_risk": defined_risk(pos.legs),
-            "max_loss": loss, "max_loss_unlimited": max_loss is None,
+            "method": span["method"], "margin_model": MARGIN_MODEL, "explain": explain,
+            "defined_risk": defined_risk(pos.legs), "max_loss": loss, "max_loss_unlimited": max_loss is None,
             "return_on_margin": rom, "span_style": span, "broker_basket": None,
             "broker_note": "no broker connected: check the broker's basket margin before any real order"}
 
@@ -1894,10 +1997,14 @@ def render(doc):
     if m["method"] == "premium":
         w("Margin required: %s, the premium paid up front (exact)." % inr(m["required"]))
     else:
-        w("Margin required (estimate, +/-%d%%): about %s (%s to %s): scan risk %s, exposure %s%s, premium paid %s." % (
-            m["error_pct"], inr(m["required"]), inr(m["low"]), inr(m["high"]), inr(m["span_style"]["scan_risk"]),
-            inr(m["span_style"]["exposure"]), (", expiry-day ELM %s" % inr(m["span_style"]["expiry_day_elm"]))
-            if m["span_style"]["expiry_day_elm"] else "", inr(m["span_style"]["premium_paid"])))
+        sp = m["span_style"]
+        w("Margin required (estimate, +/-%d%%): about %s (%s to %s): SPAN %s (scan risk %s%s, less net option value "
+          "%s), exposure %s%s, net premium paid %s. Model %s." % (
+              m["error_pct"], inr(m["required"]), inr(m["low"]), inr(m["high"]), inr(sp["span"]), inr(sp["scan_risk"]),
+              (" + calendar %s" % inr(sp["calendar_charge"])) if sp["calendar_charge"] else "",
+              inr(sp["net_option_value"]), inr(sp["exposure"]),
+              (", expiry-day ELM %s" % inr(sp["expiry_day_elm"])) if sp["expiry_day_elm"] else "",
+              inr(sp["premium_paid"]), m["margin_model"]))
     w("Max loss at expiry: %s%s%s" % (
         "unlimited" if m["max_loss_unlimited"] else inr(m["max_loss"]), "" if m["method"] == "premium" else
         " (not the margin)",

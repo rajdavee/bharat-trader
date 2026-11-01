@@ -692,6 +692,10 @@ def scorecard(doc, res):
     L.append("")
     L.append("Finalist (best primary metric on train): %s." % ", ".join("%s=%s" % kv for kv in o["finalist"].items()))
     L.append("")
+    mm = ((res.get("validation") or {}).get("extra") or {}).get("margin_model")
+    if mm:
+        L.append("Margin model: %s (return on margin is over this estimate; docs/options.md, Margin)." % mm)
+        L.append("")
     L.append("## The numbers, after charges and slippage")
     L.append("")
     L.append("| | train | validation | holdout |")

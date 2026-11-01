@@ -244,7 +244,8 @@ def _run_shape(hyp, eng, days, capital, trades, metrics, mtm, skipped, notes, st
         traded += sum(abs(l["qty"]) * (abs(l.get("entry") or 0.0) + abs(l.get("exit") or 0.0)) for l in legs)
     vc = ((hyp.get("gates") or {}).get("extra") or {}).get("verdict_cap")
     ex = {"engine": eng, "status": status, "model_priced": model_priced, "verdict_cap": vc,
-          "return_on_margin_pct": metrics.get("return_on_margin_pct"), "options": metrics, "skipped": skipped}
+          "return_on_margin_pct": metrics.get("return_on_margin_pct"), "options": metrics, "skipped": skipped,
+          "margin_model": getattr(_S(), "MARGIN_MODEL", None)}
     ex.update(extra or {})
     return {"days": list(days), "ret": rets, "bench": None, "equity": equity, "exposure": expo, "trades": trades,
             "traded": traded, "charges": round(sum(t.get("charges") or 0.0 for t in trades), 2), "notes": notes,

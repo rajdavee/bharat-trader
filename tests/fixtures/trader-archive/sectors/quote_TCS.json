@@ -1,0 +1,29 @@
+{
+ "equityResponse": [
+  {
+   "metaData": {
+    "identifier": "TCSEQN",
+    "companyName": "Tata Consultancy Services Limited",
+    "isinCode": "INE467B01029",
+    "symbol": "TCS",
+    "series": "EQ",
+    "marketType": "N",
+    "closePrice": 2502.6
+   },
+   "secInfo": {
+    "secStatus": "Listed",
+    "listingDate": "25-Aug-2004 00:00:00",
+    "isSuspended": "Active",
+    "basicIndustry": "Computers - Software & Consulting",
+    "index": "Nifty 50",
+    "macro": "Information Technology",
+    "sector": "Information Technology",
+    "industryInfo": "IT - Software",
+    "boardStatus": "Main",
+    "tradingSegment": "Normal Market",
+    "classShare": "Equity"
+   },
+   "lastUpdateTime": "30-Oct-2026 16:00:00"
+  }
+ ]
+}

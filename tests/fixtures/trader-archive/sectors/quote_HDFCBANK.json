@@ -1,0 +1,29 @@
+{
+ "equityResponse": [
+  {
+   "metaData": {
+    "identifier": "HDFCBANKEQN",
+    "companyName": "HDFC Bank Limited",
+    "isinCode": "INE040A01034",
+    "symbol": "HDFCBANK",
+    "series": "EQ",
+    "marketType": "N",
+    "closePrice": 692.8
+   },
+   "secInfo": {
+    "secStatus": "Listed",
+    "listingDate": "08-Nov-1995 00:00:00",
+    "isSuspended": "Active",
+    "basicIndustry": "Private Sector Bank",
+    "index": "Nifty 50",
+    "macro": "Financial Services",
+    "sector": "Financial Services",
+    "industryInfo": "Banks",
+    "boardStatus": "Main",
+    "tradingSegment": "Normal Market",
+    "classShare": "Equity"
+   },
+   "lastUpdateTime": "30-Oct-2026 16:00:00"
+  }
+ ]
+}

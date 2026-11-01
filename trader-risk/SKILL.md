@@ -236,7 +236,7 @@ Rolling the short 23200 CE of that condor (filled on paper) up to 23250, at
 ```
 PASS  #1 BUY 65 NIFTY 23200 CE 2026-11-03 (NRML), adjust
           the position after this roll of S-20261102-1 on NIFTY, defined risk: can lose ₹4,991.19 (the most it can lose at expiry, charges included), ₹4,185.97 before it (limit ₹6,000.00)
-          margin about ₹79,669.61 after it, ₹79,322.52 now: ₹347.09 more (the upper bound (+15%), trader-risk (same SPAN-style method as trader-strategy)), ₹1,18,275.67 free; premium paid ₹2,915.25, received ₹2,161.25
+          margin about ₹79,669.61 after it, ₹79,322.52 now: ₹347.09 more (the upper bound (+15%), trader-risk (same SPAN + ELM model as trader-strategy)), ₹1,18,275.67 free; premium paid ₹2,915.25, received ₹2,161.25
           roll of S-20261102-1: checked with its 4 open legs in portfolio.json; after it: NIFTY 22700 PE 2026-11-03 +65, NIFTY 23300 CE 2026-11-03 +65, NIFTY 22800 PE 2026-11-03 -65, NIFTY 23250 CE 2026-11-03 -65
 ```
 
