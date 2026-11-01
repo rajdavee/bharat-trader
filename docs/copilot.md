@@ -124,8 +124,8 @@ registration as an algo, and sharing a closed-logic ("black box") algo with
 others brings research analyst rules into play. An unattended loop with real
 money also has failure modes (a stale price, a broker outage, a bug) that a
 person reading each ticket catches. The maintainer's decision, and what would
-have to change, is in the GitHub issue "Decision: fully autonomous live
-trading (not planned)".
+have to change, is in
+[#67, "Decision: fully autonomous live trading (not planned)"](https://github.com/rajdavee/bharat-trader/issues/67).
 
 ## What this does not show
 
