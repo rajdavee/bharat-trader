@@ -55,8 +55,9 @@ export function stepper(steps, current, done) {
 }
 
 export function pageHead(title, lede, right) {
-  return [h('div', { class: 'page-head' }, h('h1', { class: 'page-title' }, title), right || null),
-    lede ? h('p', { class: 'page-lede' }, lede) : null];
+  const out = [h('div', { class: 'page-head' }, h('h1', { class: 'page-title' }, title), right || null)];
+  if (lede) out.push(h('p', { class: 'page-lede' }, lede));
+  return out;
 }
 
 // ---------------------------------------------------------------- session rail

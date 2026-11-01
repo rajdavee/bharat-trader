@@ -226,7 +226,7 @@ h1, h2, h3 { line-height: 1.2; margin: 0; }
   background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
 }
-.menu-btn { display: none; }
+.icon-btn.menu-btn { display: none; }
 .top .brand { display: none; padding: 0; }
 .jump {
   display: flex; align-items: center; gap: 10px; flex: 1; max-width: 420px; min-width: 0;
@@ -643,7 +643,7 @@ canvas.plot:focus-visible { outline: 2px solid var(--focus); }
     transform: translateX(-102%); transition: transform 0.18s ease; box-shadow: var(--e-3);
   }
   body.nav-open .side { transform: none; }
-  .menu-btn { display: inline-grid; }
+  .icon-btn.menu-btn { display: inline-grid; }
   .top { padding: 10px var(--sp-4); }
   .top .brand { display: flex; }
   .top .brand .brand-name { display: none; }

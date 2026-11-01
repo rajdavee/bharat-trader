@@ -25,8 +25,8 @@ function railCard(m, risk) {
     now: String(m.now_ist || '').slice(11, 16), open: m.open, phase: m.phase, nextOpen: m.next_open,
     noBefore: limit(risk, 'no_entries_before', '09:30'), noAfter: limit(risk, 'no_entries_after', '14:45'),
     flatBy: limit(risk, 'flat_by', '15:10'),
-  }), h('p', { class: 'explain' }, 'Your entry window and flat-by time come from your settings. ', help('entry_window'),
-    ' ', help('flat_by')));
+  }), h('p', { class: 'explain' }, 'Both times come from your settings. Entry window ', help('entry_window'),
+    ', flat by ', help('flat_by')));
 }
 
 function pnlTile(a) {

@@ -93,7 +93,7 @@ function runCard(run) {
   return card(h('span', null, run.title || run.name, ' ', h('code', { class: 'muted small' }, run.name)),
     h('div', { class: 'card-head' }, h('div', null, verdictTag(run.verdict), ' ', help('verdict')),
       h('span', { class: 'small muted' }, `${run.timeframe}, ${run.product}`)),
-    h('p', null, run.why || ''),
+    h('p', null, run.verdict_why || ''),
     tiles,
     curve(run),
     h('div', { class: 'cols' }, h('div', null, gates(run.gates || []), regimes(run)),

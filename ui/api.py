@@ -2029,7 +2029,7 @@ def lab_run(ctx, name):
     at = res.get("run_at")
     return {
         "name": name, "title": res.get("title"), "verdict": st.get("verdict") or res.get("verdict"),
-        "why": st.get("why") or res.get("verdict_why"), "updated": st.get("updated") or at,
+        "verdict_why": st.get("why") or res.get("verdict_why"), "updated": st.get("updated") or at,
         "timeframe": res.get("timeframe"), "product": res.get("product"), "spec_hash": res.get("spec_hash"),
         "data": _pick(data, ("symbols", "from", "to", "sessions", "tested_from")), "capital": cap,
         "full": _pick(full, LAB_STATS), "oos": _pick(oos, LAB_STATS),
