@@ -37,7 +37,6 @@ All notable changes are documented here. The format follows
   browser you already have (DevTools protocol, standard library), flagging
   sideways scroll and error notes; `tests/test_ui_screens.py` runs it on the
   key pages when a browser is installed.
-
 - **`trader-archive`** (#41, archive half of #35): a local NSE market data
   archive under `trader/archive/`. `backfill --years N` fetches equity and F&O
   bhavcopies (UDiFF from 2024-01-02, the legacy format before, one schema),
