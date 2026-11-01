@@ -124,6 +124,7 @@ class Base(unittest.TestCase):
         broker.ADAPTER_KW.clear()
         cp.ASK_PHRASE = None
         cp.NOTIFY_RUN = None
+        cp.PLATFORM = sys.platform
         for d in self.dirs:
             shutil.rmtree(d, ignore_errors=True)
 
@@ -255,11 +256,14 @@ class Proposals(Base):
     def test_desktop_notification_and_bell_are_local_and_optional(self):
         calls = []
         cp.NOTIFY_RUN = calls.append
+        cp.PLATFORM = "linux"
         wd = self.wd(copilot={"notify": {"bell": False, "desktop": True}})
         self.propose(wd)
         self.assertEqual(len(calls), 1)
         self.assertIn("yes live BUY 42 RELIANCE", calls[0][-1])
-        self.assertIn(calls[0][0], ("osascript", "notify-send"))
+        self.assertEqual(calls[0][0], "notify-send")
+        cp.PLATFORM = "win32"
+        self.assertIsNone(cp.notify({"notify": {"desktop": True}}, "x"))           # no notifier there: nothing
 
 
 # ---------------------------------------------------------------- approval and sending

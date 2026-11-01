@@ -1279,6 +1279,7 @@ def reject(workdir, pid, now=None):
 # ---------------------------------------------------------------- notifications (optional, local only)
 
 NOTIFY_RUN = None        # tests replace the desktop call
+PLATFORM = sys.platform  # and the platform it picks the notifier by
 
 
 def notify(s, words):
@@ -1290,9 +1291,9 @@ def notify(s, words):
     if not n.get("desktop"):
         return None
     text = re.sub(r"[^\w .,:%₹()/-]", " ", str(words))[:200]
-    if sys.platform == "darwin":
+    if PLATFORM == "darwin":
         argv = ["osascript", "-e", "display notification \"%s\" with title \"bharat-trader co-pilot\"" % text]
-    elif sys.platform.startswith("linux"):
+    elif PLATFORM.startswith("linux"):
         argv = ["notify-send", "bharat-trader co-pilot", text]
     else:
         return None
