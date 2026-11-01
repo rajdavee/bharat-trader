@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "id": "eh-10-st-reversal",
+  "rank": 10,
+  "family": "reversal",
+  "title": "Short-term reversal in NIFTY 100",
+  "hypothesis": "The NIFTY 100 stocks with the worst 5- or 21-session returns outperform the universe over the next 5 to 10 sessions by more than the charges of trading them.",
+  "mechanism": {
+    "kind": [
+      "structural"
+    ],
+    "text": "Liquidity provision: price pressure from forced or impatient selling fades."
+  },
+  "evidence": [
+    {
+      "source": "Jegadeesh, Journal of Finance 45(3)",
+      "year": 1990,
+      "market": "US",
+      "finding": "Negative first-order serial correlation in monthly returns."
+    },
+    {
+      "source": "Lehmann, Quarterly Journal of Economics 105(1)",
+      "year": 1990,
+      "market": "US",
+      "finding": "Weekly winners and losers reverse."
+    },
+    {
+      "source": "Tripathi and Aggarwal, International Journal of Financial Management",
+      "year": 2014,
+      "market": "India",
+      "finding": "Intraday reversal within minutes of extreme moves."
+    },
+    {
+      "source": "This repo, docs/discovery.md",
+      "year": 2026,
+      "market": "India",
+      "finding": "527 daily rule trials (RSI(2)-type included) found 0 finalists."
+    }
+  ],
+  "instrument": {
+    "segment": "EQ-CNC",
+    "underlying": "NIFTY 100 constituents",
+    "side": "long, or long-short in stock futures"
+  },
+  "universe": {
+    "name": "nifty100-pit",
+    "point_in_time": true,
+    "rule": "Members on each rebalance date."
+  },
+  "holding_period": "5 or 10 sessions",
+  "turnover": {
+    "round_trips_per_year": 41.6,
+    "charge_drag_pct_per_year": 13.71,
+    "basis": "weekly, about 80% turnover x 0.33% CNC round trip; stock futures long-short about 10%"
+  },
+  "data": {
+    "needs": [
+      "adjusted EOD prices 2010-2026",
+      "point-in-time NIFTY 100",
+      "stock futures EOD"
+    ],
+    "available_now": [
+      "EOD equity bhavcopies 2024-2026"
+    ],
+    "blocked_by": [
+      71,
+      72
+    ]
+  },
+  "span": {
+    "train": {
+      "from": "2011-01-03",
+      "to": "2018-12-31"
+    },
+    "validation": {
+      "from": "2019-01-15",
+      "to": "2022-12-30"
+    },
+    "holdout": {
+      "from": "2023-01-16",
+      "to": "2026-10-30"
+    },
+    "embargo_days": 14
+  },
+  "parameters": {
+    "lookback_sessions": [
+      5,
+      21
+    ],
+    "bottom_n": [
+      10,
+      20
+    ],
+    "hold_sessions": [
+      5,
+      10
+    ],
+    "instrument": [
+      "cnc_long",
+      "futures_long_short"
+    ]
+  },
+  "trial_budget": 16,
+  "prior_trials": {
+    "count": 527,
+    "basis": "Discovery's daily rule trials on NIFTY 50 stocks included mean-reversion rules."
+  },
+  "gates": {
+    "lab_defaults": true,
+    "overrides": {},
+    "extra": {
+      "fdr_q": 0.1
+    },
+    "min_span_years": 10,
+    "span_exception": null
+  },
+  "primary_metric": "oos_net_sharpe",
+  "holdout_rule": {
+    "opened_once": true,
+    "pass_if": "Holdout net return after charges above zero and Sharpe above zero."
+  },
+  "kill_criteria": [
+    "Holdout net at or below zero after charges (the expected result).",
+    "Gross reversal smaller than twice the round-trip cost in validation."
+  ],
+  "prior": {
+    "probability": 0.04,
+    "reason": "The effect lives in illiquid small stocks; in NIFTY 100 the weekly drag of 10-14% swamps it."
+  },
+  "feasibility": {
+    "score": 0.6,
+    "reason": "Simple once #71 PIT history and #72 portfolios exist."
+  },
+  "contamination": "Discovery's 527 daily rule trials and the equity library ran on about 2.3 years of daily bars (2024 to 2026) of NIFTY 50 stocks: single-stock timing rules, not this cross-sectional rule. No cross-sectional portfolio has been run on any part of this span in this repo.",
+  "registered_on": "2026-11-01",
+  "status": "registered",
+  "outcome": null
+}

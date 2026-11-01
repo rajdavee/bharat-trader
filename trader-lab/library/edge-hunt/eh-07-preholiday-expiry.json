@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "id": "eh-07-preholiday-expiry",
+  "rank": 7,
+  "family": "calendar",
+  "title": "Pre-holiday and monthly expiry week on index futures",
+  "hypothesis": "Index futures held for one or two sessions before an NSE trading holiday, or through the monthly expiry week, earn a higher mean daily return than other sessions and a positive return after charges.",
+  "mechanism": {
+    "kind": [
+      "behavioural",
+      "structural"
+    ],
+    "text": "Pre-holiday optimism and short covering; expiry-week hedging, rolls and pinning."
+  },
+  "evidence": [
+    {
+      "source": "Ariel, Journal of Finance 45(5)",
+      "year": 1990,
+      "market": "US",
+      "finding": "High returns on sessions before holidays."
+    },
+    {
+      "source": "Vipul, Journal of Futures Markets 25(11)",
+      "year": 2005,
+      "market": "India",
+      "finding": "Expiration-day effects significant but small."
+    }
+  ],
+  "instrument": {
+    "segment": "FUT",
+    "underlying": "NIFTY, BANKNIFTY",
+    "side": "long"
+  },
+  "universe": {
+    "name": "nifty-banknifty-futures",
+    "point_in_time": false,
+    "rule": "Near-month futures; NSE trading holidays from the dated calendar; the monthly expiry week only."
+  },
+  "holding_period": "1 to 4 sessions",
+  "turnover": {
+    "round_trips_per_year": 13,
+    "charge_drag_pct_per_year": 1.04,
+    "basis": "about 12-15 events a year a variant x 0.080% futures round trip"
+  },
+  "data": {
+    "needs": [
+      "index futures EOD 2005-2026",
+      "NSE holiday and expiry calendars 2005-2026"
+    ],
+    "available_now": [
+      "F&O bhavcopies 2024-2026",
+      "holiday tables 2026"
+    ],
+    "blocked_by": [
+      71,
+      72
+    ]
+  },
+  "span": {
+    "train": {
+      "from": "2005-01-03",
+      "to": "2016-12-30"
+    },
+    "validation": {
+      "from": "2017-01-16",
+      "to": "2021-12-31"
+    },
+    "holdout": {
+      "from": "2022-01-17",
+      "to": "2026-10-30"
+    },
+    "embargo_days": 14
+  },
+  "parameters": {
+    "event": [
+      "pre_holiday",
+      "monthly_expiry_week"
+    ],
+    "underlying": [
+      "NIFTY",
+      "BANKNIFTY"
+    ],
+    "entry_sessions_before": [
+      1,
+      2
+    ]
+  },
+  "trial_budget": 8,
+  "prior_trials": {
+    "count": 0,
+    "basis": "No calendar rule has been run in this repo."
+  },
+  "gates": {
+    "lab_defaults": true,
+    "overrides": {
+      "max_drawdown_pct": 20.0
+    },
+    "extra": {
+      "fdr_q": 0.1
+    },
+    "min_span_years": 10,
+    "span_exception": null
+  },
+  "primary_metric": "oos_net_sharpe",
+  "holdout_rule": {
+    "opened_once": true,
+    "pass_if": "Holdout net return after charges above zero and the in-window mean above other sessions'."
+  },
+  "kill_criteria": [
+    "Holdout net at or below zero after charges.",
+    "In-window mean not above other sessions' (bootstrap p above 0.10).",
+    "Expiry-week variant: a sign flip between the Thursday-expiry and Tuesday-expiry eras."
+  ],
+  "prior": {
+    "probability": 0.06,
+    "reason": "Few events a year, scattered Indian evidence, expiry rules changed several times."
+  },
+  "feasibility": {
+    "score": 0.8,
+    "reason": "Needs dated historical holidays and expiries (#71); otherwise simple."
+  },
+  "contamination": "trader-regime and the lab's regime split read NIFTY 50 closes for 2024 to 2026; no calendar or trend rule on index futures has been run in this repo. The holdout overlaps those sessions.",
+  "registered_on": "2026-11-01",
+  "status": "registered",
+  "outcome": null
+}

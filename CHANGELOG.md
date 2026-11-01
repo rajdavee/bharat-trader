@@ -6,6 +6,22 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Edge-hunt research brief and pre-registration** (#70):
+  `docs/research/edge-hunt.md` reviews the evidence for cross-sectional
+  momentum, low volatility, index trend, turn of the month, pre-holiday and
+  expiry week, post-earnings drift, the NIFTY volatility risk premium,
+  results-day straddles, short-term reversal, pairs, intraday market
+  momentum, overnight drift and trend-day option buying, with SEBI's F&O
+  studies and the 2026 charge drag of each idea computed with trader-budget's
+  charges. 14 hypotheses are registered in `trader-lab/library/edge-hunt/`
+  (184 grid points), each with fixed parameters, a trial budget, train,
+  validation and sealed holdout dates, gates, kill criteria and a prior;
+  `manifest.json` freezes their registered content by SHA-256.
+  `tests/test_edge_hunt.py` validates the schema, the date splits, the
+  ranking, the hashes and the brief's cost table.
+
 ## [0.3.0] - 2026-11-01
 
 The co-trader release: candidates only from validated rules, odds with their

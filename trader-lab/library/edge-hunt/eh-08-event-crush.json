@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "id": "eh-08-event-crush",
+  "rank": 8,
+  "family": "event-vol",
+  "title": "Short iron fly through results on F&O stocks",
+  "hypothesis": "An iron fly sold on an F&O stock at the close before its results and bought back one or two sessions later earns a positive return on margin after charges and slippage.",
+  "mechanism": {
+    "kind": [
+      "risk-premium",
+      "behavioural"
+    ],
+    "text": "Event-risk premium and retail demand for lottery payoffs before results; implied volatility collapses after."
+  },
+  "evidence": [
+    {
+      "source": "Dubinsky, Johannes, Kaeck and Seeger, Review of Financial Studies 32(2)",
+      "year": 2019,
+      "market": "US",
+      "finding": "Priced announcement-day jumps in option prices."
+    },
+    {
+      "source": "Jain, Varma and Agarwalla, Journal of Futures Markets",
+      "year": 2018,
+      "market": "India",
+      "finding": "Single-stock IV well above realised volatility."
+    }
+  ],
+  "instrument": {
+    "segment": "OPT",
+    "underlying": "F&O stocks",
+    "side": "short premium, defined risk"
+  },
+  "universe": {
+    "name": "fno-stocks-pit",
+    "point_in_time": true,
+    "rule": "Stocks in the F&O list on the results date whose ATM and wing strikes traded that session."
+  },
+  "holding_period": "1 or 2 sessions",
+  "turnover": {
+    "round_trips_per_year": 200,
+    "charge_drag_pct_per_year": 0.0,
+    "basis": "a few hundred events a year across the universe; costs about 7-10% of the credit a trade, modelled per trade"
+  },
+  "data": {
+    "needs": [
+      "stock options EOD 2012-2026",
+      "results dates 2012-2026",
+      "dated F&O stock list"
+    ],
+    "available_now": [
+      "F&O bhavcopies 2024-2026"
+    ],
+    "blocked_by": [
+      71,
+      73
+    ]
+  },
+  "span": {
+    "train": {
+      "from": "2012-01-02",
+      "to": "2019-12-31"
+    },
+    "validation": {
+      "from": "2020-01-15",
+      "to": "2023-06-30"
+    },
+    "holdout": {
+      "from": "2023-07-17",
+      "to": "2026-10-30"
+    },
+    "embargo_days": 14
+  },
+  "parameters": {
+    "wing_pct_of_spot": [
+      5,
+      8
+    ],
+    "exit_session": [
+      1,
+      2
+    ],
+    "min_event_iv_ratio": [
+      1.0,
+      1.2
+    ]
+  },
+  "trial_budget": 8,
+  "prior_trials": {
+    "count": 0,
+    "basis": "No results-day option trade has been run in this repo."
+  },
+  "gates": {
+    "lab_defaults": true,
+    "overrides": {},
+    "extra": {
+      "fdr_q": 0.1
+    },
+    "min_span_years": 10,
+    "span_exception": null
+  },
+  "primary_metric": "oos_return_on_margin",
+  "holdout_rule": {
+    "opened_once": true,
+    "pass_if": "Holdout return on margin above zero after charges over at least 100 events."
+  },
+  "kill_criteria": [
+    "Holdout return on margin at or below zero.",
+    "The realised move larger than the implied move on more than half the holdout events.",
+    "Fewer than 100 holdout events with traded wings."
+  ],
+  "prior": {
+    "probability": 0.1,
+    "reason": "A plausible premium, but stock option wings are thin and slippage may take it all."
+  },
+  "feasibility": {
+    "score": 0.4,
+    "reason": "Needs results dates and legacy stock option bhavcopies (#71) and event straddles in the engine (#73)."
+  },
+  "contamination": "No results-day option trade has been run in this repo. Stock option prices for the holdout are unseen.",
+  "registered_on": "2026-11-01",
+  "status": "registered",
+  "outcome": null
+}

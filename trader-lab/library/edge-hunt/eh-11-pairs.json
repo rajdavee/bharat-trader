@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "id": "eh-11-pairs",
+  "rank": 11,
+  "family": "pairs",
+  "title": "Cointegrated same-sector pairs in stock futures",
+  "hypothesis": "Same-sector F&O stock pairs that are cointegrated over the formation window, traded on z-score divergence in futures, earn a positive return after charges.",
+  "mechanism": {
+    "kind": [
+      "behavioural",
+      "structural"
+    ],
+    "text": "Temporary relative mispricing between close substitutes reverts."
+  },
+  "evidence": [
+    {
+      "source": "Gatev, Goetzmann and Rouwenhorst, Review of Financial Studies 19(3)",
+      "year": 2006,
+      "market": "US, 1962-2002",
+      "finding": "Simple pairs rules earned excess returns."
+    },
+    {
+      "source": "Do and Faff, Financial Analysts Journal 66(4)",
+      "year": 2010,
+      "market": "US",
+      "finding": "Profitability declining after 2002."
+    },
+    {
+      "source": "Indian theses and project write-ups (krishikosh, QuantInsti EPAT)",
+      "year": 2025,
+      "market": "India",
+      "finding": "Claims of 30%+ a year in stock futures; not peer reviewed."
+    }
+  ],
+  "instrument": {
+    "segment": "FUT",
+    "underlying": "F&O stocks, same sector",
+    "side": "long-short"
+  },
+  "universe": {
+    "name": "fno-stocks-pit-sectors",
+    "point_in_time": true,
+    "rule": "Stocks in the F&O list on the formation date, paired within NSE sector classification."
+  },
+  "holding_period": "days to weeks, at most 20 sessions",
+  "turnover": {
+    "round_trips_per_year": 40,
+    "charge_drag_pct_per_year": 4.93,
+    "basis": "2 legs x about 20 round trips a year x 0.123% stock futures round trip"
+  },
+  "data": {
+    "needs": [
+      "stock futures EOD 2010-2026",
+      "dated F&O stock list",
+      "sector classification"
+    ],
+    "available_now": [
+      "F&O bhavcopies 2024-2026"
+    ],
+    "blocked_by": [
+      71,
+      72
+    ]
+  },
+  "span": {
+    "train": {
+      "from": "2011-01-03",
+      "to": "2018-12-31"
+    },
+    "validation": {
+      "from": "2019-01-15",
+      "to": "2022-12-30"
+    },
+    "holdout": {
+      "from": "2023-01-16",
+      "to": "2026-10-30"
+    },
+    "embargo_days": 14
+  },
+  "parameters": {
+    "formation_sessions": [
+      126,
+      252
+    ],
+    "entry_z": [
+      2.0,
+      2.5
+    ],
+    "exit_z": [
+      0.0,
+      0.5
+    ],
+    "stop_z": [
+      4.0
+    ],
+    "max_hold_sessions": [
+      20
+    ]
+  },
+  "trial_budget": 8,
+  "prior_trials": {
+    "count": 0,
+    "basis": "No pairs rule has been run in this repo."
+  },
+  "gates": {
+    "lab_defaults": true,
+    "overrides": {},
+    "extra": {
+      "fdr_q": 0.1
+    },
+    "min_span_years": 10,
+    "span_exception": null
+  },
+  "primary_metric": "oos_net_sharpe",
+  "holdout_rule": {
+    "opened_once": true,
+    "pass_if": "Holdout net after charges above zero over at least 30 pair trades."
+  },
+  "kill_criteria": [
+    "Holdout net at or below zero after charges.",
+    "More than a third of holdout pair trades ending at the stop."
+  ],
+  "prior": {
+    "probability": 0.05,
+    "reason": "Faded globally; Indian claims unreviewed; pairs break on company news."
+  },
+  "feasibility": {
+    "score": 0.4,
+    "reason": "Needs a pairs engine (#72) and stock futures history (#71)."
+  },
+  "contamination": "Discovery's 527 daily rule trials and the equity library ran on about 2.3 years of daily bars (2024 to 2026) of NIFTY 50 stocks: single-stock timing rules, not this cross-sectional rule. No cross-sectional portfolio has been run on any part of this span in this repo.",
+  "registered_on": "2026-11-01",
+  "status": "registered",
+  "outcome": null
+}

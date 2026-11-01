@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "id": "eh-12-intraday-momentum",
+  "rank": 12,
+  "family": "intraday-momentum",
+  "title": "First half-hour predicts the last half-hour on index futures",
+  "hypothesis": "When the first half-hour return of NIFTY or BANKNIFTY moves more than a threshold, a futures position in its direction from 15:00 to 15:29 earns a positive expectancy after charges.",
+  "mechanism": {
+    "kind": [
+      "structural"
+    ],
+    "text": "Late-day hedging and rebalancing by infrequent traders continues the morning's move."
+  },
+  "evidence": [
+    {
+      "source": "Gao, Han, Li and Zhou, Journal of Financial Economics 129(2)",
+      "year": 2018,
+      "market": "US, SPY 1993-2013",
+      "finding": "First half-hour return predicts the last half-hour, about 6.7% a year."
+    },
+    {
+      "source": "Limkriangkrai, Chai and Zheng, Pacific-Basin Finance Journal 80",
+      "year": 2023,
+      "market": "Asia-Pacific",
+      "finding": "Mainly in China and Japan, absent in Hong Kong and Singapore. India not studied."
+    }
+  ],
+  "instrument": {
+    "segment": "FUT",
+    "underlying": "NIFTY, BANKNIFTY",
+    "side": "long or short"
+  },
+  "universe": {
+    "name": "nifty-banknifty-futures",
+    "point_in_time": false,
+    "rule": "Near-month futures, minute bars."
+  },
+  "holding_period": "30 minutes",
+  "turnover": {
+    "round_trips_per_year": 150,
+    "charge_drag_pct_per_year": 11.96,
+    "basis": "trading about 60% of sessions x 0.080% futures round trip, on notional; fewer at higher thresholds"
+  },
+  "data": {
+    "needs": [
+      "index futures minute bars 2022-2026 (or index minute bars plus the EOD basis)"
+    ],
+    "available_now": [
+      "Upstox v3 minute candles for indices and stocks from Jan 2022 (with a token)"
+    ],
+    "blocked_by": [
+      71,
+      72
+    ]
+  },
+  "span": {
+    "train": {
+      "from": "2022-01-03",
+      "to": "2024-06-28"
+    },
+    "validation": {
+      "from": "2024-07-15",
+      "to": "2025-06-30"
+    },
+    "holdout": {
+      "from": "2025-07-14",
+      "to": "2026-10-30"
+    },
+    "embargo_days": 14
+  },
+  "parameters": {
+    "first_window": [
+      "0915_0945_with_gap",
+      "0915_0945_without_gap"
+    ],
+    "min_abs_first_return_pct": [
+      0.0,
+      0.25,
+      0.5
+    ],
+    "underlying": [
+      "NIFTY",
+      "BANKNIFTY"
+    ]
+  },
+  "trial_budget": 12,
+  "prior_trials": {
+    "count": 28,
+    "basis": "The intraday equity library (orb15-vwap 6, vwap-reclaim 9, gap-fade 4, pdh-breakout 9)."
+  },
+  "gates": {
+    "lab_defaults": true,
+    "overrides": {},
+    "extra": {
+      "verdict_cap": "WATCH",
+      "fdr_q": 0.1
+    },
+    "min_span_years": 10,
+    "span_exception": "Minute bars start in Jan 2022 (Upstox); about 4.8 years. A pass is capped at WATCH until 10 years of forward and history exist."
+  },
+  "primary_metric": "oos_expectancy_r",
+  "holdout_rule": {
+    "opened_once": true,
+    "pass_if": "Holdout expectancy after charges above zero over at least 60 trades and a positive predictive slope."
+  },
+  "kill_criteria": [
+    "Holdout expectancy at or below zero after charges.",
+    "The regression slope of the last on the first half-hour return not significant at 5% in validation."
+  ],
+  "prior": {
+    "probability": 0.04,
+    "reason": "No Indian evidence found, mixed in Asia; a 0.08% round trip a session dwarfs the US-sized effect."
+  },
+  "feasibility": {
+    "score": 0.45,
+    "reason": "Index minute bars exist from 2022; futures minute bars unverified; a short span."
+  },
+  "contamination": "The lab's 60 sessions of 5-minute stock bars (Aug-Oct 2026) were seen for other rules; no index intraday rule has been run.",
+  "registered_on": "2026-11-01",
+  "status": "registered",
+  "outcome": null
+}
