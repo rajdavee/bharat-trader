@@ -1,4 +1,4 @@
-// Pages a later v0.3 release fills: Co-trader (#44), Auto-pilot (#45), Journal (#49). Clearly labelled.
+// Pages a later v0.3 release fills: Co-trader (#44), Auto-pilot (#45). Clearly labelled.
 import { soon } from '../ui.js';
 
 const HONEST = 'Odds always come with their sample size, a range and the result after charges; nothing here will ' +
@@ -28,18 +28,6 @@ const PLACEHOLDERS = {
     ],
     honest: HONEST,
     now: [['Risk', '#/risk'], ['Agents', '#/agents']],
-  },
-  journal: {
-    title: 'Journal', issue: 49,
-    lede: 'Review each trade: what you planned, what happened, and what a different choice would have done.',
-    will: [
-      'Every closed trade with its plan, the fills, the charges and your notes.',
-      'Tags for mistakes and good habits, and how often each one costs or saves money.',
-      'What-if replays: the same trade with the plan followed exactly, or without the late exit.',
-      'Weekly review in plain words.',
-    ],
-    honest: 'A journal describes your own past trades. Patterns in a small number of trades can be chance.',
-    now: [['Portfolio and orders', '#/portfolio'], ['Agents', '#/agents']],
   },
 };
 

@@ -1430,8 +1430,9 @@ def do_import(paths, path, broker, day, cfg):
 
 # ---------------------------------------------------------------- the journal
 
-def gather(paths, bars_dir=None, offline=True, capture=True, now=None):
-    """Read every source and build the journal (nothing written but the risk-log capture)."""
+def gather(paths, bars_dir=None, offline=True, capture=True, now=None, with_bars=True):
+    """Read every source and build the journal (nothing written but the risk-log capture). with_bars=False
+    skips MAE/MFE and the regime worked out from bars (fast: the UI's week tile)."""
     if capture:
         capture_risk(paths, now)
     cfg = config_of(paths)
@@ -1457,7 +1458,7 @@ def gather(paths, bars_dir=None, offline=True, capture=True, now=None):
     for r in (read_json(paths.t("state", "shadow.json")) or {}).get("orders") or []:
         if isinstance(r, dict) and r.get("broker_order_id"):
             by_order.setdefault(str(r["broker_order_id"]), r)
-    regimes, regime_src = load_regimes(paths, bars_dir, offline)
+    regimes, regime_src = load_regimes(paths, bars_dir, offline) if with_bars else load_regimes(paths, None, True)
     ctx = {"personas": persona_index(read_json(paths.t("state", "personas.json")) or {}), "placed": placed,
            "by_order": by_order, "strategies": strategies, "regimes": regimes, "lot_sizes": lot_sizes}
     closed, still = build_entries(fills)
@@ -1466,7 +1467,7 @@ def gather(paths, bars_dir=None, offline=True, capture=True, now=None):
     for e in entries:
         n = notes.get(e["id"]) or {}
         e["notes"], e["tags"] = n.get("notes") or [], n.get("tags") or []
-        x = excursions(e, paths, bars_dir, offline)
+        x = excursions(e, paths, bars_dir, offline) if with_bars else None
         e["mae"], e["mfe"] = (x["mae"], x["mfe"]) if x else (None, None)
         e["excursion"] = x
     recs = risk_records(paths)
@@ -1613,15 +1614,21 @@ def _pct(x):
 
 # ---------------------------------------------------------------- summaries for the UI and MCP
 
-def summary(paths, bars_dir=None, offline=True, now=None, recent=10, write=False):
-    """Read-only overview: headline stats (with intervals), this week, rule breaks, the ledger totals."""
+def summary(paths, bars_dir=None, offline=True, now=None, recent=10, write=False, lite=False):
+    """Read-only overview: headline stats (with intervals), this week, rule breaks, the ledger totals.
+    lite: this week's numbers only, no bars and no counterfactual (fast)."""
     now = now or parse_now()
-    doc = gather(paths, bars_dir, offline, capture=write, now=now)
+    doc = gather(paths, bars_dir, offline, capture=write, now=now, with_bars=not lite)
     label, mon, sun = week_bounds(None, now)
     week = [e for e in doc["entries"] if mon.isoformat() <= e["closed_at"][:10] <= sun.isoformat()]
     s = dict(doc["stats"])
     ws = stats(week)
     ws.pop("equity")
+    if lite:
+        return {"as_of": doc["as_of"], "this_week": dict(ws, week=label, verdict=sample_words(ws["trades"])),
+                "trades": len(doc["entries"]), "rule_breaks_this_week": sum(
+                    1 for r in doc["behaviour"]["log"] if mon.isoformat() <= r["at"][:10] <= sun.isoformat()),
+                "disclaimer": doc["disclaimer"]}
     cf = counterfactual(paths, doc["entries"], config_of(paths), bars_dir, offline)
     return {"as_of": doc["as_of"], "stats": s, "this_week": dict(ws, week=label), "behaviour": doc["behaviour"],
             "by": {g: breakdown(doc["entries"], g) for g in GROUPS},

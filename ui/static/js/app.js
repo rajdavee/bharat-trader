@@ -20,11 +20,12 @@ import * as agents from './pages/agents.js';
 import * as about from './pages/about.js';
 import * as lab from './pages/lab.js';
 import * as welcome from './pages/welcome.js';
+import * as journal from './pages/journal.js';
 import * as soon from './pages/soon.js';
 
 const MODULES = {
-  today, chart, scanner, portfolio, risk, settings, options, strategy, agents, about, lab, welcome,
-  cotrader: soon, autopilot: soon, journal: soon,
+  today, chart, scanner, portfolio, risk, settings, options, strategy, agents, about, lab, welcome, journal,
+  cotrader: soon, autopilot: soon,
 };
 const ALIASES = { '': 'today', dashboard: 'today', onboarding: 'welcome' };
 

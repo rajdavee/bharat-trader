@@ -315,6 +315,7 @@ def offline_workdir(offline):
     tmp = tempfile.mkdtemp(prefix="bharat-trader-ui-")
     shutil.copytree(src, os.path.join(tmp, "trader"))
     copy_demo_lab(offline, tmp)
+    copy_demo_journal(offline, tmp)
     return tmp
 
 
@@ -323,6 +324,13 @@ def copy_demo_lab(offline, workdir):
     lab = os.path.join(offline, "lab")
     if os.path.isdir(lab) and not os.path.exists(os.path.join(workdir, "trader", "lab")):
         shutil.copytree(lab, os.path.join(workdir, "trader", "lab"))
+
+
+def copy_demo_journal(offline, workdir):
+    """DIR/journal/ (imported broker trades, notes) becomes the demo's trader/journal/ so the Journal page has trades."""
+    src = os.path.join(offline, "journal")
+    if os.path.isdir(src) and not os.path.exists(os.path.join(workdir, "trader", "journal")):
+        shutil.copytree(src, os.path.join(workdir, "trader", "journal"))
 
 
 def make_server(host="127.0.0.1", port=DEFAULT_PORT, workdir=".", offline=None, now=None, quiet=True):

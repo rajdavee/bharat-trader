@@ -65,6 +65,7 @@ def workdir():
     tmp = tempfile.mkdtemp(prefix="bt-ui-test-")
     shutil.copytree(os.path.join(UIFIX, "trader"), os.path.join(tmp, "trader"))
     serve.copy_demo_lab(UIFIX, tmp)
+    serve.copy_demo_journal(UIFIX, tmp)
     return tmp
 
 
@@ -1065,6 +1066,49 @@ class LabAndSetup(unittest.TestCase):
             fresh.close()
 
 
+class Journal(unittest.TestCase):
+    """The Journal page's routes: trader-journal's own numbers, read only, plus your notes."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.s = Running()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.s.close()
+
+    def test_journal_is_trader_journals_summary(self):
+        status, d = self.s.get("/api/journal")
+        self.assertEqual(status, 200, d)
+        jr = api.skill("journal")
+        want = jr.summary(jr.Paths(self.s.dir), None, True, api.Context(self.s.dir, UIFIX).now_ist().replace(
+            tzinfo=None, microsecond=0), recent=0)
+        self.assertEqual(d["stats"]["trades"], want["stats"]["trades"])
+        self.assertEqual(d["stats"]["net"], want["stats"]["net"])
+        self.assertEqual(d["stats"]["trades"], 3)                 # the demo's imported Zerodha week
+        self.assertEqual(len(d["stats"]["win_rate_ci"]), 2)
+        self.assertIn("Wilson", d["why"]["win_rate"]["formula"])
+        self.assertEqual(set(d["by"]), set(jr.GROUPS))
+        self.assertEqual(d["behaviour"]["counts"]["off-ticket"], 3)          # traded at the broker, never checked
+        self.assertIn("caveats", d["counterfactual"])
+        status, lite = self.s.get("/api/journal?lite=1")
+        self.assertEqual(status, 200)
+        self.assertIn("this_week", lite)
+        self.assertNotIn("counterfactual", lite)
+
+    def test_note_round_trip(self):
+        _, d = self.s.get("/api/journal")
+        eid = d["entries"][0]["id"]
+        status, res = self.s.post("/api/journal/note", {"id": eid, "text": "skipped my own rule", "tags": "tilt, revenge"})
+        self.assertEqual(status, 200, res)
+        self.assertEqual(res["tags"], ["tilt", "revenge"])
+        _, d = self.s.get("/api/journal")
+        e = [x for x in d["entries"] if x["id"] == eid][0]
+        self.assertEqual(e["notes"][-1]["text"], "skipped my own rule")
+        self.assertEqual(self.s.post("/api/journal/note", {"id": "../x", "text": "x"})[0], 400)
+        self.assertEqual(self.s.post("/api/journal/note", {"id": eid, "text": "x"}, token=False)[0], 403)
+
+
 class Frontend(unittest.TestCase):
     """The v2 shell: one nav list, every page module present, the CSP unchanged, no inline code."""
 
@@ -1092,7 +1136,7 @@ class Frontend(unittest.TestCase):
 
     def test_placeholders_say_coming_in_v03(self):
         soon = self.js("pages", "soon.js")
-        for issue in ("44", "45", "49"):
+        for issue in ("44", "45"):
             self.assertIn("issue: %s" % issue, soon)
         self.assertIn("Coming in v0.3", self.js("ui.js"))
 

@@ -188,6 +188,28 @@ function planCard(p, risk) {
       h('a', { class: 'btn', href: '#/chart?symbol=' + encodeURIComponent(p.symbol) }, 'Open the chart')));
 }
 
+// This week from the trade journal (GET /api/journal?lite=1), filled in after the page is up.
+function weekBody(res) {
+  if (!res || res.error) return note('Journal: ' + ((res && res.error) || 'not available'), 'warn');
+  const w = res.this_week || {};
+  if (!w.trades) {
+    return h('p', { class: 'muted' }, `No trades closed in ${w.week || 'this week'} yet. `,
+      h('a', { href: '#/journal' }, 'Open the journal'));
+  }
+  const ci = w.win_rate_ci || [];
+  const share = (x) => (x === null || x === undefined ? '–' : num(Number(x) * 100, 0) + '%');
+  return h('div', { class: 'today-week' },
+    kv([
+      ['Closed trades', `${num(w.trades, 0)} (${num(w.wins, 0)} won, ${num(w.losses, 0)} lost)`],
+      ['Net after charges', h('span', { class: tone(w.net) }, signed(w.net))],
+      ['Win rate', `${share(w.win_rate)} (95% range ${share(ci[0])} to ${share(ci[1])})`],
+      ['Charges paid', inr(w.charges)],
+      ['Rule breaks', num(res.rule_breaks_this_week || 0, 0)],
+    ]),
+    h('p', { class: 'small muted' }, w.verdict || ''),
+    h('a', { class: 'btn', href: '#/journal' }, 'Open the journal'));
+}
+
 function candidatesCard() {
   return card('Co-trader candidates',
     empty('Coming in v0.3', 'Backtested trade candidates with their evidence: the probability with its range and sample ' +
@@ -217,9 +239,14 @@ export async function render(root, ctx) {
     pnlTile(d.account), budgetTile(d.account), tradesTile(d.account), riskTile(r)));
   const alertsCard = card('Alerts', alertsBody(d.alerts));
   body.appendChild(h('div', { class: 'cols' },
-    h('div', { class: 'stack' }, positionsCard(p), candidatesCard()),
+    h('div', { class: 'stack' }, positionsCard(p), card('This week', h('div', { class: 'today-week' }, skeleton(2))),
+      candidatesCard()),
     h('div', { class: 'stack' }, planCard(d.plan, r), alertsCard, marketCard(d, ctx.live.doctor))));
   for (const e of d.index_errors || []) body.appendChild(note(e, 'warn'));
+  settle(get('/api/journal?lite=1')).then((g) => {
+    const el = body.querySelector('.today-week');
+    if (el) el.replaceWith(weekBody(g.ok ? g.v : { error: g.e.message || String(g.e) }));
+  });
   settle(get('/api/regime?symbols=NIFTY')).then((g) => {
     const el = body.querySelector('.today-regime');
     if (el) el.replaceWith(regimeCell(g.ok ? g.v : { errors: [g.e.message || String(g.e)] }));
