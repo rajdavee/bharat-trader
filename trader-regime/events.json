@@ -1,0 +1,28 @@
+{
+ "schema": "bharat-trader/regime-events/1",
+ "note": "Scheduled market events, one row per day, each with its source. RBI policy rows are the day the Monetary Policy Committee's decision is announced (the last day of the meeting, about 10:00 IST). RBI can reschedule a meeting: when it does, add the new date with its press release, never edit a row silently. Your own events go in trader/regime-config.json under \"events\" (same shape).",
+ "events": [
+  {"date": "2024-02-01", "kind": "budget", "name": "Interim Union Budget 2024-25", "source": "Ministry of Finance, indiabudget.gov.in (interim budget presented 1 Feb 2024)"},
+  {"date": "2024-07-23", "kind": "budget", "name": "Union Budget 2024-25", "source": "Ministry of Finance, indiabudget.gov.in (full budget presented 23 Jul 2024)"},
+  {"date": "2025-02-01", "kind": "budget", "name": "Union Budget 2025-26 (Saturday session)", "source": "Ministry of Finance, indiabudget.gov.in; NSE special Saturday session (trader-archive EXTRA_SESSIONS)"},
+  {"date": "2026-02-01", "kind": "budget", "name": "Union Budget 2026-27 (Sunday session)", "source": "Ministry of Finance, indiabudget.gov.in; NSE special Sunday session (trader-archive EXTRA_SESSIONS)"},
+  {"date": "2024-04-05", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release: Meeting Schedule of the Monetary Policy Committee for 2024-25 (meeting 3-5 Apr 2024)"},
+  {"date": "2024-06-07", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release: MPC schedule 2024-25 (meeting 5-7 Jun 2024)"},
+  {"date": "2024-08-08", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release: MPC schedule 2024-25 (meeting 6-8 Aug 2024)"},
+  {"date": "2024-10-09", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release: MPC schedule 2024-25 (meeting 7-9 Oct 2024)"},
+  {"date": "2024-12-06", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release: MPC schedule 2024-25 (meeting 4-6 Dec 2024)"},
+  {"date": "2025-02-07", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release: MPC schedule 2024-25 (meeting 5-7 Feb 2025)"},
+  {"date": "2025-04-09", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release 26 Mar 2025, Meeting Schedule of the MPC for 2025-2026 (rbi.org.in prid=60062): 7-9 Apr 2025"},
+  {"date": "2025-06-06", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release 26 Mar 2025 (prid=60062): 4-6 Jun 2025"},
+  {"date": "2025-08-06", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release: MPC meeting rescheduled from 5-7 Aug to 4-6 Aug 2025 (administrative exigencies); decision announced 6 Aug 2025"},
+  {"date": "2025-10-01", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release 26 Mar 2025 (prid=60062): 29 Sep-1 Oct 2025"},
+  {"date": "2025-12-05", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release 26 Mar 2025 (prid=60062): 3-5 Dec 2025"},
+  {"date": "2026-02-06", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release 26 Mar 2025 (prid=60062): 4-6 Feb 2026"},
+  {"date": "2026-04-08", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release 23 Mar 2026, Meeting Schedule of the MPC for 2026-2027 (rbi.org.in prid=62422): 6-8 Apr 2026"},
+  {"date": "2026-06-05", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release 23 Mar 2026 (prid=62422): 3-5 Jun 2026"},
+  {"date": "2026-08-05", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release 23 Mar 2026 (prid=62422): 3-5 Aug 2026"},
+  {"date": "2026-10-07", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release 23 Mar 2026 (prid=62422): 5-7 Oct 2026"},
+  {"date": "2026-12-04", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release 23 Mar 2026 (prid=62422): 2-4 Dec 2026"},
+  {"date": "2027-02-05", "kind": "rbi_policy", "name": "RBI monetary policy decision", "source": "RBI press release 23 Mar 2026 (prid=62422): 3-5 Feb 2027"}
+ ]
+}
