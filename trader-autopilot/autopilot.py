@@ -2120,7 +2120,7 @@ def replay(workdir, date, to=None, data=None, archive=None, relab=True, resume=F
         if os.path.isdir(box):
             shutil.rmtree(box)
         os.makedirs(paths.trader)
-        write_json(paths.config, cfg)
+        write_json(paths.config, {k: v for k, v in cfg.items() if k != "notify"})    # a replay never notifies
         for name in ("fno_stocks.json", "fo_mktlots.csv", "fo_secban.json"):
             if os.path.exists(os.path.join(src.trader, name)):
                 shutil.copyfile(os.path.join(src.trader, name), os.path.join(paths.trader, name))

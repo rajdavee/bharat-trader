@@ -17,6 +17,8 @@
     python3 alerts.py check --now "2026-10-29 10:15" --offline tests/fixtures/trader-alerts
     python3 alerts.py list
     python3 alerts.py reset reliance-plan-stop
+    python3 alerts.py notify status                  # local notifications: settings, webhook set or not, last sent
+    python3 alerts.py notify test [--channel desktop|webhook]   # send a test notification
 
 Rule types:
   above / target  the price is at or above "price"
@@ -1234,6 +1236,64 @@ def cmd_list(a):
     return 0
 
 
+def notify_api():
+    """The local notifier (the "notify" helper folder next to this script), loaded by path."""
+    import importlib.util
+    name = "bt_alerts_notify"
+    mod = sys.modules.get(name)
+    if mod is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notify", "__init__.py")
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+    return mod
+
+
+def notify(workdir, event, title, text, now=None, key=None):
+    """Best effort for the other skills: one local notification (off unless trader/config.json turns it on).
+    Never raises; returns the notifier's answer or None."""
+    try:
+        return notify_api().send(workdir, event, title, text, now=now, key=key)
+    except Exception:  # a notification must never stop a trading tool
+        return None
+
+
+def cmd_notify(a):
+    n = notify_api()
+    try:
+        if a.notify_cmd == "test":
+            r = n.test(a.workdir, channel=a.channel)
+        elif a.notify_cmd == "send":
+            r = n.send(a.workdir, a.event, a.title or "bharat-trader", a.text)
+        else:
+            r = n.status(a.workdir)
+    except n.NotifyError as e:
+        raise AlertError(str(e))
+    if a.json:
+        print(json.dumps(r, indent=1, ensure_ascii=False))
+        return 0
+    if a.notify_cmd in ("test", "send"):
+        if r["sent"]:
+            print("Sent (%s): %s" % (", ".join("%s %s" % kv for kv in sorted(r["channels"].items())), r["payload"]["text"]))
+        else:
+            print("Not sent: %s" % r["why"])
+        return 0 if r["sent"] else 1
+    s = r["settings"]
+    if r["problem"]:
+        print("Problem in \"notify\": %s" % r["problem"])
+        return 1
+    print("Notifications: %s; desktop %s (%s), webhook %s (%s)." % (
+        "ON" if s["enabled"] else "off (the default)", "on" if s["desktop"] else "off", r["desktop_tool"] or "none here",
+        "on" if s["webhook"] else "off", "set, host %s" % r["webhook_host"] if r["webhook_set"] else r["webhook_note"]))
+    print("Quiet hours: %s. At most one per event each %d min, %d an hour." % (
+        "%s to %s IST" % tuple(s["quiet_hours"]) if s["quiet_hours"] else "none", s["min_gap_min"], s["max_per_hour"]))
+    print("Events: %s" % ", ".join("%s %s" % (k, "on" if v else "off") for k, v in sorted(s["events"].items())))
+    for row in r["recent"][-5:]:
+        print("  %s %s: %s" % (row.get("at", "")[:16], row.get("event"), "sent" if row.get("sent") else row.get("why")))
+    return 0
+
+
 def cmd_reset(a):
     state = _read(a.state, {})
     if a.id not in state.get("rung", {}):
@@ -1315,13 +1375,24 @@ def main(argv=None):
     p = sub.add_parser("reset", help="re-arm a rule that rang")
     p.add_argument("id")
     p.add_argument("--state", default="trader/state/alerts.json")
+    p = sub.add_parser("notify", help="local notifications: status, a test, or send one event")
+    p.add_argument("--workdir", default=".", help="the folder holding trader/ (default .)")
+    p.add_argument("--json", action="store_true")
+    ns = p.add_subparsers(dest="notify_cmd")
+    ns.add_parser("status", help="the settings in force, whether the webhook is set, the last decisions")
+    q = ns.add_parser("test", help="send a test notification")
+    q.add_argument("--channel", choices=["desktop", "webhook"], help="test this one channel, even while off")
+    q = ns.add_parser("send", help="send one event (the rules apply)")
+    q.add_argument("--event", required=True)
+    q.add_argument("--title")
+    q.add_argument("--text", required=True)
     a = ap.parse_args(argv)
     if not a.cmd:
         ap.print_help()
         return 1
     try:
         return {"clock": cmd_clock, "quote": cmd_quote, "check": cmd_check, "add": cmd_add,
-                "list": cmd_list, "reset": cmd_reset}[a.cmd](a)
+                "list": cmd_list, "reset": cmd_reset, "notify": cmd_notify}[a.cmd](a)
     except (AlertError, RulesError) as e:
         print("alerts.py: %s" % e, file=sys.stderr)
         return 1
