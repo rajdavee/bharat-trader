@@ -262,7 +262,7 @@ class KiteAdapter(Adapter):
                         "exchange": cond.get("exchange"), "product": (stop_o or {}).get("product"),
                         "side": "BUY" if exit_side == "SELL" else "SELL", "qty": whole((stop_o or {}).get("quantity")),
                         "entry_price": None, "stop_trigger": stop_t, "stop_price": num((stop_o or {}).get("price")),
-                        "target_price": num((target_o or {}).get("price")) if two else None,
+                        "target_price": target_t if two else None,
                         "status": GTT_STATUS.get(st, st or "unknown"), "raw_status": g.get("status"), "legs": legs,
                         "tag": None, "time": parse_ist(g.get("created_at"))})
         return out
