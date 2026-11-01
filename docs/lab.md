@@ -632,6 +632,106 @@ return from the best two months.
 - A WATCH is evidence, not a promise; the programme's BH cut and the paper
   forward test come after it.
 
+## The strategy portfolio: combining survivors
+
+Several weak, unrelated edges can be steadier together than any one alone,
+but only if they really are unrelated, and only on data none of them was
+fitted on. `lab.py portfolio` combines the WATCH and PROMOTE strategies
+(`trader-lab/engines/portfolio_mix.py`); nothing here sizes, checks or
+places an order, and nothing changes your config.
+
+```bash
+python3 trader-lab/lab.py portfolio list                       # portfolios built, strategies that can go in one
+python3 trader-lab/lab.py portfolio build my-mix               # every WATCH / PROMOTE strategy
+python3 trader-lab/lab.py portfolio build my-mix --strategies orb15-vwap eh-04-turn-of-month --scheme inverse-vol
+python3 trader-lab/lab.py portfolio build study --strategies breakout20-swing nifty-expiry-iron-fly --research
+python3 trader-lab/lab.py portfolio report my-mix              # the scorecard (--json for the numbers)
+```
+
+**Return streams.** One daily return series a strategy, after charges and
+slippage, from days its parameters never saw: a lab run's out-of-sample
+(walk-forward) days from `equity.csv` (P&L over the run's capital), then
+its paper forward record (`forward.json`, P&L on the exit day; `--no-forward`
+leaves it out); an edge-hunt finalist's validation and sealed-holdout days
+from `trader/lab/edge-hunt/<id>/returns.json` (the executor writes it; train
+is in sample and never used). A strategy that is not WATCH or PROMOTE needs
+`--strategies NAME --research`: it is studied and flagged, never proposed.
+
+**Only the overlap.** Streams cover different spans. The mix uses only the
+window every one covers, from the latest first day to the earliest last
+day; the calendar is every session any stream has inside it, and a stream
+without a row on a session was flat. The scorecard reports the overlap,
+each stream's coverage of it and every pair's own overlap. Under
+`min_overlap` (60) shared sessions nothing is built, and the spans are
+shown instead.
+
+**Correlation.** Pearson; Spearman (ranks, so a few huge days cannot make
+two streams look alike); downside (the lower semi-correlation,
+`sum min(x,0) min(y,0) / sqrt(sum min(x,0)^2 · sum min(y,0)^2)`: do they lose
+on the same days); stress (Pearson on the worst 10% of the equal-weight
+mix's days, biased by the selection, so a rise against the other days is
+what matters); weekly sums (lab runs book swing trades on the exit day, so
+daily correlation understates them); first half against second half; and
+the share of active days on which both traded. **Near-duplicates**: a
+single-linkage cluster at 0.7 on Pearson, Spearman or weekly is the same
+bet twice, and the scorecard says so.
+
+**Sizing schemes.** Each gives weights (shares of the capital, cash the
+rest):
+
+| scheme | weights |
+| --- | --- |
+| equal capital | 1/n |
+| equal risk | proportional to 1 / volatility |
+| risk parity | equal risk contribution, `w_i (Σw)_i` the same for every strategy (cyclical coordinate descent; with two strategies it is `w1 = s2 / (s1 + s2)`, whatever the correlation) |
+| capped fractional Kelly | `f = 0.25 · Σ⁻¹ μ` on means shrunk by `max(0, 1 − 1/t²)` (a mean inside its noise becomes 0), a covariance shrunk 20% toward its diagonal, long only, a hard cap of 25% a strategy, and a warning: Kelly is the scheme most hurt by estimation error |
+
+Then every scheme gets the per-strategy cap (`--max-weight`, 0.6; the excess
+is spread over the others), a gross cap of 1 (no leverage) and the
+volatility target (`--vol-target`, 10% a year), which only scales down,
+into cash. The scheme the proposal uses is `--scheme` (default risk
+parity), decided before the run: picking the scheme with the best backtest
+would be one more fitted choice.
+
+**Walk-forward.** The first weights are fitted on the first `--fit` (126)
+sessions, then refitted every `--refit` (21) on the `--lookback` (252)
+sessions before the rebalance only. Each strategy's bucket compounds on its
+own between rebalances. Only the days after the first fit are scored:
+CAGR, volatility, Sharpe, Sortino, max drawdown, worst month, time in
+drawdown, the diversification ratio (`Σ w_i s_i / s_p`; its square is
+roughly the number of independent bets), each strategy's share of the risk
+and of the return, and each strategy alone on the same days. A **stationary
+block bootstrap** (mean block 10 sessions, 1,000 paths, seed 16) of the
+mix's daily returns gives the 5th to 95th percentile equity bands, final
+return and max drawdown.
+
+**Proposals, never applied.** `trader/lab/portfolio/<name>/` holds
+`portfolio.json`, `scorecard.md`, `equity.csv` (each scheme's walk-forward
+growth of ₹1) and two proposals:
+
+- `proposal-autopilot.json`: an `"autopilot": {"strategies": {...}}` block
+  of capital buckets from the chosen scheme's latest weights, rounded to
+  ₹1,000, out of `--capital`, else your config's `capital`, else the
+  auto-pilot's current buckets (weights only without any of them). Only
+  WATCH and PROMOTE lab strategies; edge-hunt hypotheses have no lab spec
+  the auto-pilot can trade yet. To adopt it, copy the numbers into
+  `trader/config.json` yourself, keeping your other keys. The auto-pilot is
+  paper only, and every order still needs trader-risk PASS.
+- `proposal-risk.json`: `max_daily_drawdown_pct` for trader-risk (1.5x the
+  mix's 99th-percentile daily loss, never above your current value) and a
+  portfolio drawdown pause (1.25x the bootstrap's 95th-percentile max
+  drawdown). The pause is not a trader-risk key: at that drawdown, stop the
+  auto-pilot or use the kill switch and review the strategies.
+
+**What it does NOT show.** It does not predict the future: the weights and
+numbers come from the same past the strategies were tested on, and
+correlations change, most of all in a crash. Two or three strategies give
+little to diversify. Strategies that are often flat look uncorrelated
+until the day they both lose. Lab P&L on the exit day understates daily
+co-movement. The bootstrap reshuffles the mix's own days, not new kinds of
+days. Moving paper capital between buckets is free here; the strategies'
+own charges are in their returns.
+
 ## Using it from code
 
 Everything is a pure function that the UI and an MCP server can call:

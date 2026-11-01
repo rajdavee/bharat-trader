@@ -206,7 +206,7 @@ command palette (Ctrl/Cmd-K), guided or expert detail, dark mode, a phone
 layout, Hinglish, and a "why" panel for every number. See
 [docs/ui.md](docs/ui.md).
 
-**Your AI assistant.** The MCP server gives any MCP-compatible assistant 55
+**Your AI assistant.** The MCP server gives any MCP-compatible assistant 60
 tools and 16 prompts: a one-call co-trader brief, the lab strategies that fit
 today's regime, a strategy designer with a fixed, safe vocabulary, and
 honest trial counting (every variant your assistant runs raises the bar for
@@ -287,6 +287,7 @@ python3 trader-lab/lab.py forward orb15-vwap           # the paper forward recor
 python3 trader-lab/lab.py forward-report               # forward tests vs the backtest's range, decay alerts
 python3 trader-alerts/alerts.py notify status          # local notifications (off by default)
 python3 trader-lab/lab.py hunt list                     # the pre-registered edge-hunt hypotheses and their verdicts
+python3 trader-lab/lab.py portfolio build my-mix        # combine WATCH / PROMOTE strategies: correlation, sizing, walk-forward
 python3 trader-discover/discover.py run --budget 500 --universe nifty50 --timeframe 1d   # search, overfitting controls on
 python3 trader-cotrader/cotrader.py today --tier research   # also the unproven RESEARCH ideas, for study
 python3 trader-cotrader/cotrader.py calibration        # did past probabilities come true? (Brier, reliability)
