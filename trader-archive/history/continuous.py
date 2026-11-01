@@ -91,18 +91,27 @@ def build(days, sessions, rule="days:0", method="none"):
             else:
                 want = held
         prev = held
+        missing = (pos[d] - pos[bars[-1]["date"]] - 1) if bars else 0
+        if missing > 0:
+            issues.append({"date": d, "kind": "sessions missing in the archive", "after": bars[-1]["date"],
+                           "count": missing})
         if prev is not None and want != prev:
             last = bars[-1] if bars else None
             old_c = days_prev_rows.get(prev) if last else None
             new_c = days_prev_rows.get(want) if last else None
             old_p = _price(old_c) if old_c else None
             new_p = _price(new_c) if new_c else None
-            why = ("%d sessions before expiry" % n) if kind == "days" else \
-                ("expiry" if prev not in rows else "the next contract's %s passed the near one" % kind)
+            if missing > 0:
+                why = "after %d sessions missing in the archive (no adjustment across the gap)" % missing
+                old_p = new_p = None
+            elif kind == "days":
+                why = "expiry" if n == 0 else "%d session%s before expiry" % (n, "" if n == 1 else "s")
+            else:
+                why = "expiry" if prev not in rows else "the next contract's %s passed the near one" % kind
             roll = {"date": d, "from": prev, "to": want, "old": old_p, "new": new_p, "why": why,
                     "gap": round(new_p - old_p, 4) if old_p and new_p else None,
                     "ratio": (new_p / old_p) if old_p and new_p else None}
-            if roll["gap"] is None:
+            if roll["gap"] is None and missing <= 0:
                 issues.append({"date": d, "kind": "roll without a price for both contracts on the last day",
                                "from": prev, "to": want})
             rolls.append(roll)

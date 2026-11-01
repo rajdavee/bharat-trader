@@ -653,6 +653,19 @@ class LegacySpan(Tmp):
         self.assertEqual(arc.ca_factor("Fv Split Rs.10/- To Rs.2/-"), ("split", 0.2))
         self.assertIsNone(arc.ca_factor("Bonus 1 Dvr : 10 Eq Share"))                 # DVR shares: no factor
         self.assertIsNone(arc.ca_factor("Sch Of Agmt- Bonus Deb1:1"))
+        # real subjects from the 2010-2026 corporate actions that the first parser missed
+        self.assertEqual(arc.ca_factor("Bonus Shares In The Ratio Of 1:1"), ("bonus", 0.5))
+        self.assertEqual(arc.ca_factor("Bonus - 3:1"), ("bonus", 0.25))
+        self.assertEqual(arc.ca_factor("Bonus Issue 1 : 1"), ("bonus", 0.5))
+        self.assertAlmostEqual(arc.ca_factor("Annual General Meeting / Dividend - Rs 3/- Per Share / Bonus - 1:2")[1],
+                               2.0 / 3)
+        self.assertEqual(arc.ca_factor("Face Valus Split (Sub-Division) - From Rs 10/- Per To Rs 2/- Per Share"),
+                         ("split", 0.2))
+        self.assertIsNone(arc.ca_factor("Scheme Of Arrangement - Bonus Debentures 6:1"))
+        self.assertIsNone(arc.ca_factor("Bonus Preference Shares 21:1"))
+        both = arc.ca_factor("Bonus 1:2/Face Value Split (Sub-Division) From Rs 2/- Per Share To Re 1/- Per Share")
+        self.assertEqual(both[0], "bonus+split")                  # AVANTIFEED, 26 Jun 2018: one row, both
+        self.assertAlmostEqual(both[1], 1.0 / 3)
 
     def test_vix_history_starts_july_2010(self):
         op = FakeNse()

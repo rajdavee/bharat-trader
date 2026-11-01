@@ -549,10 +549,11 @@ def parse_lots(text):
     return sorted(out, key=lambda r: (r[1], r[2])), "csv"
 
 
-_BONUS = re.compile(r"\bbonus\s+(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)", re.I)
+_BONUS = re.compile(r"\bbonus\b[^0-9:/]{0,30}?(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)", re.I)   # "Bonus 1:1",
+# "Bonus - 3:1", "Bonus Issue 1 : 1", "Bonus Shares In The Ratio Of 1:1"
 _FV_TO = re.compile(r"(?:rs|re|inr)\.?\s*(\d+(?:\.\d+)?)\s*/?-?\s*(?:each\s*)?to\s+(?:rs|re|inr)\.?\s*"
                     r"(\d+(?:\.\d+)?)", re.I)      # older subjects: "Fv Split Rs.10 To Rs.2"
-_FV = re.compile(r"from\s+(?:rs|re|inr)?\.?\s*(\d+(?:\.\d+)?)\s*/?-?\s*(?:per\s+share)?\s*to\s+(?:rs|re|inr)?\.?\s*"
+_FV = re.compile(r"from\s+(?:rs|re|inr)?\.?\s*(\d+(?:\.\d+)?)\s*/?-?\s*(?:per(?:\s+share)?)?\s*to\s+(?:rs|re|inr)?\.?\s*"
                  r"(\d+(?:\.\d+)?)", re.I)
 
 
@@ -564,18 +565,23 @@ def ca_factor(subject):
     low = s.lower()
     if any(w in low for w in ("ncrps", "preference", "debenture", "warrant", " dvr", " deb")):
         return None
+    got = []
     m = _BONUS.search(s)
     if m:
         a, b = float(m.group(1)), float(m.group(2))
         if a > 0 and b > 0:
-            return "bonus", b / (a + b)
+            got.append(("bonus", b / (a + b)))
     if "split" in low or "sub-division" in low or "subdivision" in low or "consolidation" in low:
         m = _FV.search(s) or _FV_TO.search(s)
         if m:
             f1, f2 = float(m.group(1)), float(m.group(2))
             if f1 > 0 and f2 > 0 and f1 != f2:
-                return ("split" if f2 < f1 else "consolidation"), f2 / f1
-    return None
+                got.append(("split" if f2 < f1 else "consolidation", f2 / f1))
+    if not got:
+        return None
+    if len(got) == 1:
+        return got[0]
+    return "+".join(k for k, _ in got), got[0][1] * got[1][1]     # one subject, both on one ex-date
 
 
 def ca_events(raw):
@@ -2074,8 +2080,10 @@ def load_continuous(underlying, method="back", start=None, end=None, roll="days:
     last = max(days)
     tail = [iso(d) for d in candidate_days(parse_day(last) + datetime.timedelta(days=1),
                                            parse_day(last) + datetime.timedelta(days=120),
-                                           Store(root).calendar()["closed"])]
-    sessions = trading_days(min(days), last, root) + tail
+                                           Store(root).calendar()["closed"])]       # to count to a later expiry
+    closed = Store(root).calendar()["closed"]
+    sessions = sorted(set(trading_days(min(days), last, root)) |
+                      set(iso(d) for d in candidate_days(min(days), last, closed))) + tail
     try:
         res = history().continuous.build(days, sessions, roll, method)
     except ValueError as e:
@@ -2329,6 +2337,29 @@ def _alive(pid):
 
 # ---------------------------------------------------------------- status, verify, quality
 
+def long_status(root):
+    """What the long-history datasets hold (indexhist, results, members)."""
+    out = {}
+    base = os.path.join(root, "indexhist")
+    for slug in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        man = read_json(os.path.join(base, slug, "manifest.json"), {}) or {}
+        keys = sorted(man.get("chunks", {}))
+        if keys:
+            out.setdefault("indexhist", {})[man.get("index", slug)] = {"first": keys[0][:10], "last": keys[-1][-10:]}
+    man = read_json(os.path.join(root, "results", "manifest.json"), None)
+    if man and man.get("months"):
+        ms = sorted(man["months"])
+        out["results"] = {"months": len(ms), "first": ms[0], "last": ms[-1],
+                          "filings": sum((v.get("filings") or {}).get("rows", 0) for v in man["months"].values())}
+    man = read_json(os.path.join(root, "members", "manifest.json"), None)
+    if man:
+        ds = sorted(e.get("date", "") for e in man.get("announcements", {}).values())
+        snaps = sorted((man.get("lists") or {}).get("snapshots", {}))
+        out["members"] = {"announcements": len(ds), "first": ds[0] if ds else None, "last": ds[-1] if ds else None,
+                          "lists": snaps[-1] if snaps else None}
+    return out
+
+
 def dir_bytes(path):
     total = 0
     for base, dirs, files in os.walk(path):
@@ -2384,6 +2415,7 @@ def status(root):
     out["intraday"] = intr
     chain = os.path.join(root, "chain")
     out["chain_snapshots"] = sum(len(f) for _, _, f in os.walk(chain)) if os.path.isdir(chain) else 0
+    out["long"] = long_status(root)
     return out
 
 
@@ -2554,6 +2586,7 @@ def adjustment_span(root):
     if len(dates) < 2:
         return {"events": 0, "checked": 0, "ok": 0, "bad": [], "no_prices": 0}
     pos = {d: i for i, d in enumerate(dates)}
+    closed = st.calendar()["closed"]
     by_day = {}
     for e in _all_ca(root):
         if dates[0] < e["ex_date"] <= dates[-1]:
@@ -2564,6 +2597,9 @@ def adjustment_span(root):
         if ex is None or pos[ex] == 0:
             continue
         prev = dates[pos[ex] - 1]
+        if len(candidate_days(prev, ex, closed)) > 2 or ex != day:
+            rep["no_prices"] += len(by_day[day])       # the archive has a gap there: nothing to compare
+            continue
         want = set(e["symbol"] for e in by_day[day])
         closes = {}
         for k in (prev, ex):
@@ -2790,6 +2826,18 @@ def cmd_status(a):
             "%s %s..%s" % (k, v["first"], v["last"]) for k, v in sorted(syms.items())[:8])))
     if s["chain_snapshots"]:
         print("option-chain snapshots: %d" % s["chain_snapshots"])
+    lg = s.get("long") or {}
+    if lg.get("indexhist"):
+        print("index history before 2012-02-21: %d indices (%s)" % (len(lg["indexhist"]), ", ".join(
+            "%s %s..%s" % (k, v["first"], v["last"]) for k, v in sorted(lg["indexhist"].items())[:4])))
+    if lg.get("results"):
+        r = lg["results"]
+        print("results dates: %d months %s to %s, %s filings" % (r["months"], r["first"], r["last"],
+                                                                 "{:,}".format(r["filings"])))
+    if lg.get("members"):
+        m = lg["members"]
+        print("index announcements: %d (%s to %s); constituent lists of %s" % (m["announcements"], m["first"],
+                                                                               m["last"], m["lists"] or "-"))
     print("Weekdays NSE had no session (learned): %d. Next: python3 archive.py update" % s["closed_days"])
     return 0
 
