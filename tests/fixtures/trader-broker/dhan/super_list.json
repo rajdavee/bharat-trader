@@ -1,0 +1,62 @@
+{
+ "doc_derived": true,
+ "source": "https://dhanhq.co/docs/v2/super-order/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/v2/super/orders"
+ },
+ "response": {
+  "status": 200,
+  "body": [
+   {
+    "dhanClientId": "1100003626",
+    "orderId": "5925022734212",
+    "correlationId": "string",
+    "orderStatus": "PENDING",
+    "transactionType": "BUY",
+    "exchangeSegment": "NSE_EQ",
+    "productType": "CNC",
+    "orderType": "LIMIT",
+    "validity": "DAY",
+    "tradingSymbol": "HDFCBANK",
+    "securityId": "1333",
+    "quantity": 10,
+    "remainingQuantity": 10,
+    "ltp": 1660.95,
+    "price": 1500,
+    "afterMarketOrder": false,
+    "legName": "ENTRY_LEG",
+    "exchangeOrderId": "11925022734212",
+    "createTime": "2025-02-27 19:09:42",
+    "updateTime": "2025-02-27 19:09:42",
+    "exchangeTime": "2025-02-27 19:09:42",
+    "omsErrorDescription": "",
+    "averageTradedPrice": 0,
+    "filledQty": 0,
+    "legDetails": [
+     {
+      "orderId": "5925022734212",
+      "legName": "STOP_LOSS_LEG",
+      "transactionType": "SELL",
+      "totalQuatity": 0,
+      "remainingQuantity": 0,
+      "triggeredQuantity": 0,
+      "price": 1400,
+      "orderStatus": "PENDING",
+      "trailingJump": 10
+     },
+     {
+      "orderId": "5925022734212",
+      "legName": "TARGET_LEG",
+      "transactionType": "SELL",
+      "remainingQuantity": 0,
+      "triggeredQuantity": 0,
+      "price": 1550,
+      "orderStatus": "PENDING",
+      "trailingJump": 0
+     }
+    ]
+   }
+  ]
+ }
+}

@@ -1,0 +1,60 @@
+{
+ "doc_derived": true,
+ "source": "https://upstox.com/developer/api-documentation/get-gtt-order-details/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/v3/order/gtt"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": "success",
+   "data": [
+    {
+     "type": "MULTIPLE",
+     "exchange": "NSE_EQ",
+     "quantity": 1,
+     "product": "I",
+     "rules": [
+      {
+       "strategy": "ENTRY",
+       "status": "FAILED",
+       "trigger_type": "IMMEDIATE",
+       "trigger_price": 7.7,
+       "transaction_type": "BUY",
+       "message": "The price set should be within the circuit limits. Please modify your order price.",
+       "order_id": "250228010168535"
+      },
+      {
+       "strategy": "STOPLOSS",
+       "status": "CANCELLED",
+       "trigger_type": "IMMEDIATE",
+       "trigger_price": 7.6,
+       "transaction_type": "SELL",
+       "message": "",
+       "order_id": null
+      },
+      {
+       "strategy": "TARGET",
+       "status": "CANCELLED",
+       "trigger_type": "IMMEDIATE",
+       "trigger_price": 7.64,
+       "transaction_type": "SELL",
+       "message": "",
+       "order_id": null
+      }
+     ],
+     "trading_symbol": "IDEA",
+     "instrument_token": "NSE_EQ|INE669E01016",
+     "gtt_order_id": "GTT-CU25280200021010",
+     "expires_at": 1740767399000000,
+     "created_at": 1740723100000000
+    }
+   ],
+   "metadata": {
+    "latency": 58
+   }
+  }
+ },
+ "repairs": "the multi-leg example (the page shows three tabs: single-leg, multi-leg, trailing)"
+}

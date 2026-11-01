@@ -5,12 +5,13 @@ per user, a 30-day token, orders only) is api-sandbox.upstox.com. Funds are one 
 "equity" since 19 Jul 2025. Instrument tick sizes in the master file are in paise.
 """
 
+import datetime
 import gzip
 import io
 import json
 import urllib.parse
 
-from .base import (Adapter, AuthExpired, BrokerDown, BrokerError, InsufficientFunds, InvalidInstrument,
+from .base import (IST, Adapter, AuthExpired, BrokerDown, BrokerError, InsufficientFunds, InvalidInstrument, InvalidOrder,
                    IPNotWhitelisted, RateLimited, Rejected, canonical_symbol, expiry_from_epoch_ms, ip_words,
                    mask_id, num, parse_ist, rupees, whole)
 
@@ -34,6 +35,14 @@ def product_from(p, exchange):
     return p
 
 
+def _us_time(v):
+    """Upstox GTT times are microseconds since the epoch -> IST ISO text (or None)."""
+    x = num(v)
+    if not x:
+        return None
+    return datetime.datetime.fromtimestamp(x / 1e6, IST).replace(microsecond=0).isoformat()
+
+
 def plain_symbol(s):
     s = str(s or "")
     return s[:-3] if s.endswith("-EQ") else s
@@ -44,7 +53,7 @@ class UpstoxAdapter(Adapter):
     title = "Upstox"
     capabilities = {"profile": True, "funds": True, "holdings": True, "positions": True, "orders": True,
                     "quotes": True, "history": True, "instruments": True, "basket_margin": True, "gtt_oco": True,
-                    "sandbox": True, "place_orders": True, "market_protection": True}
+                    "native_oco": True, "sandbox": True, "place_orders": True, "market_protection": True}
     env_names = {"api_key": "BT_UPSTOX_API_KEY", "api_secret": "BT_UPSTOX_API_SECRET",
                  "redirect": "BT_UPSTOX_REDIRECT", "access_token": "BT_UPSTOX_ACCESS_TOKEN",
                  "token_date": "BT_UPSTOX_TOKEN_DATE", "sandbox_token": "BT_UPSTOX_SANDBOX_TOKEN"}
@@ -229,6 +238,76 @@ class UpstoxAdapter(Adapter):
 
     def cancel_request(self, broker_order_id):
         return "DELETE", "hft", "/v3/order/cancel", {"query": {"order_id": str(broker_order_id)}}
+
+    # ---------------------------------------------------------------- native linked order: multi-leg GTT
+    linked_style = "bracket"
+    linked_words = ("a multi-leg GTT: the entry (IMMEDIATE, a limit order sent at once) with its TARGET and STOPLOSS "
+                    "in one order; the broker cancels the other exit when one fills")
+
+    @staticmethod
+    def _rules(entry_price, linked):
+        return [{"strategy": "ENTRY", "trigger_type": "IMMEDIATE", "trigger_price": round(float(entry_price), 2)},
+                {"strategy": "TARGET", "trigger_type": "IMMEDIATE",
+                 "trigger_price": round(float(linked["target"]["price"]), 2)},
+                {"strategy": "STOPLOSS", "trigger_type": "IMMEDIATE",
+                 "trigger_price": round(float(linked["stop"]["trigger_price"]), 2)}]
+
+    def linked_request(self, linked, inst, last_price=None):
+        if linked.get("linked") != "bracket":
+            raise InvalidOrder("Upstox's native linked order is the bracket (the entry with its stop and target)")
+        body = {"type": "MULTIPLE", "quantity": int(linked["qty"]), "product": PRODUCT_TO[str(linked["product"]).upper()],
+                "rules": self._rules(linked["price"], linked), "instrument_token": inst["broker_id"],
+                "transaction_type": str(linked["side"]).upper()}
+        return "POST", "api", "/v3/order/gtt/place", {"json_body": body}
+
+    def linked_placed_id(self, res):
+        ids = (self._data(res) or {}).get("gtt_order_ids") or []
+        return str(ids[0]) if ids else None
+
+    def linked_cancel_request(self, linked_id, record=None):
+        return "DELETE", "api", "/v3/order/gtt/cancel", {"json_body": {"gtt_order_id": str(linked_id)}}
+
+    def linked_modify_requests(self, linked_id, linked, inst, record=None, last_price=None):
+        entry = num(((record or {}).get("order") or {}).get("price"))
+        if not entry:
+            raise InvalidOrder("Upstox's GTT change needs the entry price of the original bracket (from this tool's "
+                               "record of it)")
+        return [("PUT", "api", "/v3/order/gtt/modify", {"json_body": {
+            "type": "MULTIPLE", "quantity": int(linked["qty"]), "gtt_order_id": str(linked_id),
+            "rules": self._rules(entry, linked)}})]
+
+    def linked_book(self):
+        """Upstox's GTT list. It leaves out completed GTTs (its docs say so)."""
+        out = []
+        for g in self._data(self.call("GET", "api", "/v3/order/gtt")) or []:
+            rules = {str(r.get("strategy")).upper(): r for r in g.get("rules") or []}
+            st = {k: str(r.get("status") or "").upper() for k, r in rules.items()}
+            if "COMPLETED" in (st.get("TARGET"), st.get("STOPLOSS")):
+                status = "completed"
+            elif st.get("ENTRY") == "FAILED":
+                status = "rejected"
+            elif st and all(v == "CANCELLED" for v in st.values()):
+                status = "cancelled"
+            elif "EXPIRED" in st.values():
+                status = "expired"
+            else:
+                status = "active"
+            entry = rules.get("ENTRY") or {}
+            out.append({"linked_id": str(g.get("gtt_order_id")),
+                        "style": "bracket" if g.get("type") == "MULTIPLE" else "single",
+                        "symbol": plain_symbol(g.get("trading_symbol")), "broker_symbol": g.get("trading_symbol"),
+                        "broker_id": g.get("instrument_token"),
+                        "exchange": "NFO" if g.get("exchange") == "NSE_FO" else "NSE" if g.get("exchange") == "NSE_EQ"
+                        else g.get("exchange"), "product": product_from(g.get("product"), g.get("exchange")),
+                        "side": str(entry.get("transaction_type") or "").upper(), "qty": whole(g.get("quantity")),
+                        "entry_price": num(entry.get("trigger_price")),
+                        "stop_trigger": num((rules.get("STOPLOSS") or {}).get("trigger_price")), "stop_price": None,
+                        "target_price": num((rules.get("TARGET") or {}).get("trigger_price")), "status": status,
+                        "raw_status": ",".join("%s %s" % kv for kv in sorted(st.items())),
+                        "legs": [{"leg": {"ENTRY": "entry", "TARGET": "target", "STOPLOSS": "stop"}.get(k, k.lower()),
+                                  "status": r.get("status"), "order_id": r.get("order_id")} for k, r in rules.items()],
+                        "tag": None, "time": parse_ist(_us_time(g.get("created_at")))})
+        return out
 
     # ---------------------------------------------------------------- login
     def redirect(self):

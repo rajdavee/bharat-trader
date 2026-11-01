@@ -1,4 +1,5 @@
-"""trader-broker adapters (Upstox, Zerodha Kite, Dhan): one contract suite run against every adapter, offline.
+"""trader-broker adapters (Upstox, Zerodha Kite, Dhan, Angel One): one contract suite run against every adapter,
+offline.
 
 A local stub HTTP server on 127.0.0.1 replays recorded, secret-free fixtures, so real urllib behaviour
 (gzip, HTTP errors, retries, timeouts) is exercised without the network. Fixtures in
@@ -11,6 +12,9 @@ tests/fixtures/trader-broker/<broker>/ (see brokers-sources.json):
   kite/instruments.csv         REAL public instrument masters downloaded 2026-11-01, cut to the same exchange
   upstox/NSE.json.gz           tokens: RELIANCE, TCS, SBIN, INFY, HDFCBANK, M&M; NIFTY, BANKNIFTY, RELIANCE
   dhan/api-scrip-master.csv    November futures; NIFTY 25000/25500 options (weekly 3, 9 Nov; monthly 23 Nov).
+  angel/OpenAPIScripMaster.json.gz  (Angel One's scrip master, the same 20 exchange tokens)
+  angel/<case>.json            DOC-DERIVED from smartapi.angelone.in/docs; SmartAPI's examples are often not valid
+                               JSON, so each file says how it was repaired, and tokens are short placeholders.
 
 The opt-in sandbox smoke tests at the end run only with BT_SANDBOX=1 and the broker's sandbox token in the
 environment; they never run by default.
@@ -43,7 +47,7 @@ check = load("trader-risk", "check")
 pkg = ticket.adapters()
 base, auth = pkg.base, pkg.auth
 BFIX = os.path.join(FIX, "trader-broker")
-BROKERS = ("kite", "upstox", "dhan")
+BROKERS = ("kite", "upstox", "dhan", "angel")
 IST = base.IST
 CFG_PATH = os.path.join(ROOT, "trader-budget", "config.example.json")
 ORDERS_PATH = os.path.join(FIX, "trader-risk", "orders-reliance.json")
@@ -52,8 +56,9 @@ ORDERS_PATH = os.path.join(FIX, "trader-risk", "orders-reliance.json")
 ENV = {"BT_KITE_API_KEY": "kitekey11", "BT_KITE_API_SECRET": "kitesec22", "BT_KITE_ACCESS_TOKEN": "kitetok33",
        "BT_UPSTOX_API_KEY": "upkey44", "BT_UPSTOX_API_SECRET": "upsec55", "BT_UPSTOX_ACCESS_TOKEN": "uptok66",
        "BT_DHAN_CLIENT_ID": "1000000009", "BT_DHAN_ACCESS_TOKEN": "dhtok77", "BT_DHAN_API_KEY": "dhkey88",
-       "BT_DHAN_API_SECRET": "dhsec99"}
-TOKENS = ("kitetok33", "uptok66", "dhtok77", "kitesec22", "upsec55", "dhsec99")
+       "BT_DHAN_API_SECRET": "dhsec99", "BT_ANGEL_API_KEY": "angkey12", "BT_ANGEL_CLIENT_CODE": "A1234567",
+       "BT_ANGEL_PIN": "4321", "BT_ANGEL_ACCESS_TOKEN": "angtok34"}
+TOKENS = ("kitetok33", "uptok66", "dhtok77", "kitesec22", "upsec55", "dhsec99", "angtok34")
 
 
 def jload(path):
@@ -129,7 +134,8 @@ class Stub(object):
                      d["response"]["body"])
         files = {"kite": ("/kite/instruments", "instruments.csv"),
                  "upstox": ("/upstox/market-quote/instruments/exchange/NSE.json.gz", "NSE.json.gz"),
-                 "dhan": ("/dhan/api-data/api-scrip-master.csv", "api-scrip-master.csv")}
+                 "dhan": ("/dhan/api-data/api-scrip-master.csv", "api-scrip-master.csv"),
+                 "angel": ("/angel/OpenAPI_File/files/OpenAPIScripMaster.json", "OpenAPIScripMaster.json.gz")}
         path, fname = files[broker]
         with open(os.path.join(BFIX, broker, fname), "rb") as fh:
             self.add("GET", path, raw=fh.read())
@@ -143,7 +149,8 @@ class Stub(object):
         b = self.base
         return {"kite": {"api": b + "/kite", "login": b + "/kite-login"},
                 "upstox": {"api": b + "/upstox", "hft": b + "/upstox", "assets": b + "/upstox"},
-                "dhan": {"api": b + "/dhan/v2", "auth": b + "/dhan", "images": b + "/dhan"}}[broker]
+                "dhan": {"api": b + "/dhan/v2", "auth": b + "/dhan", "images": b + "/dhan"},
+                "angel": {"api": b + "/angel", "master": b + "/angel"}}[broker]
 
     def calls(self, method=None, prefix=""):
         return [h for h in self.hits if (method is None or h["method"] == method) and h["path"].startswith(prefix)]
@@ -216,11 +223,14 @@ EXPECT = {
     "dhan": {"available": 98440.0, "holding": ("HDFC", 1000, 2655.0), "position_product": "CNC",
              "order_status": "open", "basket": 150000.0, "ltp_symbol": "TCS", "ltp": 4520.0,
              "opt": "NIFTY-Nov2026-25000-CE", "weekly": "NIFTY-Nov2026-25000-CE", "fut": "NIFTY-Nov2026-FUT"},
+    "angel": {"available": 9999999999999.0, "holding": ("TATASTEEL", 2, 111.87), "position_product": "CNC",
+              "order_status": "cancelled", "basket": 29612.35, "ltp_symbol": "SBIN", "ltp": 571.75,
+              "opt": "NIFTY23NOV2625000CE", "weekly": "NIFTY09NOV2625000CE", "fut": "NIFTY23NOV26FUT"},
 }
 
 
 class Contract(StubCase):
-    """The same checks, run against Upstox, Kite and Dhan."""
+    """The same checks, run against Upstox, Kite, Dhan and Angel One."""
 
     def each(self):
         for b in BROKERS:
@@ -234,12 +244,16 @@ class Contract(StubCase):
                 self.assertIn(c, caps)
                 self.assertIsInstance(caps[c], bool)
             self.assertTrue(caps["place_orders"])
+            self.assertEqual(bool(caps["native_oco"]), ad.linked_leg() is not None)
+        self.assertEqual({b: pkg.make(b).linked_leg() for b in BROKERS},
+                         {"kite": "oco", "upstox": "bracket", "dhan": "bracket", "angel": None})
         self.assertTrue(pkg.make("upstox").caps()["sandbox"])
         self.assertTrue(pkg.make("dhan").caps()["sandbox"])
         self.assertFalse(pkg.make("kite").caps()["sandbox"])
         self.assertIs(pkg.make("zerodha").__class__, pkg.KiteAdapter)
+        self.assertIs(pkg.make("angelone").__class__, pkg.AngelAdapter)
         with self.assertRaises(base.Unsupported):
-            pkg.make("angel")
+            pkg.make("fyers")
 
     def test_profile(self):
         for b, ad in self.each():
@@ -318,6 +332,9 @@ class Contract(StubCase):
             elif b == "upstox":
                 inst = {"broker_id": "NSE_EQ|INE848E01016"}
                 rows = ad.history(inst, "1d", "2025-01-01", "2025-01-02")
+            elif b == "angel":
+                rows = ad.history({"broker_id": "99926000", "exchange": "NSE"}, "60m", "2023-09-06 11:15",
+                                  "2023-09-06 12:00")
             else:
                 inst = ad.resolve("HDFCBANK")
                 rows = ad.history(inst, "1d", "2022-01-08", "2022-02-08")
@@ -340,7 +357,7 @@ class Contract(StubCase):
             opt = ad.resolve("NIFTY 2026-11-23 25000 CE", "NFO")
             self.assertEqual((opt["kind"], opt["lot_size"], opt["tick_size"], opt["strike"], opt["right"]),
                              ("OPT", 65, 0.05, 25000.0, "CE"))
-            key = "broker_symbol" if b in ("kite", "dhan") else "broker_id"
+            key = "broker_symbol" if b in ("kite", "dhan", "angel") else "broker_id"
             self.assertEqual(opt[key], EXPECT[b]["opt"])
             weekly = ad.resolve("nifty 2026-11-09 25000.0 ce", "NFO")        # typed loosely, still found
             self.assertEqual(weekly[key], EXPECT[b]["weekly"])
@@ -379,6 +396,9 @@ class Contract(StubCase):
         self.assertEqual(h["kite"]["X-Kite-Version"], "3")
         self.assertEqual(h["upstox"]["Authorization"], "Bearer uptok66")
         self.assertEqual((h["dhan"]["Access-Token"], h["dhan"]["Client-Id"]), ("dhtok77", "1000000009"))
+        self.assertEqual((h["angel"]["Authorization"], h["angel"]["X-Privatekey"], h["angel"]["X-Usertype"],
+                          h["angel"]["X-Sourceid"], h["angel"]["X-Macaddress"]),
+                         ("Bearer angtok34", "angkey12", "USER", "WEB", "00:00:00:00:00:00"))
 
     def test_missing_credentials_send_nothing(self):
         for b in BROKERS:
@@ -1187,11 +1207,11 @@ class PublicIP(unittest.TestCase):
 class Fixtures(unittest.TestCase):
     def test_every_fixture_is_marked_and_secret_free(self):
         files = [f for f in glob.glob(os.path.join(BFIX, "*", "*.json")) if os.path.basename(os.path.dirname(f)) != "fno"]
-        self.assertGreaterEqual(len(files), 40)
+        self.assertGreaterEqual(len(files), 53)
         for f in files:
             d = jload(f)
             self.assertTrue(d["doc_derived"], f)
-            self.assertRegex(d["source"], r"^https://(kite\.trade|upstox\.com|dhanhq\.co)/", f)
+            self.assertRegex(d["source"], r"^https://(kite\.trade|upstox\.com|dhanhq\.co|smartapi\.angelone\.in)/", f)
             text = json.dumps(d)
             self.assertNotRegex(text, r"eyJ[A-Za-z0-9_-]{10,}", f)
             self.assertNotRegex(text, r"[A-Z]{5}\d{4}[A-Z]", f)               # no PAN
@@ -1200,6 +1220,8 @@ class Fixtures(unittest.TestCase):
         for path in src["files"]:
             self.assertTrue(os.path.isfile(os.path.join(BFIX, path)), path)
         with gzip.open(os.path.join(BFIX, "upstox", "NSE.json.gz")) as fh:
+            self.assertEqual(len(json.load(fh)), 20)
+        with gzip.open(os.path.join(BFIX, "angel", "OpenAPIScripMaster.json.gz")) as fh:
             self.assertEqual(len(json.load(fh)), 20)
 
 

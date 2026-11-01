@@ -1,0 +1,16 @@
+{
+ "doc_derived": true,
+ "source": "https://dhanhq.co/docs/v2/super-order/ (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "DELETE",
+  "path": "/v2/super/orders/112111182198/ENTRY_LEG"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "orderId": "112111182198",
+   "orderStatus": "CANCELLED"
+  }
+ },
+ "repairs": "the docs' example order id is the place example's here"
+}

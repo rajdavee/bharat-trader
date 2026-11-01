@@ -834,6 +834,12 @@ def t_broker_status(kit, a, call):
                   "API can do, the last preflight. There is no order tool here."]
 
 
+def t_broker_margin_check(kit, a, call):
+    return api.broker_margin(kit.ctx, _broker_q(a)), [
+        "Read only: the broker's own margin calculator for the F&O basket in trader/strategy.json (or orders.json), "
+        "next to our SPAN-style estimate. Nothing is placed or changed."]
+
+
 def t_broker_holdings(kit, a, call):
     return api.broker_rows(kit.ctx, _broker_q(a), "holdings"), [
         "Read only: delivery holdings from the live broker's own API. Nothing is placed or changed."]
@@ -2401,23 +2407,32 @@ def build_tools():
                   "expiries allowed) with every number strategy_build gives. Read only: it proposes nothing.",
                   t_strategy_price, price_props, ["symbol", "legs"], data=result))
     broker_arg = {"broker": S("string", "the live broker to read (default: the config broker)",
-                              enum=["upstox", "kite", "dhan"])}
+                              enum=["upstox", "kite", "dhan", "angel"])}
     rows_data = obj({"connected": S("boolean"), "broker": {}, "rows": ANY_LIST, "read_only": {"const": True}},
                     ["connected", "rows", "read_only"], extra=True)
     T.append(tool("broker_status", "Broker connection",
                   "The live broker connection, read only and without network: the config's broker and mode, for "
-                  "Upstox, Zerodha Kite and Dhan which BT_* environment variables are set (true/false, never the "
-                  "values), what each API can do, the plan notes and the last static-IP preflight. Places nothing.",
+                  "Upstox, Zerodha Kite, Dhan and Angel One which BT_* environment variables are set (true/false, "
+                  "never the values), what each API can do (incl. a native linked stop and target), the plan notes, "
+                  "today's basket-margin check and the last static-IP preflight. Places nothing.",
                   t_broker_status, {}, data=obj({"mode": S("string"), "brokers": ANY_LIST}, ["mode", "brokers"],
                                                 extra=True), network=False))
     T.append(tool("broker_holdings", "Broker holdings",
-                  "Delivery holdings read from the live broker's API (Upstox, Zerodha Kite or Dhan): symbol, qty, "
+                  "Delivery holdings read from the live broker's API (Upstox, Zerodha Kite, Dhan or Angel One): "
+                  "symbol, qty, "
                   "average, last price, P&L. Read only; needs the user's own token in the server's environment.",
                   t_broker_holdings, broker_arg, data=rows_data))
     T.append(tool("broker_positions", "Broker positions",
                   "Today's positions read from the live broker's API: symbol, exchange, product, qty, average, P&L. "
                   "Read only; needs the user's own token in the server's environment.",
                   t_broker_positions, broker_arg, data=rows_data))
+    T.append(tool("broker_margin_check", "Broker basket margin",
+                  "The live broker's own basket margin (Kite /margins/basket, Upstox margin API, Dhan margin "
+                  "calculator, Angel One margin API) for the F&O basket in trader/strategy.json or orders.json, next "
+                  "to our SPAN-style estimate with the difference. Read only; needs the user's own token in the "
+                  "server's environment.", t_broker_margin_check, broker_arg,
+                  data=obj({"connected": S("boolean"), "broker": {}, "broker_margin": {}, "our_estimate": {},
+                            "difference": {}, "read_only": {"const": True}}, ["connected", "read_only"], extra=True)))
     T.append(tool("doctor", "Data sources self-test",
                   "Probe every free data source the tools read (NSE equity list, market status, holidays, "
                   "announcements, board meetings, results, bulk/block deals, PIT, option chain and contract info, "

@@ -1,0 +1,27 @@
+{
+ "doc_derived": true,
+ "source": "https://smartapi.angelone.in/docs/User (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "GET",
+  "path": "/rest/secure/angelbroking/user/v1/getProfile"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": true,
+   "message": "SUCCESS",
+   "errorcode": "",
+   "data": {
+    "clientcode": "YOUR_CLIENT_CODE",
+    "name": "YOUR_NAME",
+    "email": "",
+    "mobileno": "",
+    "exchanges": "[ \"NSE\", \"BSE\", \"MCX\", \"CDS\", \"NCDEX\", \"NFO\" ]",
+    "products": "[ \"DELIVERY\", \"INTRADAY\", \"MARGIN\"]",
+    "lastlogintime": "",
+    "brokerid": "B2C"
+   }
+  }
+ },
+ "repairs": "braces added around data and the trailing comma removed; exchanges and products kept as the list-looking text the docs print"
+}

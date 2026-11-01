@@ -1,0 +1,21 @@
+{
+ "doc_derived": true,
+ "source": "https://smartapi.angelone.in/docs/Orders (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/rest/secure/angelbroking/order/v1/cancelOrder"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": true,
+   "message": "SUCCESS",
+   "errorcode": "",
+   "data": {
+    "orderid": "201020000000080",
+    "uniqueorderid": "34reqfachdfih"
+   }
+  }
+ },
+ "repairs": "a comma missing between the data fields: added"
+}

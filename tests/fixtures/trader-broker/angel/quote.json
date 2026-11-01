@@ -1,0 +1,28 @@
+{
+ "doc_derived": true,
+ "source": "https://smartapi.angelone.in/docs/MarketData (example in the official docs, read 2026-11-01)",
+ "request": {
+  "method": "POST",
+  "path": "/rest/secure/angelbroking/market/v1/quote/"
+ },
+ "response": {
+  "status": 200,
+  "body": {
+   "status": true,
+   "message": "SUCCESS",
+   "errorcode": "",
+   "data": {
+    "fetched": [
+     {
+      "exchange": "NSE",
+      "tradingSymbol": "SBIN-EQ",
+      "symbolToken": "3045",
+      "ltp": 571.75
+     }
+    ],
+    "unfetched": []
+   }
+  }
+ },
+ "repairs": "LTP mode sample; trailing comma removed"
+}

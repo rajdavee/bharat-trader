@@ -159,7 +159,7 @@ defined risk and pass.
 | loss | the basket's loss over `max_loss_per_trade`, or with today's over `max_daily_loss`: the max loss at expiry with charges (defined risk), else the loss at the stop rule |
 | premium | net premium paid (paid minus received) over `max_premium_per_trade`, or with today's options bought over `max_premium_per_day` |
 | lots | open + this batch over `max_lots_per_underlying` lots on one side (CE short, PE long, futures...) of one underlying |
-| margin | the margin needed (trader-strategy's SPAN-style `margin.high` when `trader/strategy.json` is this basket, else the same method here; the upper bound while `margin_use_upper_bound`) over the cash left after `cash_buffer_pct` and `margin_blocked` |
+| margin | the margin needed (trader-strategy's SPAN-style `margin.high` when `trader/strategy.json` is this basket, else the same method here; the upper bound while `margin_use_upper_bound`) over the cash left after `cash_buffer_pct` and `margin_blocked`. The broker's own basket margin (trader-broker's `ticket.py margin-check`, read only; fetched once when the config broker's token is in the shell, off with `"broker_margin_check": false`) is shown next to it with the difference, and warned about when it is higher; it never decides the verdict |
 | greeks | the book's net delta (lots) over `max_net_delta_lots`, gamma over `max_net_gamma_lots_1pct`, net vega over `max_net_vega` (₹ per vol point) or theta paid over `max_theta_paid_per_day`, unless this basket reduces it: a hedge always passes |
 | scenario | the book's worst P&L after charges on the grid over `max_scenario_loss`, unless this basket makes it better; the reason names the scenario |
 

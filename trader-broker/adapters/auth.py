@@ -148,6 +148,33 @@ def static_ips(cfg, broker):
     return out
 
 
+def totp(secret, at=None, digits=6, step=30):
+    """RFC 6238 time-based one-time code (HMAC-SHA1, 30-second steps): the code your authenticator app shows
+    for a base32 secret. at: Unix seconds (default now). Raises LoginError on a secret that is not base32."""
+    import base64
+    import struct
+    s = "".join(str(secret or "").split()).upper().rstrip("=")
+    try:
+        key = base64.b32decode(s + "=" * (-len(s) % 8))
+    except (ValueError, TypeError):
+        raise LoginError("the TOTP secret is not base32 text (the key your broker showed when you enabled TOTP)")
+    if not key:
+        raise LoginError("the TOTP secret is empty")
+    counter = int((time.time() if at is None else at) // step)
+    mac = hmac.new(key, struct.pack(">Q", counter), "sha1").digest()
+    off = mac[-1] & 0x0F
+    code = (struct.unpack(">I", mac[off:off + 4])[0] & 0x7FFFFFFF) % (10 ** digits)
+    return str(code).zfill(digits)
+
+
+def clean_code(text, digits=6):
+    """A typed one-time code: digits only, exactly `digits` of them, or LoginError."""
+    s = "".join(str(text or "").split())
+    if not (s.isdigit() and len(s) == digits):
+        raise LoginError("the one-time code is %d digits from your authenticator app" % digits)
+    return s
+
+
 SEBI_WORDS = ("Why this matters: under SEBI's retail algo framework (circular of 4 Feb 2025, in force since "
               "1 Apr 2026) brokers accept API orders (place, modify, cancel, GTT) only from the static IP you "
               "registered with them, most let you change it about once a week, and you log in with 2FA once "

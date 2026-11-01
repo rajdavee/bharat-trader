@@ -7,6 +7,46 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **trader-broker: native linked exits** (#34). The stop and the target as
+  ONE broker-native linked order, where the broker has one: Kite GTT two-leg
+  OCO after the entry fills (`place --leg oco`), Upstox multi-leg GTT and
+  Dhan Super Order with the entry (`place --leg bracket`); leg-by-leg exits
+  stay the fallback (Angel One). Capability flag `native_oco` in every
+  adapter. Every linked order goes through the same six gates (config broker,
+  `"paper": false`, `live_enabled`, trader-risk PASS for that exact ticket,
+  your typed yes, today's preflight); the ticket's yes covers its own linked
+  exit only (a sealed single-use pass for that exact stop-and-target order:
+  never a plain order, another ticket or edited prices), and never both
+  styles of exits at once. An auto-pilot yes now closes the `yes` gate itself.
+  `cancel --leg oco|bracket` or `--linked-id`; `modify-exits --index NEW
+  --linked-id ID` changes the stop and target under the NEW ticket's own risk
+  PASS and yes; `reconcile` reads the broker's GTT / super-order book after a
+  restart (read only), matches it to this tool's records, finds sends whose
+  outcome was unknown and lists linked orders it did not make.
+- **trader-broker: Angel One SmartAPI adapter** (#34): profile, funds (RMS),
+  holdings, positions, order book, trades, LTP, candles, the scrip master
+  with NFO tokens, basket margin, gated place and cancel identical to the
+  other adapters, static-IP preflight against the config. `ticket.py login
+  angel`: client code and PIN from your shell plus a 6-digit TOTP code you
+  type (not echoed), or computed from `BT_ANGEL_TOTP_SECRET` (RFC 6238,
+  stdlib; the security trade-off is in docs/brokers.md). The contract suite
+  runs against all four adapters, on doc-derived fixtures and a real
+  scrip-master slice.
+- **Broker basket-margin cross-check** (#34): `ticket.py margin-check` (read
+  only) asks Kite `/margins/basket`, the Upstox margin API, Dhan's margin
+  calculator or Angel One's margin API for the F&O basket and saves the day's
+  figure; trader-strategy (`margin.broker_basket`) and trader-risk (an info
+  line, and a warning when the broker blocks more than the figure used) show
+  it next to our SPAN-style estimate with the difference, fetching it once
+  when the broker's token is in the shell. Never changes an estimate or a
+  verdict.
+- UI and MCP: the broker status shows each broker's native linked exit and
+  today's margin check; a "Check basket margin" card on Settings
+  (`GET /api/broker/margin`); the read-only MCP tool `broker_margin_check`
+  (53 tools with trader-tax's `tax_summary`).
+- docs/brokers.md: Angel One setup with the TOTP security notes, native OCO
+  per broker, the margin cross-check, and the documented hook for an
+  OpenAlgo bridge (not built in this release).
 - **`trader-tax`** (#50): a financial-year tax ESTIMATE for discussion with
   a CA, not tax advice. `tax.py report | export | rules | years | import`.
   Each trade is classified as intraday equity (speculative business
