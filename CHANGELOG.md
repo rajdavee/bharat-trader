@@ -32,7 +32,6 @@ All notable changes are documented here. The format follows
 - `verify` checks splits and bonuses across the whole span against the
   archive's own closes, and reports membership gaps, roll gaps and missing
   results months.
-
 - **Edge-hunt research brief and pre-registration** (#70):
   `docs/research/edge-hunt.md` reviews the evidence for cross-sectional
   momentum, low volatility, index trend, turn of the month, pre-holiday and

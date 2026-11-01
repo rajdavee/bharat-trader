@@ -58,7 +58,7 @@ _DATE = r"([A-Z][a-z]{2,8})\.?\s+(\d{1,2})\s*,?\s*(\d{4})"
 _SKIP_TITLE = re.compile(r"\bsme\b|\bipo\b|fixed income|bond|g-sec|gsec|\bsdl\b|t-bill|treasury|\besg\b|shariah|"
                          r"forex|\busd\b|launch|methodolog|total return|dividend point|tracking|target maturity|"
                          r"india fpi|mutual fund|commodit|ethical|dissemination", re.I)
-_KEEP_TITLE = re.compile(r"indices|index changes|change in index|changes in index|replacement|exclusion|inclusion|"
+_KEEP_TITLE = re.compile(r"indices|index changes|corporate action adjustment|change in index|changes in index|replacement|exclusion|inclusion|"
                          r"reconstitut|cnx nifty|cnx 500|cnx 100|cnx 200|nifty 50\b|nifty 100\b|nifty 200\b|"
                          r"nifty 500\b|nifty next 50|nifty junior|corporate adjustment", re.I)
 _SYMBOL = re.compile(r"^[A-Z0-9][A-Z0-9&\-]{0,19}$")
@@ -155,11 +155,9 @@ def _sentence_index(text):
     if not re.search(r"following\s+changes?|decided\s+to\s+make", text, re.I):
         return None
     for m in _INDEX_IN_TEXT.finditer(text):
-        words = m.group(1).split()
-        for k in range(len(words), 0, -1):          # the longest name that is an index we track
-            key = index_key(" ".join(words[:k]))
-            if key:
-                return key
+        key = index_key(m.group(1))                 # the whole name: "Nifty India Digital" is not NIFTY 50
+        if key:
+            return key
     return None
 
 
@@ -257,6 +255,8 @@ def parse_announcement(lines, title="", announced=None):
         if low.startswith(("note", "the above", "no inclusion", "no exclusion", "no change", "place:", "date:")):
             table = False
         joined_prev = flat
+    if not out:
+        out = parse_index_list(lines, title, announced)[0]
     seen, uniq = {}, []
     for o in out:
         k = (o["index"], o["action"], o["symbol"] or _norm_name(o["name"]))
@@ -270,6 +270,74 @@ def parse_announcement(lines, title="", announced=None):
         seen[alt] = o
         uniq.append(o)
     return uniq
+
+
+_PAREN_SYM = re.compile(r"\(\s*([A-Z][A-Z0-9&\- ]{1,24}?)\s*\)")
+
+
+def parse_index_list(lines, title="", announced=None):
+    """The demerger format: one company excluded from (or a dummy symbol included in) every index in a
+    'Sr. No. / Index Name' table. -> (changes, aliases {dummy: real symbol})."""
+    flat = [l.replace("\t", " ").strip() for l in lines if l != "\f"]
+    text = " ".join(flat)
+    indices, in_table = [], False
+    for l in flat:
+        if re.match(r"^sr\.?\s*no\.?\s+index name", l, re.I):
+            in_table = True
+            continue
+        if in_table:
+            m = re.match(r"^\d{1,3}\s+(.+)$", l)
+            if m:
+                key = index_key(re.sub(r"\s+(index|indices)$", "", m.group(1), flags=re.I))
+                if key and key not in indices:
+                    indices.append(key)
+                continue
+            if not re.match(r"^sr\.?\s*no", l, re.I):
+                in_table = False
+    aliases = {}
+    dummies = []
+    for d in re.findall(r"\bDUMMY\s?[A-Z0-9]{2,12}\b", text):
+        d = d.replace(" ", "")
+        if d not in dummies:
+            dummies.append(d)
+    if not indices:
+        return [], aliases
+    out = []
+    ex = re.search(r"decided\s+to\s+exclude(.{0,300}?)from\s+(?:various|the\s+following|following)", text, re.I)
+    if ex:
+        lead = text.rfind("In accordance", 0, ex.start())
+        part = text[lead if lead >= 0 else ex.start():ex.end()]
+        syms = []
+        for x in _PAREN_SYM.findall(part) + re.findall(r"exclude\s+([A-Z][A-Z0-9&\-]{1,19})\s+from", part):
+            x = x.replace(" ", "")
+            if _SYMBOL.match(x) and x not in syms and x not in ("NSE", "BSE") and not x.startswith("DUMMY"):
+                syms.append(x)
+        listed = re.search(r"after the demerger,(.{0,400}?)(?:was|were|w ere)\s+listed", text, re.I)
+        if listed and dummies:
+            real = [x.replace(" ", "") for x in _PAREN_SYM.findall(listed.group(1))]
+            if len(real) == len(dummies):
+                aliases.update(dict(zip(dummies, real)))
+        eff = _effective(text[ex.start():]) or _effective(title)
+        # "... had announced inclusion of X ... effective from <date>": the spun-off company joined the
+        # indices that day (with a dummy symbol, or none at all before about 2024)
+        joined = _effective(text[:ex.start()]) if re.search(r"had\s+announced\s+(?:the\s+)?inclusion", text, re.I) \
+            else None
+        for key in indices:
+            for sym in syms:
+                out.append({"index": key, "action": "exclude", "name": "", "symbol": sym,
+                            "effective": str(eff or announced or "")})
+                if joined and eff and joined < eff:
+                    out.append({"index": key, "action": "include", "name": "", "symbol": sym,
+                                "effective": str(joined), "spun_off": True})
+    elif dummies:
+        inc = re.search(r"(?:shall|will)\s+be\s+included", text, re.I)
+        if inc:
+            eff = _effective(text[inc.start():]) or _effective(title)
+            for key in indices:
+                for d in dummies:
+                    out.append({"index": key, "action": "include", "name": "", "symbol": d,
+                                "effective": str(eff or announced or ""), "dummy": True})
+    return out, aliases
 
 
 def announcement_changes(pdf_bytes, title="", announced=None):
@@ -329,15 +397,17 @@ class Symbols(object):
     """Symbol identity over time from symbolchange.csv: canon() follows renames forward to today's symbol,
     as_of() walks back to the symbol a stock traded under on a day."""
 
-    def __init__(self, changes):
+    def __init__(self, changes, aliases=None):
         self.fwd = {}
         self.back = {}
+        self.alias = dict(aliases or {})       # a demerger's dummy symbol -> the symbol it listed under
         for c in changes:
             self.fwd.setdefault(c["old"], []).append((c["date"], c["new"]))
             self.back.setdefault(c["new"], []).append((c["date"], c["old"]))
 
     def canon(self, sym, day="0000-00-00"):
         s, d, hops = sym.upper(), day, 0
+        s = self.alias.get(s, s)
         while hops < 12:
             nxt = [(dt, n) for dt, n in self.fwd.get(s, []) if dt > d]
             if not nxt:
