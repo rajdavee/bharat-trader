@@ -313,6 +313,16 @@ class InSync(unittest.TestCase):
         self.assertEqual(sorted(blocks), sorted(s for s, name in scripts()
                                                  if getattr(load(s, name), "round_trip_charges", None)))
 
+    def test_margin_model_is_identical_everywhere(self):
+        blocks = self.shared_block("# ---------------------------------------------------------------- SPAN-style margin "
+                                   "model (shared block)",
+                                   "# ---------------------------------------------------------------- end of the "
+                                   "SPAN-style margin model", 3)
+        self.assertEqual(sorted(blocks), ["trader-broker", "trader-risk", "trader-strategy"])
+        body = next(iter(blocks.values()))
+        self.assertIn('MARGIN_MODEL = "', body)
+        self.assertIn("def span_elm(", body)
+
     def test_message_catalogue_helper_is_identical_everywhere(self):
         blocks = self.shared_block("# ---------------------------------------------------------------- message "
                                    "catalogue helper",

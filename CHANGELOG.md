@@ -136,6 +136,21 @@ All notable changes are documented here. The format follows
   their 17 Oct 2026 results, NIFTY monthly chains, India VIX, NIFTY 5-minute
   bars). No real hunt was run (that is #74).
 
+### Fixed
+- **Margin model v2 for hedged and naked F&O positions** (#82): one SPAN +
+  ELM block shared by trader-strategy, trader-risk and the paper broker, named
+  in every output and in lab results and scorecards (`margin_model`,
+  `nse-span-elm-v2 (2026-11)`). SPAN risk now has the net option value taken
+  off (NSE's rule: a credit spread needs about its width, a debit spread only
+  its debit) and a calendar charge across expiries; ELM is on the
+  underlying's close with the 3% deep out-of-the-money and 5% long-dated
+  index rates (5.25% for stocks); the expiring legs lose the calendar benefit
+  on expiry day. Checked against NSE's SPAN file of 30-Oct-2026 (hedged NIFTY
+  structures within 3%, naked at or above it) and published broker figures
+  (HDFC Securities 2026, Zerodha 2020). Debit structures drop about 20% (the
+  long wings' premium was added in full); credit condors move about 1%: ELM
+  on every short leg, hedged or not, is NSE's rule and dominates their margin.
+
 ## [0.3.0] - 2026-11-01
 
 The co-trader release: candidates only from validated rules, odds with their
