@@ -17,7 +17,7 @@ trader's day, not around their data sources:
 | step | the trader asks | where it lives here |
 | --- | --- | --- |
 | Watchlist | What is moving, what is on my list? | Today, Scanner, Chart |
-| Idea | Is there a setup, and how good is the evidence? | Scanner, Option chain, Co-trader (coming), Strategy Lab |
+| Idea | Is there a setup, and how good is the evidence? | Scanner, Option chain, Co-trader, Strategy Lab |
 | Plan | Entry, stop, target, size: what can I lose? | Strategy builder, Chart (plan levels) |
 | Risk | Does it pass my rules today? | Risk |
 | Order | One explicit yes for one exact order | Portfolio and orders |
@@ -189,7 +189,7 @@ turns transitions off.
 | --- | --- |
 | Today | the cockpit (home) |
 | Discover | Chart, Scanner, Option chain |
-| Plan | Strategy builder, Co-trader (coming in v0.3) |
+| Plan | Strategy builder, Co-trader |
 | Trade | Portfolio and orders, Risk, Auto-pilot (coming in v0.3) |
 | Review | Strategy Lab, Journal (coming in v0.3), Agents |
 | Setup | Settings, Setup guide, About |

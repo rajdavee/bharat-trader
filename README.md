@@ -48,7 +48,12 @@ and `trader-regime`, the market regime in plain words (trending or ranging,
 the India VIX percentile, the gap, expiry tomorrow, results or RBI policy
 day, the time-of-day bucket), with no look-ahead; and `trader-discover`, a
 strategy search that counts every rule it tries and makes each survivor beat
-the luck of the whole search on an untouched holdout (most runs find none).
+the luck of the whole search on an untouched holdout (most runs find none);
+and `trader-cotrader`, today's candidates from lab-validated rules with the
+odds that similar past trades made money after charges (with the range and
+the sample size), the risk verdict and what the evidence does not show, or
+the plain decision to sit out; every probability is logged and scored.
+See [docs/cotrader.md](docs/cotrader.md).
 
 **Options and strategies.** The NSE option chain with our own Black-76 IV and
 Greeks off the put-call-parity forward, PCR, max pain, call and put walls,
@@ -146,6 +151,8 @@ python3 trader-broker/ticket.py mtm                    # paper F&O P&L, Greeks, 
 python3 trader-lab/lab.py run orb15-vwap               # backtest + robustness + gates, after charges
 python3 trader-lab/lab.py report orb15-vwap            # the scorecard, and what it does NOT prove
 python3 trader-discover/discover.py run --budget 500 --universe nifty50 --timeframe 1d   # search, overfitting controls on
+python3 trader-cotrader/cotrader.py today              # today's candidates with calibrated odds, or why to sit out
+python3 trader-cotrader/cotrader.py calibration        # did past probabilities come true? (Brier, reliability)
 python3 trader-broker/ticket.py holdings --broker kite # your real holdings, read only
 python3 trader-broker/ticket.py preflight upstox       # static IP and today's login: ready for live?
 python3 trader-doctor/doctor.py                        # is every NSE and Yahoo source answering? (exit 1 if not)
@@ -211,6 +218,7 @@ Copy one or all into your agent's skills folder; each works on its own:
 | `trader-archive` | A local NSE data archive: equity and F&O bhavcopies (UDiFF and legacy), index closes, India VIX, lot sizes, ban lists, settlement prices and split/bonus factors, backfilled politely and resumably; broker intraday candles merged with Yahoo; option-chain snapshots; verify and a data-quality report. Read offline by the lab and the time machine. |
 | `trader-regime` | The market regime for NIFTY, BANKNIFTY or a stock: trend or range (ADX, efficiency ratio, EMA slope, 200-day average), volatility bucket (India VIX percentile, realised vol, IV rank), gap, breadth, expiry today or tomorrow from the exchange's list, results, RBI policy and Budget days, the closing-auction window and the time of day. No look-ahead; the lab splits every backtest by it. |
 | `trader-discover` | Strategy discovery with strict overfitting controls: a fixed trial budget over the lab's rule vocabulary, train / validation / untouched holdout with purging and an embargo, every trial logged and counted; deflated Sharpe with the true trial count, overfitting odds over the trial matrix, a Reality Check / SPA bootstrap, a false-discovery cut, cost stress, neighbourhood and regime checks. Survivors go to the lab as specs that still need a paper forward test. |
+| `trader-cotrader` | Co-trader: today's candidates from strategies the lab validated (PROMOTED, WATCH; RESEARCH ideas only on request, never for live), each a full plan with size, charges and a trader-risk verdict; the share of past trades in today's regime that made money after charges with a Wilson / Beta 95% range and n, shrunk toward the rule's overall rate; expected R after charges; a time-machine second opinion; ranked per unit risk, penalised for uncertainty and correlation. No edge is a first-class answer. Every probability is logged and scored (Brier, log loss, reliability); overconfident rules are demoted. |
 
 ## How it compares
 
