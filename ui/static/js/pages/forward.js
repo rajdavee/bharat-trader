@@ -79,7 +79,7 @@ function strategyCard(row) {
     ['PROMOTE rule', el.words || '–'],
   ]));
   if (row.recommendation) {
-    body.push(note(`Recommended: DEMOTE. ${row.recommendation.why}. Apply it yourself in a terminal: ${row.recommendation.how}`, 'error'));
+    body.push(note(`Recommended: DEMOTE (${row.recommendation.why}). Apply it yourself in a terminal: ${row.recommendation.how}`, 'warn'));
   }
   if ((row.timeline || []).length) {
     body.push(h('h3', { class: 'sub' }, 'Promote / demote timeline'));
@@ -167,7 +167,7 @@ export async function render(root) {
       const d = await get('/api/forward');
       clear(body);
       body.appendChild(h('p', { class: 'page-lede' }, d.words));
-      for (const s of d.decay_alerts || []) body.appendChild(note(`Decay alert: ${s}. See its card below.`, 'error'));
+      for (const s of d.decay_alerts || []) body.appendChild(note(`Decay alert: ${s}. See its card below.`, 'warn'));
       const rows = d.strategies || [];
       if (!rows.length) {
         body.appendChild(card('No forward test yet', empty('Nothing to compare yet', 'A strategy enters a forward test ' +

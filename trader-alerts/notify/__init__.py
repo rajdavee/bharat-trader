@@ -161,9 +161,9 @@ def redact(text, env=None):
     return s if len(s) <= MAX_TEXT else s[:MAX_TEXT - 1].rstrip() + "…"
 
 
-def payload(event, title, text, at):
+def payload(event, title, text, at, env=None):
     """The only body a webhook ever gets."""
-    return {"source": "bharat-trader", "event": event, "title": redact(title)[:60], "text": redact(text),
+    return {"source": "bharat-trader", "event": event, "title": redact(title, env)[:60], "text": redact(text, env),
             "at": at.strftime("%Y-%m-%dT%H:%M:%S+05:30")}
 
 
@@ -232,6 +232,7 @@ def send_webhook(body, timeout=5, env=None):
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 status = r.status
     except urllib.error.HTTPError as e:
+        e.close()
         return "webhook answered HTTP %s" % e.code
     except (urllib.error.URLError, OSError, ValueError) as e:
         return "webhook failed: %s" % type(e).__name__
@@ -288,7 +289,7 @@ def send(workdir, event, title, text, now=None, key=None, cfg=None, env=None):
     now = now_ist(now)
     state = _read(p["state"], {}) or {}
     ok, why = decide(s, state, event, key, now)
-    body = payload(event, title, text, now)
+    body = payload(event, title, text, now, env)
     out = {"sent": False, "event": event, "why": why, "channels": {}, "payload": body}
     if not ok and not s["enabled"]:
         return out                      # off: nothing is written either
@@ -301,7 +302,7 @@ def send(workdir, event, title, text, now=None, key=None, cfg=None, env=None):
         return out
     more = (state.get("held") or {}).pop(event, 0)
     if more:
-        body["text"] = redact("%s (+%d more held back by the rate limit)" % (body["text"], more))
+        body["text"] = redact("%s (+%d more held back by the rate limit)" % (body["text"], more), env)
     if s["desktop"]:
         out["channels"]["desktop"] = send_desktop(body["title"], body["text"], s["timeout_s"])
     if s["webhook"]:

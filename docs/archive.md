@@ -206,7 +206,9 @@ It sleeps until 09:15 IST on a trading day, snapshots each symbol's nearest
 expiries every `--every` minutes (minimum 3) until 15:30, sleeps to the next
 session, and writes a heartbeat to `archive/chain/capture.json` (rounds,
 snapshots, the last and next times, the last error) that a scheduler or the
-auto-pilot can read. A second copy on the same archive refuses to start. An
+auto-pilot can read (and does: the auto-pilot starts and supervises it in
+market hours, see [forward-tests.md](forward-tests.md)). A second copy on the
+same archive refuses to start. An
 NSE block pauses it for 15 minutes rather than ending it. `chain_series()`
 turns a day's snapshots into rows.
 

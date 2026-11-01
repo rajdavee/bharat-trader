@@ -128,7 +128,16 @@ python3 trader-autopilot/autopilot.py stop
 python3 trader-autopilot/autopilot.py status --json
 python3 trader-autopilot/autopilot.py report --date 2026-09-21
 python3 trader-autopilot/autopilot.py replay --date 2026-09-21 --to 2026-09-25 --data tests/fixtures/trader-lab
+python3 trader-autopilot/autopilot.py capture                     # the intraday option-chain capture job
 ```
+
+At the end of each day the report has a **Forward tests** section (each
+enabled strategy's record against its backtest's predicted range, decay
+alerts with a DEMOTE recommendation, trades to PROMOTE) and the capture
+job's health. On the live clock the loop also keeps trader-archive's
+`capture-chains` running in market hours. Both are explained in
+[forward-tests.md](forward-tests.md); notifications for fills, exits, locks,
+decay and capture failures in [notifications.md](notifications.md).
 
 The loop wakes 20 seconds after each 5-minute bar closes. Its state is saved
 after every action, and the intent is written before each broker call, so a

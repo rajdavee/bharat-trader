@@ -55,6 +55,8 @@ python3 "<skill dir>/lab.py" run orb15-vwap --data DIR     # offline bars: DIR/S
 python3 "<skill dir>/lab.py" report orb15-vwap             # the plain-words scorecard
 python3 "<skill dir>/lab.py" compare orb15-vwap gap-fade rsi2-nifty50
 python3 "<skill dir>/lab.py" forward orb15-vwap            # paper forward test: today's signals -> draft plans
+python3 "<skill dir>/lab.py" forward-report                # forward tests vs the backtest's range, decay alerts
+python3 "<skill dir>/lab.py" forward-report --demote NAME  # apply a DEMOTE a decay alert recommends
 python3 "<skill dir>/lab.py" run nifty-weekly-strangle-16d --archive trader/archive   # an options spec, EOD chains
 python3 "<skill dir>/lab.py" forward nifty-weekly-strangle-16d                       # -> a draft paper basket
 ```
@@ -191,6 +193,23 @@ python3 <trader-broker dir>/ticket.py show        # the paper ticket and the use
 A daily spec's plan is dated for the next session's open. A spec without a
 target gets a 3R cap on the order legs; its real exit is its rule, so set an
 alert with trader-alerts.
+
+### The forward-test dashboard
+
+`lab.py forward-report` (read only; `engines/fwdtest.py`) compares each
+strategy's forward record with what its backtest predicted: the
+out-of-sample trades give the expectation, and the predicted range of the
+forward mean R for n trades is `mu ± 1.96 · sd · sqrt(1/n + 1/N)` (the win
+rate likewise). It says inside, below or above (from 5 trades), runs a lower
+CUSUM control chart (k 0.5, h 4), and raises a **decay alert** once there are
+10+ forward trades and the running mean has sat below the range for 5 trades
+in a row or the chart alarmed. A PROMOTE or WATCH strategy with an alert gets
+the recommendation DEMOTE, applied only by `--demote NAME` (the lab's own
+status, like the co-trader's calibration demotion). It also shows the
+co-trader's Brier score, the verdict timeline and the trades and sessions to
+PROMOTE. Thresholds: `"forward_tests"` in `trader/config.json`. Quote the
+ranges and n; a few weeks of paper trades prove little either way. See
+docs/forward-tests.md.
 
 ## Options strategies
 
