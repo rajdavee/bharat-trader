@@ -569,6 +569,7 @@ def decide(doc, h, job, trials, pl, d, now, context=None, path=None):
                                                                             "error")},
         "scorecard": "trader/lab/edge-hunt/%s/scorecard.md" % doc["id"],
     }
+    write_returns(d, doc, ft["params"], tr_run, va_run, holdout)
     if holdout and not holdout.get("error"):
         hm = holdout["metrics"]
         outcome["holdout"].update({k: hm.get(k) for k in ("primary", "net_value", "sharpe", "cagr_pct",
@@ -581,6 +582,18 @@ def decide(doc, h, job, trials, pl, d, now, context=None, path=None):
                       "validation_primary": t["validation"]["primary"],
                       "validation_net": t["validation"]["net_value"]} for t in trials],
             "holdout": holdout, "notes": list(job.notes), "limits": limits(doc)}
+
+
+def write_returns(d, doc, params, tr_run, va_run, holdout):
+    """The finalist's daily NET returns (after charges and slippage) per window, for trader-lab's strategy
+    portfolio (lab.py portfolio): train is in sample; validation and the holdout are what a mix may use."""
+    segs = {"train": {"days": list(tr_run["days"]), "ret": _round(tr_run["ret"])},
+            "validation": {"days": list(va_run["days"]), "ret": _round(va_run["ret"])}, "holdout": None}
+    if holdout and not holdout.get("error") and holdout.get("series"):
+        segs["holdout"] = holdout["series"]
+    write_json(os.path.join(d, "returns.json"), {"schema": "bharat-trader/edge-hunt-returns/1", "id": doc["id"],
+                                                 "params": params, "net_of": "charges and slippage",
+                                                 "segments": segs})
 
 
 def _align(t, dates):
@@ -631,7 +644,7 @@ def open_holdout(doc, h, job, params, path, now, extra, file_path=None):
     checks = holdout_checks(doc, extra, hm, r)
     rec.update({"metrics": hm, "at_1_5x": {"net_value": r15["net_value"], "primary": r15["primary"]},
                 "p_value": round(p, 4), "checks": checks, "passed": all(c["pass"] for c in checks),
-                "trades": r["trades"][:500]})
+                "trades": r["trades"][:500], "series": {"days": list(r["days"]), "ret": _round(r["ret"])}})
     write_json(path, rec)
     return rec
 
