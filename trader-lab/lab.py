@@ -14,6 +14,10 @@ places an order.
     python3 lab.py report orb15-vwap                     # the plain-words scorecard
     python3 lab.py compare orb15-vwap rsi2-nifty50       # key numbers side by side
     python3 lab.py forward orb15-vwap                    # today's signals -> draft plans for trader-budget
+    python3 lab.py hunt list                             # the pre-registered edge-hunt hypotheses
+    python3 lab.py hunt run eh-03-index-trend --dry-run  # check a hypothesis, its data and its trial count
+    python3 lab.py hunt run eh-03-index-trend            # train + validation, then the sealed holdout once
+    python3 lab.py hunt status                           # trials, holdout openings, the programme's BH cut
 
 What a run does (docs/lab.md has the method and the why):
 
@@ -857,6 +861,22 @@ def options_api():
         sys.modules[name] = mod
         spec.loader.exec_module(mod)
     mod.bind(_this_module(), strategy_api(), archive_api(), regime_api())
+    return mod
+
+
+def engines_api():
+    """This skill's v2 engines and the edge-hunt executor (the "engines" helper folder next to lab.py), bound
+    to the lab, trader-archive, trader-regime and trader-strategy."""
+    import importlib.util
+    name = "bt_lab_engines"
+    mod = sys.modules.get(name)
+    if mod is None:
+        path = os.path.join(HERE, "engines", "__init__.py")
+        spec = importlib.util.spec_from_file_location(name, path, submodule_search_locations=[os.path.dirname(path)])
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+    mod.bind(_this_module(), archive_api(), regime_api(), strategy_api())
     return mod
 
 
@@ -2973,6 +2993,88 @@ def _print_option_forward(r):
     return 0
 
 
+EDGE_HUNT_DIR = os.path.join(LIBRARY_DIR, "edge-hunt")
+
+
+def hunt_market(a):
+    """The data an edge-hunt run reads: --data DIR (a plain folder), else the local trader-archive."""
+    eng = engines_api()
+    if getattr(a, "data", None):
+        return eng.market.FolderMarket(a.data, archive_api())
+    root = getattr(a, "archive", None) or ARCHIVE_DIR
+    api = archive_api()
+    if api is None or not os.path.isdir(root):
+        return eng.market.Market()
+    return eng.market.ArchiveMarket(root, api)
+
+
+def _hunt_words(r):
+    pl = r.get("plan") or {}
+    L = []
+    if r["state"] == "blocked":
+        L.append("%s cannot run yet:" % pl.get("id"))
+        L.extend("  - %s" % b for b in pl.get("blockers") or [])
+    elif r["state"] == "dry-run":
+        L.append("%s would run on the %s engine: %d grid points on train and validation, each one trial." % (
+            pl["id"], pl["engine"], pl["grid_points"]))
+        L.append("Trials charged to the deflated Sharpe ratio: %d (grid %d + prior %d + family %d + declared %d)." % (
+            pl["trials_counted"], pl["grid_points"], pl["prior_trials"], pl["family_trials"], pl["extra_trials"]))
+        for k, c in sorted((pl.get("coverage") or {}).items()):
+            L.append("  %s: data %s to %s, %d sessions" % (k, c["first"], c["last"], c["sessions"]))
+        L.append("The holdout %s to %s stays sealed; only a finalist that passes every validation gate opens it, "
+                 "once." % (pl["windows"]["holdout"]["from"], pl["windows"]["holdout"]["to"]))
+        L.append("Nothing was written (dry run).")
+    elif r["state"] == "paused":
+        L.append("%s paused (%s): %d of %d trials done. Run it again to carry on; no trial runs twice." % (
+            pl["id"], r.get("why"), r["done"], r["of"]))
+    else:
+        o = r.get("outcome") or {}
+        if r.get("already"):
+            L.append("%s was decided on %s; nothing was re-run and the holdout is not opened again." % (
+                (r.get("plan") or {}).get("id") or "", o.get("decided_at")))
+        L.append("Verdict: %s. %s" % (o.get("verdict"), o.get("why")))
+        L.append("Scorecard: %s" % os.path.join(r["dir"], "scorecard.md"))
+    return "\n".join(L)
+
+
+def cmd_hunt(a):
+    eng = engines_api()
+    ex = eng.executor
+    folder = a.library or EDGE_HUNT_DIR
+    if a.hunt_cmd in (None, "list", "status"):
+        st = ex.status(folder, a.out)
+        if a.json:
+            print(json.dumps(st, indent=1, ensure_ascii=False))
+            return 0
+        print("Edge-hunt hypotheses (%s), pre-registered; most are expected to fail:" % folder)
+        for h in st["hypotheses"]:
+            extra = ""
+            if a.hunt_cmd == "status":
+                extra = "  %s, %d of %d trials%s%s" % (h["phase"], h["trials_run"], h["trial_budget"],
+                                                      ", holdout opened %s" % h["holdout_opened"] if h["holdout_opened"]
+                                                      else "", ", BH keeps" if h["bh_kept"] else "")
+            print("  %2s %-26s %-17s %-10s %-9s%s" % (h["rank"], h["id"], h["family"], h["status"],
+                                                     h["verdict"] or "-", extra))
+            if not h["registered_ok"]:
+                print("     PROBLEM: %s" % h["problem"])
+        print("")
+        print(st["bh_note"] + ".")
+        print("Education and research tooling, not financial advice.")
+        return 0
+    path = ex.resolve(a.hypothesis, folder)
+    deadline = None
+    if a.max_seconds:
+        t0 = time.monotonic()
+        deadline = (lambda: time.monotonic() - t0 > a.max_seconds)
+    r = ex.execute(path, hunt_market(a), a.out, ist_now(a.now).replace(tzinfo=None), None if a.json else
+                   (lambda msg, f: _progress(msg)), deadline, None, a.extra_trials or 0, a.dry_run)
+    if a.json:
+        print(json.dumps({k: v for k, v in r.items() if k != "results"}, indent=1, ensure_ascii=False, default=str))
+    else:
+        print(_hunt_words(r))
+    return 0 if r["state"] in ("decided", "dry-run", "paused") else 3
+
+
 def utf8_console():
     for s in (sys.stdout, sys.stderr):
         try:
@@ -3011,14 +3113,29 @@ def main(argv=None):
     p = sub.add_parser("compare", help="key numbers of several runs side by side")
     p.add_argument("strategies", nargs="+")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("hunt", help="the pre-registered edge-hunt hypotheses: list, run one, status")
+    p.add_argument("--library", help="the hypothesis folder (default trader-lab/library/edge-hunt)")
+    p.add_argument("--json", action="store_true")
+    hs = p.add_subparsers(dest="hunt_cmd")
+    hs.add_parser("list", help="every registered hypothesis with its status")
+    hs.add_parser("status", help="run state, trials, holdout openings and the programme's BH cut")
+    q = hs.add_parser("run", help="run one hypothesis exactly as registered")
+    q.add_argument("hypothesis", help="an id such as eh-03-index-trend (or EH-03)")
+    q.add_argument("--dry-run", action="store_true", help="check the file, the data and the trial count; run nothing")
+    q.add_argument("--data", help="a plain data folder instead of the archive (bars, members.json, results.json...)")
+    q.add_argument("--archive", default=ARCHIVE_DIR, help="the trader-archive folder (default trader/archive)")
+    q.add_argument("--extra-trials", type=int, default=0, help="more earlier trials to charge the deflated Sharpe for")
+    q.add_argument("--max-seconds", type=int, help="pause after this long (run again to carry on)")
+    q.add_argument("--now", help="pretend it is this IST time")
+    q.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     if not a.cmd:
         ap.print_help()
         return 2
     try:
         return {"list": cmd_list, "show": cmd_show, "validate": cmd_validate, "run": cmd_run, "report": cmd_report,
-                "compare": cmd_compare, "forward": cmd_forward}[a.cmd](a)
-    except (LabError, RulesError) as e:
+                "compare": cmd_compare, "forward": cmd_forward, "hunt": cmd_hunt}[a.cmd](a)
+    except (LabError, RulesError, ValueError) as e:
         print("lab: %s" % e, file=sys.stderr)
         return 1
 
