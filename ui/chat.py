@@ -237,6 +237,8 @@ def post_json(cfg, url, body):
             detail = e.read(600).decode("utf-8", "replace")
         except Exception:
             detail = ""
+        finally:
+            e.close()
         raise ChatError(502, scrub("the LLM endpoint said %d %s %s" % (e.code, e.reason, detail[:300]), cfg))
     except (urllib.error.URLError, OSError, ValueError) as e:
         raise ChatError(502, scrub("cannot reach the LLM endpoint: %s" % (getattr(e, "reason", None) or e), cfg))
