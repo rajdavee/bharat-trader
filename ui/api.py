@@ -2429,8 +2429,12 @@ def r_autopilot_start(ctx, q, body):
         data = _autopilot_data(ctx)
         if data:
             argv += ["--data", data]
-        with ctx.cmd_lock:
-            p = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
+        # its own process with no stdin: under the MCP server our stdin is the protocol pipe
+        try:
+            p = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               timeout=300, cwd=ctx.workdir)
+        except subprocess.TimeoutExpired:
+            raise ApiError(504, "the auto-pilot step took longer than 5 minutes")
         if p.returncode:
             raise ApiError(409, (p.stderr or p.stdout).decode("utf-8", "replace").strip()[-400:])
         out = autopilot_view(ctx)
