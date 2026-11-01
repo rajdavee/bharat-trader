@@ -6,387 +6,119 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-xx
+
+The co-trader release: candidates only from validated rules, odds with their
+range and sample size, "no trade today" as a first-class answer, and every
+probability scored afterwards. On real data every built-in strategy, equity
+and options, is REJECTED and a 500-trial discovery found 0 finalists. The
+docs say so. See [docs/cotrader-guide.md](docs/cotrader-guide.md).
+
 ### Added
-- **Hinglish output mode** (#52). `--lang hi-en`, or `"lang": "hi-en"` in
-  `trader/config.json`, turns the plain-words output into Hinglish (Hindi in
-  Roman script, trading words in English): trader-broker tickets and
-  confirmations (paper and the live linked-exit messages), trader-risk
-  verdicts with every BLOCK rule in plain words (the exact English reason and
-  its numbers stay under it), trader-alerts rings, trader-cotrader candidates,
-  explanations and the sit-out answer, the trader-autopilot daily report, the
-  trader-exit plan summary, the trader-budget sizing report and refusals, the
-  trader-journal weekly review and the MCP `trade_brief` headline. Numbers,
-  ₹, IST, tickers, JSON and the `## Safety` rule text stay English, and the
-  reply that places an order is still the English word *yes* ("haan" is
-  refused like "ok"). Each script carries its own `MSG` catalogue and a tiny
-  `t()` / `pick_lang()` helper, kept identical across skills by
-  `tests/test_repo.py`. The web UI gets a language toggle in Settings
-  (`GET`/`POST /api/lang`, which changes only `lang`) and a catalogue
-  (`ui/static/js/i18n.js`) for the navigation, Today, Co-trader, Risk and the
-  order ticket; every MCP tool takes an optional `lang` for its text
-  summaries. Style guide and the safety lines side by side:
-  [docs/hinglish.md](docs/hinglish.md). Tests: every key in both languages
-  with the same placeholders, no oversell words, the safety lines' meaning,
-  and three golden Hinglish outputs (a ticket, a risk BLOCK, the co-trader's
-  no-edge answer) from the real-data fixtures.
-- **trader-broker: native linked exits** (#34). The stop and the target as
-  ONE broker-native linked order, where the broker has one: Kite GTT two-leg
-  OCO after the entry fills (`place --leg oco`), Upstox multi-leg GTT and
-  Dhan Super Order with the entry (`place --leg bracket`); leg-by-leg exits
-  stay the fallback (Angel One). Capability flag `native_oco` in every
-  adapter. Every linked order goes through the same six gates (config broker,
-  `"paper": false`, `live_enabled`, trader-risk PASS for that exact ticket,
-  your typed yes, today's preflight); the ticket's yes covers its own linked
-  exit only (a sealed single-use pass for that exact stop-and-target order:
-  never a plain order, another ticket or edited prices), and never both
-  styles of exits at once. An auto-pilot yes now closes the `yes` gate itself.
-  `cancel --leg oco|bracket` or `--linked-id`; `modify-exits --index NEW
-  --linked-id ID` changes the stop and target under the NEW ticket's own risk
-  PASS and yes; `reconcile` reads the broker's GTT / super-order book after a
-  restart (read only), matches it to this tool's records, finds sends whose
-  outcome was unknown and lists linked orders it did not make.
-- **trader-broker: Angel One SmartAPI adapter** (#34): profile, funds (RMS),
-  holdings, positions, order book, trades, LTP, candles, the scrip master
-  with NFO tokens, basket margin, gated place and cancel identical to the
-  other adapters, static-IP preflight against the config. `ticket.py login
-  angel`: client code and PIN from your shell plus a 6-digit TOTP code you
-  type (not echoed), or computed from `BT_ANGEL_TOTP_SECRET` (RFC 6238,
-  stdlib; the security trade-off is in docs/brokers.md). The contract suite
-  runs against all four adapters, on doc-derived fixtures and a real
-  scrip-master slice.
-- **Broker basket-margin cross-check** (#34): `ticket.py margin-check` (read
-  only) asks Kite `/margins/basket`, the Upstox margin API, Dhan's margin
-  calculator or Angel One's margin API for the F&O basket and saves the day's
-  figure; trader-strategy (`margin.broker_basket`) and trader-risk (an info
-  line, and a warning when the broker blocks more than the figure used) show
-  it next to our SPAN-style estimate with the difference, fetching it once
-  when the broker's token is in the shell. Never changes an estimate or a
-  verdict.
-- UI and MCP: the broker status shows each broker's native linked exit and
-  today's margin check; a "Check basket margin" card on Settings
-  (`GET /api/broker/margin`); the read-only MCP tool `broker_margin_check`
-  (53 tools with trader-tax's `tax_summary`).
-- docs/brokers.md: Angel One setup with the TOTP security notes, native OCO
-  per broker, the margin cross-check, and the documented hook for an
-  OpenAlgo bridge (not built in this release).
-- **`trader-tax`** (#50): a financial-year tax ESTIMATE for discussion with
-  a CA, not tax advice. `tax.py report | export | rules | years | import`.
-  Each trade is classified as intraday equity (speculative business
-  income), F&O (non-speculative business income) or delivery shares
-  (short-term gains at 15% / 20% from 23 Jul 2024 under s.111A, long-term
-  at 10% / 12.5% above Rs 1 lakh / Rs 1.25 lakh under s.112A, with the
-  31 Jan 2018 grandfathering). Charges go where each head allows them
-  (STT deductible for business, not for capital gains). Business turnover
-  follows ICAI's Guidance Note on Tax Audit (Revised 2026, para 5.11), with
-  the options-premium question shown both ways, and the s.44AB audit check
-  and the s.44AD interplay are explained in words. Current-year set-off,
-  brought-forward losses (4 years speculative, 8 years other business and
-  capital losses, lapsed and late-filed ones flagged), what carries
-  forward, the special-rate amounts, the advance-tax dates and the ITR-3
-  schedule for each number. FY 2025-26 is reported under the Income-tax
-  Act, 1961 and tax year 2026-27 under the Income-tax Act, 2025, with the
-  section map and the s.536 transition for older losses. Inputs: imported
-  broker trade books (trader-journal's importers), paper fills for practice,
-  and `trader/tax/` holdings, carry-forward, expenses and profile files.
-  `export` writes `report.md`, CSVs and `tax.json` to
-  `trader/tax/FY2025-26/`. See docs/tax.md for the rules table and sources.
-- **UI** (#50): a Tax page under Review (the FY and book pickers, heads,
-  turnover and audit check, set-off and carry-forward, special rates,
-  advance tax, ITR-3 schedules, export), from `GET /api/tax` and
-  `POST /api/tax/export`.
-- **MCP** (#50): `tax_summary` (read only; 52 tools in all).
-- **`trader-autopilot`** (#45): the co-trader loop, run by itself on the
-  PAPER account. `autopilot.py start [--once] [--dry-run] | stop | status |
-  report [--date] | replay --date D [--to D2]`. A resumable stdlib loop on the
-  NSE clock (IST, holidays, the closing auction): pre-open (trader-doctor,
-  trader-regime, an optional trader-archive update, the co-trader brief);
-  the entry window (the co-trader every `cadence_min` minutes; PROMOTED and
-  WATCH candidates only, never RESEARCH; sized by trader-budget inside each
-  strategy's capital bucket; trader-risk on that exact order; a machine yes
-  recorded word for word with `"actor": "autopilot"`; orders a second apart);
-  manage on every 5-minute bar (LIMIT fills by the bars, skipped when opening
-  through the stop or target, stops with gaps, targets, trailing stops, the
-  strategy's own exit rule and maximum holding, the MIS flat-by, delivery
-  positions carried overnight, the spec's slippage); F&O baskets on
-  end-of-day settle prices from the archive (risk as one position with the
-  spec's stop as its risk rule, one machine yes for every leg, close-all as
-  one basket, expiry settlement); end of day (unfilled entries cancelled, the
-  trader-journal sync (`journal.sync`, its public function) when it is
-  installed, calibration scoring with demotion, each strategy's paper trades
-  in `trader/autopilot/records/` and in its trader-lab forward record, the
-  lab's forward test re-run for promote/demote, and the day's report as
-  Markdown and JSON). Per-strategy capital, max positions and daily loss, plus
-  global limits, in an `autopilot` block of `trader/config.json`. The kill
-  switch stops entries and flattens on paper. State saved after every action
-  (intent before each broker call: no double order or fill after a crash), a
-  lock file for one loop per folder, graceful stop. `replay` runs past
-  sessions in a sandbox with a simulated clock, the lab re-run as of the close
-  before (no look-ahead). Paper only in code: a live config is refused before
-  anything and checked every step; only paper broker commands are run, never
-  `place`. Method and safety model in `docs/autopilot.md`.
-- trader-broker: `confirm --actor autopilot` records a machine yes labelled
-  as such and is refused on a live config; `place` refuses any yes the user
-  did not type.
-- UI: the **Auto-pilot** page (status, start/stop with the typed words
-  `start paper` / `stop paper`, today's timeline, open paper positions by
-  strategy, each strategy's forward record next to the lab's verdict, the
-  day's report, replay a past day) and `/api/autopilot`,
-  `/api/autopilot/start`, `/stop`, `/replay`.
-- MCP: `autopilot_status`, `autopilot_replay` (a sandbox, read-only for your
-  account), `autopilot_start` and `autopilot_stop` (paper only, the user's
-  typed confirmation by elicitation or argument).
-- **AI assistant integration v2** (#47): an evidence-first co-trader workflow
-  layer for any MCP-compatible assistant (47 tools, 16 prompts).
-  - New tools:
-    - `trade_brief` (read only) returns in one call the regime, today's
-      validated candidates with p, its 95% range and n, worked out fresh and
-      not logged, or the no-edge reasons; it adds the risk locks, the open
-      paper positions, today's limits used and the calibration snapshot.
-    - `best_for_regime` filters every lab run's past trades to today's
-      regime cell. Each run gets its Wilson range, shrunk p and expected R
-      with their ranges, and an "enough trades" flag; the ranking is
-      conservative.
-    - `strategy_design` turns a structured intent into a trader-lab spec
-      draft in the lab's fixed vocabulary, with every validation error. The
-      intent covers the template, symbols, a clock window, expiry day,
-      VIX/IV bounds, an uptrend filter, the regime gate, the risk budget
-      and one extra entry condition. Unknown names such as `eval` are
-      rejected and nothing is ever run.
-    - `lab_run_spec` runs a user or assistant spec through the lab, with a
-      time budget and progress.
-    - `compare_strategies` shows 2 to 8 runs side by side with Wilson and
-      mean ranges, the trials charged and today's cell.
-    - `archive_status` reports what the local archive holds.
-  - Trial-count honesty: every `lab_run` and `lab_run_spec` from the server
-    is logged in `trader/state/lab-trials.jsonl` with its strategy *family*
-    (the spec's structure without numbers, symbols or name). Later specs of
-    the family pay for the earlier ones' grid points in the deflated Sharpe
-    (`trader-lab`'s `run_and_decide` takes `extra_trials`).
-  - New prompts: `daily_cotrader_brief`, `find_best_trade_now`,
-    `design_strategy_for_window` (for example expiry day, or 09:15-10:00),
-    `stress_test_my_idea` and `review_my_week`. Each one requires the
-    evidence first: n and the 95% interval, numbers after charges, the
-    regime and what the evidence does NOT show. Each also rules out
-    promises and says that proposing is not placing: every order needs risk
-    and the user's typed yes.
-  - Paper auto-pilot tools (#45): see the `trader-autopilot` entry.
-- UI: the optional **Ask** page (`ui/chat.py`). It is off by default and
-  relays to the user's own LLM endpoint, configured by environment variables
-  only (`BT_LLM_BASE_URL`, `BT_LLM_API_KEY`, `BT_LLM_MODEL`, `BT_LLM_FORMAT`
-  = `chat-completions` or `messages`, plus optional extra headers and auth
-  header name).
-  - Tool calls go to the same toolkit functions: the read-only tools plus
-    `paper_order_draft`. A confirm is never offered and is refused if asked
-    for. The broker reads are left out.
-  - Privacy and access: there is a "your data goes to the LLM provider you
-    configured" notice and a consent box per session. The routes answer
-    127.0.0.1 only. The key is never logged or sent to the browser, and it
-    is scrubbed from errors.
-  - The relay runs up to 8 tool rounds per question. Routes: `/api/ask`,
-    `/api/ask/consent`, `/api/ask/reset`. See `docs/ai-chat.md`.
-- Docs: `docs/mcp.md` has a regenerated tool reference, the co-trader
-  workflow and "using your assistant as a co-trader" with example
-  conversations that show uncertainty. New `docs/ai-chat.md`.
-- Tests: MCP tests for every new tool and prompt, offline, including the
-  strategy_design vocabulary checks, trial-count increments and the
-  read-only brief. `tests/test_ai_chat.py` covers a stub LLM server for
-  both formats with multi-step tool calls, consent, key scrubbing,
-  loopback-only access, the step cap and no order from chat.
-- **`trader-cotrader`** (#44): calibrated, backtested trade candidates for
-  today. `cotrader.py today [--tier research]`, `explain ID`, `calibration`,
-  `log`, `--json`; writes `trader/cotrader.json`, a plan per candidate
-  (`trader/cotrader/plans/`) and a prediction log. Evidence tiers on every
-  candidate: PROMOTED (lab gates + paper forward record), WATCH (gates passed,
-  forward test running: paper only), RESEARCH (lab REJECT/DEMOTE or never run:
-  "unproven, for study/paper only", only with `--tier research`). For each
-  strategy whose regime cell fits today (trader-regime trend x VIX bucket, as
-  of the close before each signal), live triggers from the lab's own signal
-  engine and forward test become complete plans: entry, stop, target, size
-  (trader-budget), charges at the stop and target, trader-risk PASS/BLOCK
-  with reasons. Probability: the cell's after-charges hit rate with its
-  Wilson 95% interval and n, shrunk toward the strategy's overall rate with a
-  Beta prior worth 20 trades (posterior mean and 95% range), plus the shrunk
-  expected R after charges; a trader-timemachine replay as a second opinion,
-  with disagreements flagged. Ranking: expected R per unit risk minus
-  penalties for interval width and for correlation with open positions and
-  higher-ranked candidates; tier first; ties by liquidity. No edge is a
-  first-class answer: "sitting out is the decision", with the reasons (no
-  validated strategy, regime mismatch with numbers, no trigger, risk locks)
-  and what would change them. Explanations: why, invalidation, the evidence,
-  what it does NOT show, the nearest similar past trades. Calibration: every
-  prediction logged once, resolved from paper fills, the lab's forward record
-  or the next bars; Brier score with its base-rate reference, log loss and
-  reliability bins per strategy and tier; an overconfident PROMOTED or WATCH
-  strategy is demoted through trader-lab's status (DEMOTE). Options specs
-  (#57) join through the lab's options forward test: the drafted
-  trader-strategy basket is a candidate (structure, legs, margin, max loss
-  after charges) risk-checked as one position. Method in `docs/cotrader.md`.
-- UI: the **Co-trader** page (candidate cards with the tier badge, odds with
-  range and n, expected R after charges, the replay, the risk verdict, why /
-  why not, Draft to paper through trader-budget and trader-risk, the no-edge
-  card, the calibration chart) and the Today page's candidates card;
-  `GET /api/cotrader`, `POST /api/cotrader/run`, `POST /api/cotrader/draft`.
-- MCP: `cotrader_candidates`, `cotrader_explain` and `calibration_report`
-  (38 tools); `paper_order_draft` takes `candidate: ID`.
-- trader-risk: a co-trader RESEARCH idea (plan setup `cotrader-research:`)
-  is blocked on a live config: unproven ideas are paper only.
-- **`trader-journal`** (#49): the trade journal and the counterfactual
-  ledger. `journal.py sync | list | show ID | stats [--by strategy|persona|
-  regime|tod|weekday|instrument] | review --week 2026-W44 | counterfactual |
-  import FILE --broker NAME | note ID "..."`. One entry per closed trade (an
-  equity position flat to flat; a paper F&O strategy, rolls and settlement
-  included, as ONE entry) from paper fills, live trade books and tradebook
-  imports in Zerodha, Kite, Upstox, Dhan, Angel One and Groww layouts (from
-  each broker's documentation; charges estimated and marked when a file has
-  none): persona, strategy and setup, regime (NIFTY, the close before),
-  entry and exit, qty and lots, gross, charges, net, R multiple, MAE/MFE from
-  bars, holding time, rule notes, your notes and tags. Expectancy with a 95%
-  range, win rate with its Wilson interval, profit factor, equity curve after
-  charges, drawdown and streaks, by group. Rule-break log (risk overrides,
-  trades after a breaker lock, revenge, oversizing, outside the window, late
-  exits, off-ticket fills, overtrading), the overtrading index and the cost
-  drag. trader-risk's verdicts are kept in `trader/journal/risk-log.jsonl`.
-  The counterfactual ledger replays every co-trader candidate not taken
-  (`trader/cotrader/log.jsonl`) and every risk BLOCK of your order with
-  trader-lab's no-look-ahead fill rules: saved / cost with counts and
-  caveats. The weekly review markdown is the journal coach's input. See
-  docs/journal.md.
-- **UI Journal page** (#49): stats tiles with their intervals, the equity
-  curve, breakdowns, the rule-break list, the counterfactual summary, and a
-  trade dialog with notes (`GET /api/journal`, `POST /api/journal/note`); a
-  "This week" card on Today.
-- **MCP** (#49): `journal_summary`, `journal_stats`, `counterfactual_report`
-  (read only, 41 tools in all) and the `trader/journal/` resources (weekly reviews as
-  markdown, notes); the `weekly_review` prompt and the journal-coach persona
-  use them.
-- **`trader-discover`** (#43): strategy discovery with strict overfitting
-  controls. `discover.py run --budget N --universe nifty50 --timeframe 1d|5m
-  [--seed]`, `resume`, `report`, `list`. A fixed trial budget declared up
-  front in `plan.json` (a seeded random or grid sample of 918 daily and 1,398
-  five-minute rules over trader-lab's vocabulary: RSI dips, breakouts, MA
-  crosses, gaps, pullbacks, opening ranges, VWAP, yesterday's high, time
-  windows, ATR stops, R targets, maximum holding, trend filters); a time split
-  into train / validation / untouched holdout with purging and an embargo;
-  every trial logged to `trials.jsonl` (spec hash, params, metrics) and
-  counted. Screens on trades and after-charges expectancy; cost stress at
-  1.5x and 2x, the parameter neighbourhood (run and counted), regime
-  consistency (trader-regime); the deflated Sharpe ratio with the true trial
-  count, the probability of backtest overfitting by CSCV over the trial
-  matrix, a stationary-bootstrap Reality Check / SPA p-value against doing
-  nothing, a Benjamini-Hochberg cut, the Harvey-Liu haircut Sharpe. The
-  holdout is opened once per finalist and logged (`holdout.jsonl`).
-  Finalists are written as trader-lab specs (`trials_tried` = N - 1) and run
-  by the lab: WATCH at best, a paper forward test before any PROMOTE.
-  Everything else is REJECTED with its stage and reason. Time budget with
-  pause and resume, progress, lowered CPU priority, reproducible by seed.
-  Tested on synthetic data: a random walk gives no finalists in every seed,
-  a planted edge is found. Method and sources in `docs/discovery.md`.
-- MCP: `discover_strategies` (budgeted, progress notifications, cancellable,
-  resumable) and the read-only `discover_report` (35 tools). UI: the
-  Strategy Lab page lists discovery runs and their funnels (`GET /api/lab`
-  adds `discovery`).
-- **UI redesign** (#48): a research-led rework of the local web app, written up
-  in `docs/design.md` (workflow research, an audit of the old UI, the design
-  system). Design system v2 in CSS variables: type scale, spacing, radii,
-  elevation, semantic gain/loss/warn/info colours that always come with a
-  sign, ▲/▼ or ✓/✕, dark and light themes, guided or expert detail, reduced
-  motion. New components: grouped sidebar, drawer and phone bottom bar,
-  command palette (Ctrl/Cmd-K), metric tiles with "why" panels and plain-words
-  "?" help, meters against limits, steppers, toasts, empty, loading and error
-  states, sticky table headers.
-- **Today** cockpit as the home page: a session rail from pre-open to the
-  close with your entry window, exits-only time and flat-by, day P&L after
-  charges, the daily loss budget, trades used, risk state (kill switch,
-  circuit-breakers), positions, the plan and its last risk check, alerts,
-  NSE status and the data self-test; places for the market regime and
-  co-trader candidates.
-- **Strategy Lab page** and `GET /api/lab`: each trader-lab run's verdict,
-  out-of-sample sample size, expectancy after charges, Monte Carlo range,
-  drawdown, equity curve, gates, regime split, deflated Sharpe, overfitting
-  odds and what a backtest does not show.
-- **Setup guide** on a fresh folder and `GET /api/onboarding`: capital, risk
-  per trade, trades per day, product and broker previewed as the config
-  `size.py init` would write and saved through the validated settings API;
-  then the MCP entry for your assistant and the read-only broker variables.
-  Every step skippable; going live is never part of it.
-- Placeholder pages for Co-trader, Auto-pilot and Journal, labelled "Coming
-  in v0.3".
-- `ui/screenshots.py`: screenshots of every page at any width with a headless
-  browser you already have (DevTools protocol, standard library), flagging
-  sideways scroll and error notes; `tests/test_ui_screens.py` runs it on the
-  key pages when a browser is installed.
-- **`trader-archive`** (#41, archive half of #35): a local NSE market data
-  archive under `trader/archive/`. `backfill --years N` fetches equity and F&O
-  bhavcopies (UDiFF from 2024-01-02, the legacy format before, one schema),
-  index closes, India VIX, lot sizes, ban lists, futures settlement prices
-  and corporate actions, newest day first, 1.5 s between NSE calls, stopping
-  after repeated blocks; weekends and holidays are skipped and missing
-  weekdays learned as closed. Gzip CSV per dataset per day with a manifest
-  (source URL, fetched_at, rows, SHA-256); resumes after any interruption.
-  `update`, `status`, `verify` (checksums, gaps vs the calendar, duplicates,
-  OHLC, split/bonus factors checked against prices, unexplained moves, short
-  sessions, intraday gaps, survivorship), `export` (lab CSV), `intraday`
-  (Upstox v3 candles through trader-broker's adapter and your token; Kite
-  and Dhan when you have their plan; merged with Yahoo, gap report) and
-  `snapshot-chain` (option chains during market hours). An offline read
-  API: `load_daily` (split- and bonus-adjusted), `load_intraday`,
-  `load_fo_chain_eod`, `load_vix`, `load_index`, `trading_days` and more.
+- **`trader-archive`** (#41): a local NSE data archive. Equity and F&O
+  bhavcopies (UDiFF and legacy), index closes, India VIX, lot sizes, ban
+  lists, settlement prices and corporate actions, with polite, resumable
+  backfill and a checksummed manifest. Also broker intraday candles merged
+  with Yahoo, option-chain snapshots, `verify`, and an offline read API
+  (split- and bonus-adjusted). See docs/archive.md.
 - **`trader-regime`** (#42): the market regime per day for NIFTY, BANKNIFTY
-  and any NSE stock. Trend or range from ADX(14), Kaufman's efficiency ratio,
-  the 20/50 EMAs and slope and the 200-day average; the volatility bucket
-  from India VIX's percentile over a year (stocks: their own realised vol),
-  realised vol 20d vs 1y and IV rank (India VIX; a stock's approximate ATM IV
-  from the archived F&O bhavcopy with `--iv`); the gap in ATRs; breadth from
-  the equity bhavcopy; weekly and monthly expiry today or next session from
-  the exchange's list in the archive (else a dated Tuesday/Thursday rule with
-  holiday shifts); results days from NSE board meetings; RBI policy and Union
-  Budget days (`events.json`, each with its source); holidays, special
-  sessions and the closing-auction window from the dated SESSION_RULES; and
-  time-of-day buckets (open drive, morning, midday, afternoon, closing
-  window, closing auction). `now`, `history` (stores `trader/regime/*.json`
-  and an archive table `archive/regime/`), `explain`, `--json`; thresholds in
-  `trader/regime-config.json`. No look-ahead: each day uses data up to its
-  own close (tested by changing the future). Archive first, Yahoo daily bars
-  when there is none or it is thin. Pure functions for other skills.
-- `trader-lab` splits every backtest by market regime (NIFTY trend or range
-  x India VIX bucket x expiry flag, as of the close before each signal), with
-  trades, mean R and a 95% interval per cell, and has an opt-in gate
-  `require_regime_edge` ("edge in the current regime", `min_regime_trades`).
-- MCP: the read-only tool `regime_now` (33 tools) and `trader/regime/`
-  resources. UI: `GET /api/regime`, shown in the Today page's Market card.
-- `trader-lab` reads bars from the archive when present (`--archive`,
-  `--no-archive`), else Yahoo; `trader-timemachine` adds the archive's older
-  5-minute sessions to its pool.
+  or a stock: trend or range, the India VIX bucket, the gap, breadth, expiry
+  and event days, the closing-auction window and the time-of-day bucket.
+  No look-ahead (tested by changing the future). See docs/regime.md.
+- **`trader-discover`** (#43): strategy discovery with a declared trial
+  budget, a purged and embargoed train / validation / holdout split, and
+  every trial counted. Survivors face the deflated Sharpe with the true N,
+  overfitting odds over the trial matrix, a Reality Check / SPA bootstrap
+  and a Benjamini-Hochberg cut. Finalists become trader-lab specs (WATCH at
+  best). See docs/discovery.md.
 - **Strategy Lab, options** (#35): `"kind": "options"` specs backtested day
-  by day on the archive's end-of-day F&O bhavcopies, in trader-lab's new
-  `options/` helper package. Structures from trader-strategy's templates
-  (short strangle and straddle, iron condor and fly, bull put and bear call
-  spreads, calendars, long straddle and strangle); strikes by delta (IV
-  solved from settle prices on a parity forward), % out of the money or
-  points from ATM; entries by days to expiry, weekday, IV rank (the
-  underlying's own 30-day ATM IV) and India VIX; exits at a profit target or
-  stop on the premium, days before expiry, else cash settlement at the final
-  settlement price. Legs marked at each close from settle prices, Black-76 at
-  the day's smile IV when a strike did not trade (flagged); dated F&O charges
-  per side with STT on exercise; slippage as % of premium plus ticks; lot
-  sizes, holiday-shifted expiries and holidays from the files. Margin is
-  trader-strategy's SPAN-style estimate (with the expiry-day ELM) and R is
-  return on margin. The equity machinery (walk-forward, neighbourhood, Monte
-  Carlo, DSR, PBO, cost stress, VIX/trend and trader-regime splits, gates)
-  plus return on margin, worst week, 5%/1% tail loss, losing streaks, time in
-  drawdown and short-strike breaches. Five library specs (NIFTY weekly
-  16-delta strangle and 100-point-wing condor, NIFTY expiry-day iron fly,
-  BANKNIFTY monthly put spread, IV-rank-filtered strangle). `forward` drafts
-  a paper basket through trader-strategy (`strategy.json` and `orders.json`)
-  for trader-risk; nothing is placed. UI: the Lab page shows options
-  scorecards; MCP: `lab_run` and `lab_forward` accept options specs
-  (`draft: NIFTY` writes the basket and runs trader-risk on it).
+  by day on the archive's EOD F&O chains (strangles, condors, iron flies,
+  spreads, calendars), with dated F&O charges, STT on exercise, return on
+  SPAN-style margin, tail and breach statistics, and the full walk-forward /
+  DSR / PBO / gates machinery. Five library specs. Every backtest is now
+  split by market regime, and an opt-in `require_regime_edge` gate exists.
+- **`trader-cotrader`** (#44): today's candidates from lab-validated rules
+  with evidence tiers (PROMOTED, WATCH; RESEARCH only on request). Each
+  candidate is a full plan with size, charges and a trader-risk verdict. It
+  shows the after-charges hit rate in today's regime cell with a Wilson 95%
+  range and n, shrunk toward the rule's overall rate, plus expected R after
+  charges and a time-machine second opinion. Candidates are ranked per unit
+  of risk with penalties for uncertainty and correlation. The no-edge answer
+  comes with its reasons. Every prediction is logged once and scored (Brier,
+  log loss, reliability), and overconfident strategies are demoted. See
+  docs/cotrader.md.
+- **`trader-autopilot`** (#45): the co-trader loop on the PAPER account, on
+  the NSE clock. PROMOTED and WATCH strategies only, per-strategy capital
+  buckets, trader-risk on every order and a machine yes labelled
+  `autopilot`. It handles stops, targets, trailing and time exits, the
+  flat-by, F&O baskets at the close and expiry settlement, then writes the
+  journal sync, calibration, the lab's forward record (promote or demote) and
+  a daily report. Resumable, with one loop per folder; it replays past days
+  on a simulated clock and refuses a live config. See docs/autopilot.md.
+- **`trader-journal`** (#49): one entry per closed trade (an F&O strategy as
+  one), from paper fills, live trade books and Zerodha / Upstox / Dhan /
+  Angel One / Groww imports. Expectancy and win rate with intervals by
+  strategy, persona, regime, time of day, weekday and instrument; the
+  rule-break log, the overtrading index and the cost drag. A counterfactual
+  ledger replays skipped candidates and risk-blocked orders. A weekly review
+  feeds the journal coach. See docs/journal.md.
+- **`trader-tax`** (#50): a financial-year tax ESTIMATE for your CA. It
+  covers intraday (speculative), F&O (non-speculative) and capital gains
+  (s.111A / s.112A with the 2018 grandfathering), the ICAI turnover and the
+  audit check, set-off and carry-forward, special-rate amounts, advance-tax
+  dates and ITR-3 schedules. FY 2025-26 follows the 1961 Act and tax year
+  2026-27 the 2025 Act, with every rule dated and sourced. Not tax advice.
+  See docs/tax.md.
+- **Brokers phase 2** (#34): native linked exits (Kite GTT OCO, Upstox
+  multi-leg GTT, Dhan Super Order) under the same six gates, with `cancel`,
+  `modify-exits` and a read-only `reconcile`. An **Angel One** SmartAPI
+  adapter with TOTP login. `ticket.py margin-check`: the broker's basket
+  margin next to our estimate in trader-strategy and trader-risk (never
+  changes a verdict). The OpenAlgo bridge is documented as a hook, not
+  built.
+- **AI assistant integration v2** (#47): the co-trader workflow tools
+  `trade_brief`, `best_for_regime`, `strategy_design` (a fixed, safe spec
+  vocabulary), `lab_run_spec`, `compare_strategies` and `archive_status`.
+  Honest trial counting: every server-run spec is logged by strategy family,
+  and later specs pay for earlier trials in the deflated Sharpe. Five
+  co-trader prompts (`daily_cotrader_brief`, `find_best_trade_now`,
+  `design_strategy_for_window`, `stress_test_my_idea`, `review_my_week`) that
+  require n, the 95% interval, after-charges numbers, the regime and what
+  the evidence does not show. The MCP server now has **53 tools and 16
+  prompts** (from 32 and 11), still with no live-order tool.
+- **Ask page** (#47): optional chat with your own LLM endpoint inside the UI
+  (`BT_LLM_*` environment variables only; chat-completions or messages
+  format). It has a privacy notice and per-session consent, answers on
+  loopback only, never exposes the key, and is limited to the read-only
+  tools and the paper draft. See docs/ai-chat.md.
+- **UI redesign** (#48): a research-led design system (docs/design.md), a
+  grouped sidebar, drawer and phone bottom bar, a command palette, guided or
+  expert detail, dark and light themes, and a "why" panel on every number.
+  New pages: the **Today** cockpit, **Strategy Lab**, **Co-trader**,
+  **Auto-pilot**, **Journal**, **Tax** and **Ask**, plus a first-run **setup
+  guide**. `ui/screenshots.py` makes screenshots with a browser you already
+  have.
+- **Hinglish** (#52): `--lang hi-en` or `"lang": "hi-en"` for tickets,
+  confirmations, risk verdicts, alerts, the co-trader and its sit-out answer,
+  the auto-pilot report, exit plans, sizing, the weekly review and the brief.
+  It is also a UI toggle and an MCP `lang` argument. Numbers, ₹, IST and the
+  safety rules stay English, and only the English *yes* places an order. See
+  docs/hinglish.md.
+- Docs: a co-trader guide (the daily and weekly workflow, what probabilities
+  and calibration mean, assistant prompts, the safety model), a README that
+  leads with the real-data results, fresh screenshots, and the v0.4 roadmap.
 
 ### Changed
-- The offline demo copies `tests/fixtures/ui/lab/` (three real lab runs, one options) into
-  its `trader/lab/`.
-- Every page now follows the design system and opens with a one-line
-  description of its step in the trader's day (hidden in expert detail).
+- trader-risk blocks a co-trader RESEARCH idea whenever the config is live.
+- trader-broker: `confirm --actor autopilot` records a labelled machine yes
+  and is refused on a live config. `place` refuses any yes the user did not
+  type.
+- trader-lab and trader-timemachine read bars from the local archive when
+  present. trader-lab's `run_and_decide` takes `extra_trials`.
+- `paper_order_draft` (MCP) takes `candidate: ID`.
+- The offline UI demo copies three real lab runs (one options) and a journal
+  into its `trader/` folder. Every page opens with a one-line description of
+  its step in the trader's day.
 
 ### Fixed
 - The navigation no longer cuts off pages at 1280 or 1440 px, and every page
@@ -545,6 +277,7 @@ paper by default.
   risk checks.
 - Paper broker with broker-neutral order tickets (entry, SL-M stop, LIMIT target).
 
-[Unreleased]: https://github.com/rajdavee/bharat-trader/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/rajdavee/bharat-trader/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/rajdavee/bharat-trader/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/rajdavee/bharat-trader/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/rajdavee/bharat-trader/releases/tag/v0.1.0
