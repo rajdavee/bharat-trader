@@ -128,6 +128,7 @@ export async function render(root, ctx) {
   const strikes = ['10', '15', '25', '0'].includes(p.strikes) ? p.strikes : '15';
   let showGreeks = p.greeks === '1' || (p.greeks === undefined && greeksPref());
   root.appendChild(h('h1', { class: 'page-title' }, 'Option chain', h('span', { class: 'badge' }, 'trader-options')));
+  root.appendChild(h('p', { class: 'page-lede explain' }, 'Discover: who holds which strikes. Open interest, implied volatility and the expected move for one expiry, with plain-words why panels.'));
   const body = h('div');
   const tools = h('form', { class: 'toolbar', autocomplete: 'off' });
   root.appendChild(tools);

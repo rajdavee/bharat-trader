@@ -8,6 +8,7 @@ const QUOTE_TOP = 10;
 
 export async function render(root) {
   root.appendChild(h('h1', { class: 'page-title' }, 'Scanner and watchlist'));
+  root.appendChild(h('p', { class: 'page-lede explain' }, 'Discover: stocks that match a setup today. A hit is a reason to look, not a reason to buy.'));
   const body = h('div');
   root.appendChild(body);
   loading(body);

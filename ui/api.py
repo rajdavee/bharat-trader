@@ -1975,6 +1975,152 @@ def r_agents(ctx, q, body):
                    "as unattributed."}
 
 
+# ---------------------------------------------------------------- routes: Strategy Lab
+
+LAB_STATS = ("trades", "win_rate", "expectancy_r", "profit_factor", "net", "charges", "max_drawdown_pct",
+             "sharpe_annual", "longest_losing_streak")
+MAX_CURVE = 400
+LAB_LIMITS = ("A backtest is history, not a forecast. It does not show how the rules behave in a market unlike "
+              "the one tested, slippage beyond the model, missed fills, or your own discipline. Only the "
+              "out-of-sample numbers were scored on data the parameters never saw; even they are one path. "
+              "A strategy goes to the playbook only after the paper forward test agrees.")
+
+
+def _equity_csv(path):
+    """trader-lab's equity.csv -> [{date, equity, drawdown_pct, oos}], thinned to at most MAX_CURVE points."""
+    rows = []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            head = fh.readline().strip().split(",")
+            for line in fh:
+                v = dict(zip(head, line.strip().split(",")))
+                try:
+                    rows.append({"date": v["date"], "equity": float(v["equity"]),
+                                 "drawdown_pct": float(v["drawdown_pct"]), "oos": v.get("out_of_sample") == "1"})
+                except (KeyError, ValueError):
+                    continue
+    except (IOError, OSError):
+        return []
+    if len(rows) > MAX_CURVE:
+        step = len(rows) / float(MAX_CURVE)
+        keep = sorted(set(int(i * step) for i in range(MAX_CURVE)) | {len(rows) - 1})
+        rows = [rows[i] for i in keep]
+    return rows
+
+
+def _pick(d, keys):
+    d = d if isinstance(d, dict) else {}
+    return {k: d.get(k) for k in keys}
+
+
+def lab_run(ctx, name):
+    """One lab run as the Lab page shows it: verdict, the after-charges numbers, gates, robustness, the curve."""
+    d = ctx.path("lab", name)
+    res = ctx.read("lab", name, "results.json")
+    st = ctx.read("lab", name, "status.json") or {}
+    if not isinstance(res, dict):
+        return None
+    full, oos = res.get("full") or {}, (res.get("walk_forward") or {}).get("stats") or {}
+    mc = res.get("monte_carlo") or {}
+    data = res.get("data") or {}
+    cfg = res.get("config") or {}
+    cap = cfg.get("capital")
+    src = "trader-lab run (trader/lab/%s/results.json)" % name
+    at = res.get("run_at")
+    return {
+        "name": name, "title": res.get("title"), "verdict": st.get("verdict") or res.get("verdict"),
+        "verdict_why": st.get("why") or res.get("verdict_why"), "updated": st.get("updated") or at,
+        "timeframe": res.get("timeframe"), "product": res.get("product"), "spec_hash": res.get("spec_hash"),
+        "data": _pick(data, ("symbols", "from", "to", "sessions", "tested_from")), "capital": cap,
+        "full": _pick(full, LAB_STATS), "oos": _pick(oos, LAB_STATS),
+        "gates": res.get("gates") or [],
+        "dsr": (res.get("dsr") or {}).get("dsr"), "pbo": (res.get("pbo") or {}).get("pbo"),
+        "monte_carlo": _pick(mc, ("runs", "trades", "prob_loss", "final_p5", "final_p50", "final_p95",
+                                  "drawdown_p50", "drawdown_p95")),
+        "regimes": res.get("regimes") or {}, "costs": res.get("costs_sensitivity", {}).get("out_of_sample"),
+        "forward": st.get("forward") or res.get("forward"), "notes": res.get("notes") or [],
+        "history": (st.get("history") or [])[-5:],
+        "equity": _equity_csv(os.path.join(d, "equity.csv")),
+        "limits": LAB_LIMITS,
+        "why": {
+            "oos_expectancy": why("average of (net P&L / rupees risked at the stop) over the out-of-sample trades, "
+                                  "after charges and slippage", {"trades": oos.get("trades"),
+                                                                 "net": oos.get("net")}, src, at,
+                                  "Small samples swing a lot: read it with the trade count and the Monte Carlo range."),
+            "mc_range": why("1,000 reshuffles of the out-of-sample trades: the 5th, 50th and 95th percentile of the "
+                            "final P&L", {"runs": mc.get("runs"), "trades": mc.get("trades"),
+                                          "share of runs that lost": mc.get("prob_loss")}, src, at,
+                            "A range for the same trades in another order, not a forecast of new trades."),
+            "dsr": why("probability the true Sharpe ratio beats zero after allowing for every trial tried "
+                       "(Bailey and Lopez de Prado 2014)", res.get("dsr") or {}, src, at),
+            "pbo": why("share of in-sample / out-of-sample splits where the best in-sample parameters rank below the "
+                       "median out of sample (CSCV)", res.get("pbo") or {}, src, at),
+        },
+    }
+
+
+def r_lab(ctx, q, body):
+    base = ctx.path("lab")
+    runs = []
+    if os.path.isdir(base):
+        for n in sorted(os.listdir(base)):
+            if os.path.isfile(os.path.join(base, n, "results.json")):
+                try:
+                    r = lab_run(ctx, n)
+                except ApiError:
+                    continue
+                if r:
+                    runs.append(r)
+    order = {"PROMOTE": 0, "WATCH": 1, "REJECT": 2}
+    runs.sort(key=lambda r: (order.get(str(r["verdict"]).upper(), 3), r["name"]))
+    return {"runs": runs, "path": base, "limits": LAB_LIMITS,
+            "how": "Run a backtest with: python3 trader-lab/lab.py run orb15-vwap (or any spec in "
+                   "trader-lab/library/). Each run writes trader/lab/<name>/.",
+            "disclaimer": DISCLAIMER}
+
+
+# ---------------------------------------------------------------- routes: first-run setup
+
+def _mcp_snippet(ctx):
+    server = os.path.join(ROOT, "mcp", "server.py")
+    return json.dumps({"mcpServers": {"bharat-trader": {"command": "python3", "args": [
+        server, "--workdir", ctx.workdir]}}}, indent=2)
+
+
+def r_onboarding(ctx, q, body):
+    """The first-run steps. With ?capital= (and risk_pct, max_trades, product, broker_profile) it also returns
+    the config trader-budget would write (size.py init), checked by validate_config; save it with POST /api/config."""
+    budget = skill("budget")
+    preview = None
+    if q.get("capital") not in (None, ""):
+        try:
+            c = budget.build_config(q.get("capital"), q.get("risk_pct") or 1, q.get("max_trades") or 3,
+                                    q.get("product") or "MIS", None, q.get("broker_profile") or None)
+            doc = {k: v for k, v in c.items() if k not in GUARDED}
+            errors, warnings = validate_config(doc)
+            preview = {"config": doc, "errors": errors, "warnings": warnings,
+                       "summary": _summary(doc) if not errors else None}
+        except budget.SizeError as e:
+            preview = {"config": None, "errors": [str(e)], "warnings": [], "summary": None}
+    try:
+        b = broker_status(ctx)
+        brokers = [{"broker": r["broker"], "title": r["title"], "credentials": r["credentials"],
+                    "token": r["token"]} for r in b["brokers"]]
+    except ApiError:
+        brokers = []
+    return {"config_exists": os.path.exists(ctx.path("config.json")), "workdir": ctx.workdir,
+            "profiles": [p for p in budget.BROKER_PROFILE_NAMES if p != "custom"],
+            "products": [{"value": "MIS", "label": "Intraday (MIS)"}, {"value": "CNC", "label": "Delivery (CNC)"}],
+            "defaults": {"capital": None, "risk_pct": 1, "max_trades": 3, "product": "MIS", "broker_profile": ""},
+            "preview": preview,
+            "mcp": {"snippet": _mcp_snippet(ctx), "doc": "docs/mcp.md",
+                    "test": "python3 %s --tool-reference" % os.path.join(ROOT, "mcp", "server.py")},
+            "brokers": brokers, "broker_doc": "docs/brokers.md",
+            "broker_rule": "Read-only: connecting lets the app read holdings and positions. It never sends an order; "
+                           "paper stays the default.",
+            "disclaimer": DISCLAIMER}
+
+
 # ---------------------------------------------------------------- the table
 
 # (method, path, handler, what it does, writes?)
@@ -2001,6 +2147,10 @@ ROUTES = [
     ("GET", "/api/strategy", r_strategy, "strategy templates, symbols and the saved trader/strategy.json", False),
     ("GET", "/api/doctor", r_doctor, "the last data self-test (trader/doctor.json), for the header badge", False),
     ("GET", "/api/agents", r_agents, "the agent personas (agents/) and each one's paper scorecard", False),
+    ("GET", "/api/lab", r_lab, "Strategy Lab runs (trader/lab/): verdict, after-charges numbers, gates, equity curve",
+     False),
+    ("GET", "/api/onboarding", r_onboarding, "first-run steps; ?capital=&risk_pct=&max_trades=&product=&broker_profile= "
+     "previews the config size.py init would write (save it with POST /api/config)", False),
     ("POST", "/api/risk/check", r_risk_check, "run trader-risk on trader/orders.json and record the verdicts", True),
     ("POST", "/api/risk/kill", r_risk_kill, "kill switch on: no new entries today (exits still pass)", True),
     ("POST", "/api/risk/unkill", r_risk_unkill, "lift the kill switch: the typed word unkill", True),

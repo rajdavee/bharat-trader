@@ -77,6 +77,7 @@ function report(res) {
 
 export async function render(root) {
   root.appendChild(h('h1', { class: 'page-title' }, 'Settings'));
+  root.appendChild(h('p', { class: 'page-lede explain' }, 'Setup: every limit the tools use. New here? The setup guide sets the four that matter most.', ' ', h('a', { href: '#/welcome' }, 'Open the setup guide'), '.'));
   const body = h('div');
   root.appendChild(body);
   loading(body);

@@ -11,6 +11,8 @@ offline.json             the pinned clock (2026-10-29 14:30 IST) and a note for 
 trader/                  a working folder built by the skills themselves on those fixtures: size.py init,
                          a paper BUY of 5 TCS, the trader-alerts plan fixture as plan.json, scan.py daily,
                          alerts.py quote --write, size.py --write, alerts.py add --from-plan, check.py.
+lab/                     two REAL trader-lab runs, copied to the demo's trader/lab/ (lab.py run orb15-vwap and breakout20-swing --data
+                         tests/fixtures/trader-lab --now "2026-11-01 12:00"); results.json without the trade lists.
 """
 
 import contextlib
@@ -60,14 +62,15 @@ def blob(path):
 def workdir():
     tmp = tempfile.mkdtemp(prefix="bt-ui-test-")
     shutil.copytree(os.path.join(UIFIX, "trader"), os.path.join(tmp, "trader"))
+    serve.copy_demo_lab(UIFIX, tmp)
     return tmp
 
 
 class Running(object):
     """A real server on a free loopback port, serving the offline fixtures."""
 
-    def __init__(self):
-        self.dir = workdir()
+    def __init__(self, fresh=False):
+        self.dir = tempfile.mkdtemp(prefix="bt-ui-test-") if fresh else workdir()
         self.srv = serve.make_server("127.0.0.1", 0, self.dir, UIFIX)
         self.port = self.srv.server_address[1]
         self.host = "127.0.0.1:%d" % self.port
@@ -772,6 +775,7 @@ class Pieces(unittest.TestCase):
         tmp = serve.offline_workdir(UIFIX)
         try:
             self.assertTrue(os.path.isfile(os.path.join(tmp, "trader", "config.json")))
+            self.assertTrue(os.path.isfile(os.path.join(tmp, "trader", "lab", "orb15-vwap", "results.json")))
             self.assertNotEqual(os.path.realpath(tmp), os.path.realpath(UIFIX))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -924,6 +928,162 @@ class BrokerRoutes(unittest.TestCase):
 def jload_fix(broker, case):
     with open(os.path.join(FIX, "trader-broker", broker, case + ".json"), encoding="utf-8") as fh:
         return json.load(fh)["response"]["body"]
+
+
+class LabAndSetup(unittest.TestCase):
+    """The Strategy Lab page's route and the first-run setup guide (onboarding) on an empty folder."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.s = Running()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.s.close()
+
+    def test_lab_runs_are_trader_labs_own_numbers(self):
+        status, d = self.s.get("/api/lab")
+        self.assertEqual(status, 200)
+        names = [r["name"] for r in d["runs"]]
+        self.assertEqual(sorted(names), ["breakout20-swing", "orb15-vwap"])
+        res = json.loads(read_text(os.path.join(UIFIX, "lab", "orb15-vwap", "results.json")))
+        run = [r for r in d["runs"] if r["name"] == "orb15-vwap"][0]
+        self.assertEqual(run["verdict"], "REJECT")
+        self.assertEqual(run["oos"]["trades"], res["walk_forward"]["stats"]["trades"])
+        self.assertEqual(run["oos"]["expectancy_r"], res["walk_forward"]["stats"]["expectancy_r"])
+        self.assertEqual(run["gates"], res["gates"])
+        self.assertEqual(run["monte_carlo"]["final_p5"], res["monte_carlo"]["final_p5"])
+        self.assertTrue(run["verdict_why"].startswith("6 of 8 gates failed"))
+        for k in ("oos_expectancy", "mc_range", "dsr", "pbo"):
+            self.assertIn("formula", run["why"][k])
+        # the curve comes from equity.csv, thinned to at most MAX_CURVE points, the last day kept
+        long_run = [r for r in d["runs"] if r["name"] == "breakout20-swing"][0]
+        self.assertLessEqual(len(long_run["equity"]), api.MAX_CURVE + 1)
+        last = read_text(os.path.join(UIFIX, "lab", "breakout20-swing", "equity.csv")).strip().split("\n")[-1]
+        self.assertEqual(long_run["equity"][-1]["date"], last.split(",")[0])
+        # honest: what a backtest does not show, and no promise words
+        self.assertIn("does not show", d["limits"])
+        text = json.dumps(d).lower()
+        for word in ("guaranteed", "sure-shot", "risk-free", "sure shot"):
+            self.assertNotIn(word, text)
+
+    def test_lab_without_runs(self):
+        empty = tempfile.mkdtemp(prefix="bt-ui-empty-")
+        try:
+            status, d = api.dispatch(api.Context(empty), "GET", "/api/lab", {}, None)
+        finally:
+            shutil.rmtree(empty, ignore_errors=True)
+        self.assertEqual((status, d["runs"]), (200, []))
+        self.assertIn("lab.py run", d["how"])
+
+    def test_onboarding_preview_is_size_py_init(self):
+        _, d = self.s.get("/api/onboarding")
+        self.assertIsNone(d["preview"])
+        self.assertTrue(d["config_exists"])
+        self.assertIn("server.py", d["mcp"]["snippet"])
+        self.assertIn("--workdir", d["mcp"]["snippet"])
+        self.assertNotIn("custom", d["profiles"])
+        self.assertTrue(d["brokers"])
+        for b in d["brokers"]:
+            self.assertTrue(all(isinstance(v, bool) for v in b["credentials"].values()))   # names, never values
+        _, d = self.s.get("/api/onboarding?capital=250000&risk_pct=0.5&max_trades=4&product=CNC&broker_profile=zerodha")
+        cfg = d["preview"]["config"]
+        want = load("trader-budget", "size").build_config(250000, 0.5, 4, "CNC", None, "zerodha")
+        self.assertEqual(d["preview"]["errors"], [])
+        for k in ("capital", "risk_per_trade_pct", "max_loss_per_trade", "max_daily_loss", "max_trades_per_day",
+                  "product", "broker_profile"):
+            self.assertEqual(cfg[k], want[k], k)
+        for k in api.GUARDED:
+            self.assertNotIn(k, cfg)            # going live is never part of the setup guide
+        self.assertIn("₹2,50,000.00", d["preview"]["summary"])
+        _, d = self.s.get("/api/onboarding?capital=100")
+        self.assertIsNone(d["preview"]["config"])
+        self.assertIn("5,000", d["preview"]["errors"][0])
+        _, d = self.s.get("/api/onboarding?capital=100000&risk_pct=9")
+        self.assertTrue(d["preview"]["errors"])
+
+    def test_first_run_on_an_empty_folder(self):
+        fresh = Running(fresh=True)
+        try:
+            _, m = fresh.get("/api/meta")
+            self.assertFalse(m["config_exists"])
+            self.assertTrue(m["paper"])
+            _, d = fresh.get("/api/onboarding?capital=150000&risk_pct=1&max_trades=3&product=MIS")
+            self.assertFalse(d["config_exists"])
+            status, res = fresh.post("/api/config", {"config": d["preview"]["config"]})
+            self.assertEqual(status, 200)
+            self.assertTrue(res["saved"], res)
+            saved = json.loads(read_text(os.path.join(fresh.dir, "trader", "config.json")))
+            self.assertEqual(saved["capital"], 150000)
+            self.assertEqual(saved["max_loss_per_trade"], 1500)
+            _, m = fresh.get("/api/meta")
+            self.assertTrue(m["config_exists"])
+            self.assertTrue(m["paper"])          # still paper: the guide cannot turn it off
+            _, risk = fresh.get("/api/risk")
+            limits = {x["key"]: x["value"] for x in risk["limits"]}
+            self.assertEqual(limits["max_loss_per_trade"], 1500)
+            # every GET route still answers on the brand-new folder
+            for r in api.ROUTES:
+                if r[0] == "GET" and r[1] not in ("/api/broker/holdings", "/api/broker/positions"):
+                    status, body = fresh.get(r[1] + Routes.QUERY.get(r[1], ""))
+                    self.assertEqual(status, 200, (r[1], body))
+        finally:
+            fresh.close()
+
+
+class Frontend(unittest.TestCase):
+    """The v2 shell: one nav list, every page module present, the CSP unchanged, no inline code."""
+
+    def js(self, *parts):
+        return read_text(os.path.join(STATIC, "js", *parts))
+
+    def test_csp_is_unchanged(self):
+        self.assertEqual(serve.CSP, "default-src 'none'; script-src 'self'; style-src 'self' %s; img-src 'self' data:; "
+                         "font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; "
+                         "frame-ancestors 'none'" % serve.LWC_LOGO_STYLE)
+
+    def test_every_nav_page_has_a_module(self):
+        nav = self.js("nav.js")
+        app = self.js("app.js")
+        pages = re.findall(r"^  (\w+): \{ label:", nav, re.M)
+        self.assertEqual(len(pages), 15)
+        for want in ("today", "chart", "scanner", "options", "strategy", "cotrader", "portfolio", "risk",
+                     "autopilot", "lab", "journal", "agents", "settings", "welcome", "about"):
+            self.assertIn(want, pages)
+        modules = re.search(r"const MODULES = \{(.*?)\};", app, re.S).group(1)
+        for p in pages:
+            self.assertRegex(modules, r"\b%s\b" % p, p)
+        groups = re.findall(r"name: '(\w+)'", nav)
+        self.assertEqual(groups, ["Discover", "Plan", "Trade", "Review", "Setup"])
+
+    def test_placeholders_say_coming_in_v03(self):
+        soon = self.js("pages", "soon.js")
+        for issue in ("44", "45", "49"):
+            self.assertIn("issue: %s" % issue, soon)
+        self.assertIn("Coming in v0.3", self.js("ui.js"))
+
+    def test_every_module_import_resolves(self):
+        for base, _, names in os.walk(os.path.join(STATIC, "js")):
+            for n in names:
+                text = read_text(os.path.join(base, n))
+                for imp in re.findall(r"from '(\.{1,2}/[\w/.-]+)'", text):
+                    self.assertTrue(os.path.isfile(os.path.normpath(os.path.join(base, imp))), (n, imp))
+
+    def test_no_colour_only_state_and_reduced_motion(self):
+        css = read_text(os.path.join(STATIC, "css", "app.css"))
+        self.assertIn("prefers-reduced-motion: reduce", css)
+        self.assertIn('content: "▲"', css)      # gain and loss carry a shape, not only a colour
+        self.assertIn('content: "▼"', css)
+        self.assertIn('[data-density="expert"] .explain', css)
+        for token in ("--up", "--down", "--warn", "--info", "--neutral", "--fs-base", "--sp-4", "--r-md", "--e-2"):
+            self.assertIn(token + ":", css)
+
+    def test_keyboard_and_palette_are_wired(self):
+        html = read_text(os.path.join(STATIC, "index.html"))
+        self.assertIn('id="palette"', html)
+        self.assertIn('aria-keyshortcuts="Control+K Meta+K"', html)
+        self.assertIn('href="#main"', html)
+        self.assertIn("e.key.toLowerCase() === 'k'", self.js("app.js"))
 
 
 class StaticFiles(unittest.TestCase):
