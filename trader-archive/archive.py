@@ -27,6 +27,8 @@ Datasets (all public, all from NSE except intraday):
   ban     the F&O ban list for each trading day
   settle  the daily MTM settlement price of every future
   ca      corporate actions; splits and bonuses become the price adjustment factors
+  sectors NSE's own industry classification of the F&O stocks (macro, sector, industry, basic
+          industry from the quote API's secInfo), one dated snapshot a run (opt in: --datasets sectors)
 
 Politeness: a browser User-Agent and NSE's Referer, --pause seconds between NSE calls (default 1.5,
 never below 1.0), a growing wait after HTTP 401/403/429, and a stop after 3 blocks in a row with
@@ -34,7 +36,8 @@ everything fetched so far kept. Weekends and NSE holidays are skipped without a 
 no bhavcopy (an older holiday) is remembered in archive/calendar.json and never asked again.
 
 The read API is pure and offline (no network, ever): load_daily, load_daily_many, load_intraday,
-load_fo_chain_eod, load_vix, load_index, load_ban, trading_days, adjustment_factors. trader-lab and
+load_fo_chain_eod, load_vix, load_index, load_ban, trading_days, adjustment_factors,
+sectors. trader-lab and
 trader-timemachine use it when an archive is present and fall back to Yahoo when not.
 
 Standard library only. This is data infrastructure: it never places an order.
@@ -80,10 +83,10 @@ LEGACY_UNTIL = datetime.date(2024, 7, 5)   # last legacy cm/fo...bhav.csv (2024-
 UPSTOX_MINUTES_FROM = datetime.date(2022, 1, 1)   # Upstox minute candles start in January 2022
 NOT_PUBLISHED_DAYS = 3   # a 404 this recent may just be "not published yet": ask again next time
 
-DATASETS = ("eq", "fo", "index", "vix", "lots", "ban", "settle", "ca", "indexhist", "results", "members")
+DATASETS = ("eq", "fo", "index", "vix", "lots", "ban", "settle", "ca", "indexhist", "results", "members", "sectors")
 DAILY = ("eq", "fo", "index", "ban", "settle")
 DEFAULT_DATASETS = ("eq", "fo", "index", "vix", "lots", "ban", "settle", "ca")
-LONG_DATASETS = ("indexhist", "results", "members")     # opt in: --datasets all, or name them
+LONG_DATASETS = ("indexhist", "results", "members", "sectors")     # opt in: --datasets all, or name them
 SERIES_PREF = ("EQ", "BE", "BZ", "SM", "ST")  # a stock that moves to trade-for-trade keeps its history
 MONTHS = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
 OPEN_MIN = 9 * 60 + 15
@@ -966,6 +969,8 @@ def backfill(store, http, start, end, datasets=DEFAULT_DATASETS, now=None, log=N
             summary["rows"]["results"] = fetch_results(store, http, start, end, now, log)
         if "members" in datasets:
             summary["rows"]["members"] = fetch_members(store, http, start, end, now, log)
+        if "sectors" in datasets:
+            summary["rows"]["sectors"] = fetch_sectors(store, http, start, end, now, log)
     finally:
         summary["calls"] = http.calls - calls0
         summary["downloaded_bytes"] = http.bytes - bytes0
@@ -2027,6 +2032,165 @@ def members(index, day, root=None):
     return history().members.members_on(m["intervals"], iso(parse_day(day)), m["_symbols"])
 
 
+# -- sector classification (NSE's own, dated snapshots)
+
+SECTOR_LIST_URL = WWW + "/api/master-quote"
+SECTOR_QUOTE_URL = WWW + "/api/NextApi/apiClient/GetQuoteApi?functionName=getSymbolData&marketType=N&series=EQ&symbol=%s"
+SECTOR_LEVELS = ("macro", "sector", "industry", "basic_industry")
+SECTOR_FRESH_DAYS = 7        # a complete snapshot this recent is not fetched again
+SECTOR_SAVE_EVERY = 20       # write the snapshot after this many quotes (a stopped run resumes)
+
+
+def parse_sector_quote(data, symbol):
+    """NSE's quote (GetQuoteApi getSymbolData) -> {"symbol", "company", "isin", "macro", "sector", "industry",
+    "basic_industry", "listed", "quote_time"}, or None when NSE has no classification for the symbol (an old or
+    renamed symbol answers with empty fields). NSE's four levels: macro-economic sector, sector, industry
+    (its "industryInfo" field) and basic industry."""
+    if isinstance(data, (bytes, str)):
+        try:
+            data = json.loads(data.decode("utf-8", "replace") if isinstance(data, bytes) else data)
+        except ValueError:
+            return None
+    rows = (data or {}).get("equityResponse") if isinstance(data, dict) else None
+    if not rows or not isinstance(rows[0], dict):
+        return None
+    e = rows[0]
+    si, md = e.get("secInfo") or {}, e.get("metaData") or {}
+
+    def clean(x):
+        x = " ".join(str(x).split()) if x is not None else ""
+        return x or None
+    rec = {"symbol": symbol.upper(), "company": clean(md.get("companyName")), "isin": clean(md.get("isinCode")),
+           "macro": clean(si.get("macro")), "sector": clean(si.get("sector")),
+           "industry": clean(si.get("industryInfo")), "basic_industry": clean(si.get("basicIndustry")),
+           "listed": clean(si.get("listingDate")), "quote_time": clean(e.get("lastUpdateTime"))}
+    if not any(rec[k] for k in SECTOR_LEVELS):
+        return None
+    if rec["listed"]:
+        try:
+            rec["listed"] = iso(datetime.datetime.strptime(rec["listed"][:11], "%d-%b-%Y").date())
+        except ValueError:
+            pass
+    return rec
+
+
+def _sector_snapshots(root):
+    """[(date, rel path)] of the sector snapshots, oldest first."""
+    base = os.path.join(root, "sectors")
+    out = []
+    for y in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        if re.match(r"^\d{4}$", y):
+            for f in sorted(os.listdir(os.path.join(base, y))):
+                m = re.match(r"^(\d{4}-\d\d-\d\d)\.json\.gz$", f)
+                if m:
+                    out.append((m.group(1), os.path.join("sectors", y, f)))
+    return out
+
+
+def _fno_stock_symbols(root, start, end):
+    """Every stock with a future in the archive's F&O bhavcopies from start to end, one file a month."""
+    seen, months = set(), set()
+    for k, p in reversed(_files(root, "fo", start, end)):
+        if k[:7] in months:
+            continue
+        months.add(k[:7])
+        for l in _gz_lines(p)[1:]:
+            r = l.split(",", 2)
+            if len(r) > 1 and r[1] == "STF":
+                seen.add(r[0])
+    return seen
+
+
+def fetch_sectors(store, http, start, end, now, log, symbols=None):
+    """NSE's industry classification (macro, sector, industry, basic industry) of every F&O stock: today's list
+    (api/master-quote) plus every stock future in the archive between start and end (or `symbols`), one quote
+    call each, politely, into sectors/<YYYY>/<YYYY-MM-DD>.json.gz. A complete snapshot under SECTOR_FRESH_DAYS
+    old is kept; a stopped run resumes where it left off. Returns the number of symbols classified."""
+    root = store.root
+    today = iso(now.date())
+    man_path = os.path.join(root, "sectors", "manifest.json")
+    man = read_json(man_path, None) or {"schema": SCHEMA, "snapshots": {}}
+    done = sorted(d for d, e in man["snapshots"].items() if e.get("complete"))
+    if done and (now.date() - parse_day(done[-1])).days < SECTOR_FRESH_DAYS and done[-1] != today:
+        log("sectors: the snapshot of %s is fresh (under %d days), kept" % (done[-1], SECTOR_FRESH_DAYS))
+        return 0
+    if (man["snapshots"].get(today) or {}).get("complete"):
+        return 0
+    want = set(s.upper() for s in symbols or [])
+    listed = []
+    if not symbols:
+        status, data = http.get(SECTOR_LIST_URL)
+        if status == 200 and data and not is_html(data):
+            try:
+                listed = [str(s).upper() for s in json.loads(data.decode("utf-8", "replace")) if s]
+            except (ValueError, TypeError):
+                listed = []
+        if not listed:
+            log("sectors: NSE's F&O list (master-quote) answered HTTP %s, left for the next run" % status)
+        want = set(listed) | _fno_stock_symbols(root, start, end)
+    if not want:
+        return 0
+    rel = os.path.join("sectors", today[:4], today + ".json.gz")
+    snap = _get_json(root, rel, None) or {"date": today, "source": SECTOR_QUOTE_URL % "<SYMBOL>",
+                                           "levels": list(SECTOR_LEVELS), "symbols": {}, "unclassified": {}}
+    entry = {"complete": False, "fetched_at": _stamp(now), "list_url": SECTOR_LIST_URL, "fno_list": len(listed)}
+    todo = sorted(s for s in want if s not in snap["symbols"] and s not in snap["unclassified"])
+    n = 0
+    try:
+        n = _sector_quotes(root, http, todo, snap, rel, log)
+    finally:
+        _put_json(root, rel, snap)
+        left = [x for x in want if x not in snap["symbols"] and x not in snap["unclassified"]]
+        entry.update({"symbols": len(snap["symbols"]), "unclassified": len(snap["unclassified"]),
+                      "asked": len(want), "complete": not left})
+        man["snapshots"][today] = entry
+        write_json(man_path, man)
+    return n
+
+
+def _sector_quotes(root, http, todo, snap, rel, log):
+    n = 0
+    for i, sym in enumerate(todo, 1):
+        status, data = http.get(SECTOR_QUOTE_URL % urllib.parse.quote(sym, safe=""))
+        rec = parse_sector_quote(data, sym) if status == 200 and not is_html(data) else None
+        if rec:
+            snap["symbols"][sym] = rec
+            n += 1
+        elif status in (200, 404):
+            snap["unclassified"][sym] = "no classification in NSE's quote (old or renamed symbol)" if status == 200 \
+                else "HTTP 404"
+        else:
+            log("sectors %s: HTTP %s, left for the next run" % (sym, status))
+        if i % SECTOR_SAVE_EVERY == 0 or i == len(todo):
+            _put_json(root, rel, snap)
+            log("sectors: %d/%d quotes, %d classified" % (i, len(todo), len(snap["symbols"])))
+    return n
+
+
+def sectors(symbol=None, date=None, root=None, level="sector"):
+    """NSE's sector classification from the dated snapshots (backfill --datasets sectors).
+
+    symbol given: {"symbol", "company", "isin", "macro", "sector", "industry", "basic_industry", "listed",
+    "asof", "before_first_snapshot"} or None. No symbol: {symbol: the `level` name} for every classified stock,
+    the shape trader-lab's pairs engine reads. date: the latest snapshot on or before it; NSE publishes only
+    today's classification, so a date before the first snapshot gets the first one (before_first_snapshot)."""
+    root = default_root(root)
+    if level not in SECTOR_LEVELS:
+        raise ArchiveError("level is one of %s, not %r" % (", ".join(SECTOR_LEVELS), level))
+    snaps = _sector_snapshots(root)
+    if not snaps:
+        raise ArchiveError("no sector snapshots in %s yet: python3 archive.py backfill --datasets sectors" % root)
+    day = iso(parse_day(date)) if date else None
+    on = [s for s in snaps if day is None or s[0] <= day]
+    pick, early = (on[-1], False) if on else (snaps[0], True)
+    snap = _get_json(root, pick[1], {}) or {}
+    recs = snap.get("symbols") or {}
+    if symbol is not None:
+        r = recs.get(str(symbol).upper())
+        return dict(r, asof=pick[0], before_first_snapshot=early) if r else None
+    return {s: r[level] for s, r in sorted(recs.items()) if r.get(level)}
+
+
 # -- continuous futures
 
 FUT_KINDS = ("IDF", "STF")
@@ -2372,6 +2536,12 @@ def long_status(root):
         snaps = sorted((man.get("lists") or {}).get("snapshots", {}))
         out["members"] = {"announcements": len(ds), "first": ds[0] if ds else None, "last": ds[-1] if ds else None,
                           "lists": snaps[-1] if snaps else None}
+    man = read_json(os.path.join(root, "sectors", "manifest.json"), None)
+    if man and man.get("snapshots"):
+        ds = sorted(man["snapshots"])
+        out["sectors"] = {"snapshots": len(ds), "first": ds[0], "last": ds[-1],
+                          "symbols": man["snapshots"][ds[-1]].get("symbols", 0),
+                          "complete": bool(man["snapshots"][ds[-1]].get("complete"))}
     return out
 
 
@@ -2853,6 +3023,11 @@ def cmd_status(a):
         m = lg["members"]
         print("index announcements: %d (%s to %s); constituent lists of %s" % (m["announcements"], m["first"],
                                                                                m["last"], m["lists"] or "-"))
+    if lg.get("sectors"):
+        m = lg["sectors"]
+        print("sector classification: %d snapshot%s (%s to %s), %d stocks in the latest%s" % (
+            m["snapshots"], "" if m["snapshots"] == 1 else "s", m["first"], m["last"], m["symbols"],
+            "" if m["complete"] else " (incomplete: run backfill --datasets sectors again)"))
     print("Weekdays NSE had no session (learned): %d. Next: python3 archive.py update" % s["closed_days"])
     return 0
 
@@ -3059,6 +3234,35 @@ def cmd_members(a):
     return 0
 
 
+def cmd_sectors(a):
+    root = default_root(a.root, a.workdir)
+    if a.symbol:
+        r = sectors(a.symbol, a.date, root)
+        if a.json:
+            print(json.dumps(r, indent=1))
+            return 0
+        if not r:
+            print("No NSE classification for %s in the sector snapshots of %s." % (a.symbol.upper(), root))
+            return 1
+        print("%s (%s): %s > %s > %s > %s (NSE, snapshot of %s)" % (r["symbol"], r["company"] or "-", r["macro"],
+                                                                     r["sector"], r["industry"], r["basic_industry"],
+                                                                     r["asof"]))
+        if r["before_first_snapshot"]:
+            print("Note: %s is before the first snapshot; NSE publishes only today's classification." % a.date)
+        return 0
+    m = sectors(None, a.date, root, a.level)
+    if a.json:
+        print(json.dumps(m, indent=1))
+        return 0
+    groups = {}
+    for s, v in m.items():
+        groups.setdefault(v, []).append(s)
+    print("%d stocks in %d %s groups (NSE's classification):" % (len(m), len(groups), a.level.replace("_", " ")))
+    for v, syms in sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        print("  %s (%d): %s" % (v, len(syms), ", ".join(syms)))
+    return 0
+
+
 def cmd_results(a):
     root = default_root(a.root, a.workdir)
     evs = results_dates(a.symbol, a.start, a.end, root)
@@ -3188,6 +3392,11 @@ def main(argv=None):
     p.add_argument("--date", help="the day (default today)")
     p.add_argument("--report", action="store_true", help="coverage and gaps of the rebuilt membership")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("sectors", help="NSE's sector classification of the F&O stocks (backfill --datasets sectors)")
+    p.add_argument("--symbol", help="one stock's four levels (default: every stock at --level)")
+    p.add_argument("--date", help="the snapshot on or before this day (default the latest)")
+    p.add_argument("--level", default="sector", choices=list(SECTOR_LEVELS))
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("results", help="results (earnings) dates of a stock, for event studies")
     p.add_argument("--symbol", required=True)
     p.add_argument("--from", dest="start")
@@ -3218,7 +3427,7 @@ def main(argv=None):
     try:
         return {"backfill": cmd_backfill, "update": cmd_update, "status": cmd_status, "verify": cmd_verify,
                 "export": cmd_export, "intraday": cmd_intraday, "snapshot-chain": cmd_snapshot,
-                "continuous": cmd_continuous, "members": cmd_members, "results": cmd_results,
+                "continuous": cmd_continuous, "members": cmd_members, "sectors": cmd_sectors, "results": cmd_results,
                 "expired-options": cmd_expired, "capture-chains": cmd_capture}[a.cmd](a)
     except ArchiveError as e:
         print("archive: %s" % e, file=sys.stderr)

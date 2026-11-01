@@ -398,7 +398,8 @@ approximate before about 2018) is copied into the scorecard's "does NOT
 show" list.
 `--data DIR` reads a plain folder instead: `SYMBOL-1d.csv(.gz)` bars,
 `^NSEI-1d.csv(.gz)`, `members.json` (`{"NIFTY 200": {"YYYY-MM-DD": [symbols]}}`,
-each list holding until the next), `results.json`, `sectors.json`,
+each list holding until the next), `results.json`, `sectors.json` (else, on the
+archive, trader-archive's dated NSE sector snapshots: `backfill --datasets sectors`),
 `continuous/UNDERLYING.csv(.gz)` (`date,expiry,lot,open,high,low,close,roll,next_close`).
 
 ### Futures engine

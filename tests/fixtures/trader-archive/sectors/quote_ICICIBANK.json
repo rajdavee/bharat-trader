@@ -1,0 +1,29 @@
+{
+ "equityResponse": [
+  {
+   "metaData": {
+    "identifier": "ICICIBANKEQN",
+    "companyName": "ICICI Bank Limited",
+    "isinCode": "INE090A01021",
+    "symbol": "ICICIBANK",
+    "series": "EQ",
+    "marketType": "N",
+    "closePrice": 1398
+   },
+   "secInfo": {
+    "secStatus": "Listed",
+    "listingDate": "17-Sep-1997 00:00:00",
+    "isSuspended": "Active",
+    "basicIndustry": "Private Sector Bank",
+    "index": "Nifty 50",
+    "macro": "Financial Services",
+    "sector": "Financial Services",
+    "industryInfo": "Banks",
+    "boardStatus": "Main",
+    "tradingSegment": "Normal Market",
+    "classShare": "Equity"
+   },
+   "lastUpdateTime": "30-Oct-2026 16:00:00"
+  }
+ ]
+}

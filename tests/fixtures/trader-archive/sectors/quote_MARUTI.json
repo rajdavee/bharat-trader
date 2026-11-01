@@ -1,0 +1,29 @@
+{
+ "equityResponse": [
+  {
+   "metaData": {
+    "identifier": "MARUTIEQN",
+    "companyName": "Maruti Suzuki India Limited",
+    "isinCode": "INE585B01010",
+    "symbol": "MARUTI",
+    "series": "EQ",
+    "marketType": "N",
+    "closePrice": 11397
+   },
+   "secInfo": {
+    "secStatus": "Listed",
+    "listingDate": "09-Jul-2003 00:00:00",
+    "isSuspended": "Active",
+    "basicIndustry": "Passenger Cars & Utility Vehicles",
+    "index": "Nifty 50",
+    "macro": "Consumer Discretionary",
+    "sector": "Automobile and Auto Components",
+    "industryInfo": "Automobiles",
+    "boardStatus": "Main",
+    "tradingSegment": "Normal Market",
+    "classShare": "Equity"
+   },
+   "lastUpdateTime": "30-Oct-2026 16:00:00"
+  }
+ ]
+}

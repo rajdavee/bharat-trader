@@ -323,7 +323,8 @@ class PairsJob(StockJob):
     def blockers(self):
         out = []                # the F&O list on a day comes from that day's bhavcopy (or members.json)
         if not self.mkt.sectors():
-            out.append("a sector classification (sectors.json: {symbol: sector}, or the archive's sectors())")
+            out.append("a sector classification: trader-archive's sectors(), archive.py backfill --datasets sectors "
+                       "(NSE's own, a dated snapshot), or a sectors.json {symbol: sector} in the archive folder")
         return out
 
     def load(self, until):

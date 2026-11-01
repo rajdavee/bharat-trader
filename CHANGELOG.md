@@ -7,6 +7,13 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **NSE sector classification** in `trader-archive`: `backfill --datasets
+  sectors` stores NSE's own four levels (macro, sector, industry, basic
+  industry, from the quote API's `secInfo`) for every F&O stock, today's list
+  and every stock future in the archive, as dated snapshots, politely and
+  resumable. `sectors(symbol, date=None)` and `archive.py sectors` read them
+  offline. trader-lab's pairs engine reads them, so eh-11's dry run is no
+  longer blocked on a hand-made `sectors.json` (which still wins when given).
 - **Long-history archive** (#71) in `trader-archive`: legacy equity
   bhavcopies back to 1994-11-03 and F&O back to 2000-06-12 (formats checked
   year by year; the old `OPTIONTYPE` header, files without ISIN, ban titles
