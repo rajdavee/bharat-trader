@@ -22,6 +22,7 @@ your own AI assistant in about 30 minutes.
 | page | read it for |
 | --- | --- |
 | [architecture.md](architecture.md) | How the skills hand off through `trader/` files, the broker-neutral order shape and the safety chain. |
+| [archive.md](archive.md) | The local market data archive: backfill, formats and cut-overs, adjustment, broker intraday, verify, and the read API. |
 | [data-sources.md](data-sources.md) | Every public NSE and Yahoo source the tools read, tick sizes, and the data self-test. |
 | [roadmap.md](roadmap.md) | What shipped in each release and what is next. |
 

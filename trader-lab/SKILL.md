@@ -45,6 +45,10 @@ python3 "<skill dir>/lab.py" compare orb15-vwap gap-fade rsi2-nifty50
 python3 "<skill dir>/lab.py" forward orb15-vwap            # paper forward test: today's signals -> draft plans
 ```
 
+Bars come from the local trader-archive first when `trader/archive` exists
+(years of split- and bonus-adjusted daily bars, broker intraday candles,
+NIFTY and India VIX; `--archive DIR`, `--no-archive`), else from Yahoo.
+
 `--json` on run, report, compare and forward prints the numbers for a UI or
 another tool. `--now "2026-10-30 15:40"` pins the clock (IST); bars not complete by then are not seen. `--out DIR`
 moves the lab folder (default `trader/lab`).

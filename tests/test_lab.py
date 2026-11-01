@@ -35,6 +35,57 @@ NOW = lab.ist_now("2026-11-01 12:00")
 THREE = ["RELIANCE", "HDFCBANK", "SBIN"]
 
 
+def archive_with(root, hdfc_july=False, reliance_1m=False):
+    """A trader-archive folder built from tests/fixtures/trader-archive (real NSE and Upstox answers)."""
+    import datetime
+    import gzip as _gz
+    arc = load("trader-archive", "archive")
+    adir = os.path.join(FIX, "trader-archive")
+
+    class Op(object):
+        def __call__(self, req, timeout=None):
+            import urllib.error
+            name = req.full_url.rsplit("/", 1)[-1]
+            path = os.path.join(adir, "vixhistory_2026Q4.json" if "vixhistory" in name else
+                                "corporate_actions.json" if "corporateActions" in name else name)
+            if not os.path.isfile(path):
+                raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, io.BytesIO(b""))
+            data = open(path, "rb").read()
+
+            class R(object):
+                status, headers = 200, {}
+
+                def read(self):
+                    return data
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *a):
+                    return False
+            return R()
+
+    now = datetime.datetime(2026, 10, 26, 8, 0)
+    h = arc.Http(sleep=lambda s: None, opener=Op(), clock=lambda: 0.0)
+    arc.backfill(arc.Store(root), h, "2026-10-21", "2026-10-23", ["eq", "index", "vix", "ca"], now)
+
+    class T(object):
+        def __init__(self, fixture):
+            self.fixture = fixture
+
+        def request(self, method, url, **kw):
+            with _gz.open(os.path.join(adir, self.fixture), "rt", encoding="utf-8") as fh:
+                return json.load(fh)
+    for flag, sym, iv, fx, a, b in ((hdfc_july, "HDFCBANK", "5m", "upstox_HDFCBANK_5m_202607.json.gz",
+                                     "2026-07-01", "2026-07-31"),
+                                    (reliance_1m, "RELIANCE", "1m", "upstox_RELIANCE_1m_20261022-23.json.gz",
+                                     "2026-10-22", "2026-10-23")):
+        if flag:
+            ad = arc.broker_adapters().make("upstox", env={"BT_UPSTOX_ACCESS_TOKEN": "test-token"}, transport=T(fx))
+            arc.intraday_ingest(root, [sym], iv, a, b, adapter=ad, now=now, sleep=lambda s: None)
+    return root
+
+
 def series(sym, tf="5m"):
     return lab.Series(sym, tf, lab.load_bars(sym, tf, DIR, now=NOW)[0])
 
@@ -582,6 +633,48 @@ class EndToEnd(unittest.TestCase):
             self.assertTrue(lab.run_lab(doc, {})["hooked"])
         finally:
             lab.OPTIONS_HOOK = None
+
+
+class FromTheArchive(unittest.TestCase):
+    """The lab reads the local trader-archive first when there is one, and falls back when not."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="bt-lab-archive-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        archive_with(self.root, reliance_1m=True)
+
+    def test_daily_bars_are_adjusted_bhavcopy_bars(self):
+        bars, src = lab.load_bars("JSWDULUX", "1d", fetch=False, archive=self.root)
+        self.assertEqual(src, "archive 2026-10-21 to 2026-10-23")
+        self.assertEqual([b["c"] for b in bars], [299.48, 302.2, 286.6])      # the 10:1 split, adjusted
+        self.assertEqual(bars[0]["time"], "")
+
+    def test_regime_series_and_intraday(self):
+        nifty, src = lab.load_bars("^NSEI", "1d", fetch=False, archive=self.root)
+        self.assertTrue(src.startswith("archive") and len(nifty) == 3 and nifty[0]["c"] > 20000)
+        vix, _ = lab.load_bars("^INDIAVIX", "1d", fetch=False, archive=self.root)
+        self.assertTrue(10 < vix[-1]["c"] < 40)
+        five, src = lab.load_bars("RELIANCE", "5m", fetch=False, archive=self.root)
+        self.assertEqual((len(five), five[0]["time"], five[-1]["time"]), (150, "09:15", "15:25"))
+        s = lab.Series("RELIANCE", "5m", five)
+        self.assertEqual(len(s.c), 150)
+
+    def test_falls_back_without_an_archive(self):
+        with self.assertRaises(lab.LabError) as cm:
+            lab.load_bars("TCS", "5m", fetch=False, archive=self.root)        # no TCS intraday archived
+        self.assertIn("no cached bars", str(cm.exception))
+        missing = os.path.join(self.root, "nowhere")
+        self.assertIsNone(lab.archive_bars("RELIANCE", "1d", missing))
+        bars, src = lab.load_bars("RELIANCE", "1d", DIR, archive=self.root)    # --data still wins
+        self.assertEqual(src, "RELIANCE-1d.csv.gz")
+
+    def test_load_data_notes_the_archive(self):
+        spec = lab.validate_spec(lab.library()["orb15-vwap"])
+        spec = dict(spec, universe=["RELIANCE"])
+        data, ctx, notes = lab.load_data(spec, None, None, False, None, self.root)
+        self.assertEqual(len(data["RELIANCE"].c), 150)
+        self.assertIsNotNone(ctx["nifty"])
+        self.assertTrue(any("local archive" in n for n in notes), notes)
 
 
 if __name__ == "__main__":
