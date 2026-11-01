@@ -39,5 +39,12 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Compile every script
         run: python -m compileall -q trader-* tests ui mcp
+      - name: Check the UI's JavaScript parses
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          for f in $(find ui/static -name '*.js' -not -path '*/vendor/*'); do
+            cp "$f" "$RUNNER_TEMP/check.mjs" && node --check "$RUNNER_TEMP/check.mjs" || { echo "syntax error in $f"; exit 1; }
+          done
       - name: Run the offline test suite
         run: python -m unittest discover -s tests -v
