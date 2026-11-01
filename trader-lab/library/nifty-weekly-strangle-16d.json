@@ -1,0 +1,53 @@
+{
+ "schema": "bharat-trader/lab-spec/1",
+ "kind": "options",
+ "timeframe": "1d",
+ "name": "nifty-weekly-strangle-16d",
+ "title": "NIFTY weekly short strangle, 16 delta",
+ "description": "Sell the 16-delta call and the 16-delta put of the next NIFTY weekly expiry at the close 6 calendar days before it (about the session after the previous expiry). Take profit at half the credit, stop at a loss of twice the credit (checked at the close), else hold to cash settlement. Unlimited risk on both sides: one lot, and the margin sets the return.",
+ "underlying": "NIFTY",
+ "structure": "short-strangle",
+ "expiry": "weekly",
+ "params": {
+  "delta": 0.16,
+  "target": 50,
+  "stop": 2
+ },
+ "strikes": {
+  "by": "delta",
+  "value": "$delta"
+ },
+ "entry": {
+  "days_to_expiry": 6
+ },
+ "exit": {
+  "profit_target_pct": "$target",
+  "stop_loss_mult": "$stop"
+ },
+ "grid": {
+  "delta": [
+   0.12,
+   0.16,
+   0.2
+  ],
+  "stop": [
+   1.5,
+   2,
+   3
+  ]
+ },
+ "lots": 1,
+ "capital": 500000,
+ "costs": {
+  "slippage_pct": 2,
+  "slippage_ticks": 1
+ },
+ "walk_forward": {
+  "in_sample": 120,
+  "out_of_sample": 60
+ },
+ "seed": 16,
+ "references": [
+  "The 16-delta strangle and managing winners at 50% are practitioner habits, not evidence: this spec tests them on NSE data"
+ ]
+}

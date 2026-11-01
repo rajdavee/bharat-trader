@@ -105,9 +105,33 @@ All notable changes are documented here. The format follows
 - `trader-lab` reads bars from the archive when present (`--archive`,
   `--no-archive`), else Yahoo; `trader-timemachine` adds the archive's older
   5-minute sessions to its pool.
+- **Strategy Lab, options** (#35): `"kind": "options"` specs backtested day
+  by day on the archive's end-of-day F&O bhavcopies, in trader-lab's new
+  `options/` helper package. Structures from trader-strategy's templates
+  (short strangle and straddle, iron condor and fly, bull put and bear call
+  spreads, calendars, long straddle and strangle); strikes by delta (IV
+  solved from settle prices on a parity forward), % out of the money or
+  points from ATM; entries by days to expiry, weekday, IV rank (the
+  underlying's own 30-day ATM IV) and India VIX; exits at a profit target or
+  stop on the premium, days before expiry, else cash settlement at the final
+  settlement price. Legs marked at each close from settle prices, Black-76 at
+  the day's smile IV when a strike did not trade (flagged); dated F&O charges
+  per side with STT on exercise; slippage as % of premium plus ticks; lot
+  sizes, holiday-shifted expiries and holidays from the files. Margin is
+  trader-strategy's SPAN-style estimate (with the expiry-day ELM) and R is
+  return on margin. The equity machinery (walk-forward, neighbourhood, Monte
+  Carlo, DSR, PBO, cost stress, VIX/trend and trader-regime splits, gates)
+  plus return on margin, worst week, 5%/1% tail loss, losing streaks, time in
+  drawdown and short-strike breaches. Five library specs (NIFTY weekly
+  16-delta strangle and 100-point-wing condor, NIFTY expiry-day iron fly,
+  BANKNIFTY monthly put spread, IV-rank-filtered strangle). `forward` drafts
+  a paper basket through trader-strategy (`strategy.json` and `orders.json`)
+  for trader-risk; nothing is placed. UI: the Lab page shows options
+  scorecards; MCP: `lab_run` and `lab_forward` accept options specs
+  (`draft: NIFTY` writes the basket and runs trader-risk on it).
 
 ### Changed
-- The offline demo copies `tests/fixtures/ui/lab/` (two real lab runs) into
+- The offline demo copies `tests/fixtures/ui/lab/` (three real lab runs, one options) into
   its `trader/lab/`.
 - Every page now follows the design system and opens with a one-line
   description of its step in the trader's day (hidden in expert detail).

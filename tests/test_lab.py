@@ -250,7 +250,7 @@ class Vocabulary(unittest.TestCase):
         self.bad(lambda d: d.update(side="short"), "long only")
         self.bad(lambda d: d.update(timeframe="1d"), "MIS")
         self.bad(lambda d: d.pop("stop"), "stop")
-        self.bad(lambda d: d.update(kind="options"), "options hook")
+        self.bad(lambda d: d.update(kind="options"), "for an options spec")
         self.bad(lambda d: d.update(universe=["reliance"]), "NSE symbol")
         self.bad(lambda d: d.update(grid={"or_minutes": [5, 10, 15, 20, 25, 30, 45], "target_r": [1, 1.5, 2, 2.5, 3, 4]}),
                  "36 or fewer")
@@ -627,7 +627,7 @@ class EndToEnd(unittest.TestCase):
         doc = {"name": "short-strangle", "kind": "options"}
         with self.assertRaises(lab.SpecError) as cm:
             lab.run_lab(doc, {})
-        self.assertIn("trader-strategy", str(cm.exception))
+        self.assertIn("underlying", str(cm.exception))
         try:
             lab.OPTIONS_HOOK = lambda d, **kw: {"name": d["name"], "hooked": True}
             self.assertTrue(lab.run_lab(doc, {})["hooked"])

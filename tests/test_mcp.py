@@ -622,6 +622,37 @@ class Lab(ServerCase):
         r = self.result(self.c.call("lab_forward", {"strategy": "t-watch", "draft": "TCS"}))
         self.assertTrue(r["isError"])
 
+    def test_options_spec_runs_on_the_archive_and_drafts_a_basket(self):
+        lib = os.path.join(ROOT, "trader-lab", "library", "nifty-weekly-strangle-16d.json")
+        with open(lib, encoding="utf-8") as fh:
+            spec = json.load(fh)
+        spec.update(name="t-opt", walk_forward={"in_sample": 4, "out_of_sample": 4}, gates=WATCH_SPEC["gates"])
+        d = os.path.join(self.c.workdir, "trader", "lab", "t-opt")
+        os.makedirs(d)
+        with open(os.path.join(d, "spec.json"), "w", encoding="utf-8") as fh:
+            json.dump(spec, fh)
+        run = self.data("lab_run", {"strategy": "t-opt"})
+        self.assertEqual(run["verdict"], "WATCH", run["verdict_why"])
+        self.assertEqual(run["results"]["kind"], "options")
+        self.assertEqual(run["results"]["data"]["to"], "2026-10-23")        # the pinned clock
+        self.assertIn("return on margin", run["scorecard"])
+        before = len(broker_records(self.c.workdir))
+        fw = self.data("lab_forward", {"strategy": "t-opt"})
+        self.assertEqual([b["expiry"] for b in fw["forward"]["baskets"]], ["2026-11-03"])   # decided on 28-Oct
+        self.assertIn("draft: NIFTY", fw["next_step"])
+        self.assertIsNone(fw["drafted"])
+        dr = self.data("lab_forward", {"strategy": "t-opt", "draft": "NIFTY"})
+        self.assertIn("risk", dr["drafted"])
+        with open(os.path.join(self.c.workdir, "trader", "orders.json"), encoding="utf-8") as fh:
+            orders = json.load(fh)
+        self.assertTrue(orders["paper"] and orders["basket"])
+        self.assertEqual(len(orders["orders"]), 2)
+        with open(os.path.join(self.c.workdir, "trader", "strategy.json"), encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["underlying"], "NIFTY")
+        self.assertEqual(len(broker_records(self.c.workdir)), before)     # drafted, never placed
+        r = self.result(self.c.call("lab_forward", {"strategy": "t-opt", "draft": "BANKNIFTY"}))
+        self.assertTrue(r["isError"])
+
     def test_lab_errors(self):
         r = self.result(self.c.call("lab_run", {"strategy": "../../etc"}))
         self.assertTrue(r["isError"])

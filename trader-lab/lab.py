@@ -806,6 +806,22 @@ def archive_api():
     return mod
 
 
+def sibling_script(folder, script, name):
+    """A sibling skill's entry script loaded by path (cached), or None when that skill is not installed next
+    to this one."""
+    import importlib.util
+    if name in sys.modules:
+        return sys.modules[name]
+    path = os.path.join(os.path.dirname(HERE), folder, script)
+    if not os.path.isfile(path):
+        return None
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def regime_api():
     """trader-regime's pure functions (regime.py in the sibling skill folder), or None when that skill is
     not installed next to this one: then the scorecard keeps only the simple VIX and trend splits."""
@@ -823,6 +839,39 @@ def regime_api():
     return mod
 
 
+def strategy_api():
+    """trader-strategy's script (the option leg templates, Black-76 and the SPAN-style margin), or None."""
+    return sibling_script("trader-strategy", "strategy.py", "bt_lab_strategy")
+
+
+def options_api():
+    """This skill's options package (the "options" helper folder next to lab.py), bound to the lab,
+    trader-strategy and trader-archive."""
+    import importlib.util
+    name = "bt_lab_options"
+    mod = sys.modules.get(name)
+    if mod is None:
+        path = os.path.join(HERE, "options", "__init__.py")
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+    mod.bind(_this_module(), strategy_api(), archive_api(), regime_api())
+    return mod
+
+
+def _this_module():
+    """This script as a module object (it may be loaded by path under any name, or not registered at all)."""
+    me = sys.modules.get(__name__)
+    if me is not None and getattr(me, "__dict__", None) is globals():
+        return me
+    for m in list(sys.modules.values()):
+        if getattr(m, "__dict__", None) is globals():
+            return m
+    import types
+    return types.SimpleNamespace(**globals())
+
+
 def lab_regimes(context):
     """{date: trader-regime record} for NIFTY 50 from the context's daily bars (India VIX for the vol bucket,
     NIFTY's expiry calendar), or {} without trader-regime or NIFTY bars. Each day uses bars up to its close."""
@@ -835,6 +884,17 @@ def lab_regimes(context):
     def cols(s):
         return [{"date": s.date[i], "o": s.o[i], "h": s.h[i], "l": s.l[i], "c": s.c[i]} for i in range(s.n)]
     return api.daily_regimes(cols(nifty), cols(vix) if vix is not None and vix.n else None, "NIFTY", "index")
+
+
+def market_regimes(full_trades, oos_trades, regs, need):
+    """trader-regime's split of the trades (whole sample and out of sample) and today's regime."""
+    api = regime_api()
+    last = regs[max(regs)]
+    return {"whole_sample": api.split_by_regime(full_trades, regs, need),
+            "out_of_sample": api.split_by_regime(oos_trades, regs, need),
+            "current": {"date": last["date"], "key": api.regime_key(last, expiry=False), "words": last["words"]},
+            "basis": "NIFTY 50 trend or range x India VIX bucket x expiry flag (trader-regime), "
+                     "as of the close before each signal day"}
 
 
 def regime_gate(g, oos_trades, regs):
@@ -1164,6 +1224,8 @@ def validate_spec(doc, params=None):
     params overrides the spec's "params" (the grid and walk-forward pass their own)."""
     if not isinstance(doc, dict):
         raise SpecError("a spec is a JSON object")
+    if doc.get("kind") == "options":
+        return options_api().validate(doc, params)
     extra = set(doc) - TOP_KEYS
     if extra:
         _err("spec", "unknown keys %s (known: %s)" % (sorted(extra)[:5], ", ".join(sorted(TOP_KEYS))))
@@ -1172,10 +1234,9 @@ def validate_spec(doc, params=None):
         _err("name", "lowercase letters, digits and dashes, 2 to 48 long")
     kind = doc.get("kind", "equity")
     if kind == "options":
-        raise SpecError("options strategies run through the options hook (OPTIONS_HOOK), which arrives with "
-                        "trader-strategy; this version backtests equity specs only. See docs/lab.md")
+        return options_api().validate(doc, params)
     if kind != "equity":
-        _err("kind", "equity (or options, through the hook), not %r" % kind)
+        _err("kind", "equity or options, not %r" % kind)
     tf = doc.get("timeframe")
     if tf not in TIMEFRAMES:
         _err("timeframe", "5m (intraday) or 1d (swing), not %r" % (tf,))
@@ -2103,11 +2164,15 @@ def _warmup_days(spec, lookback):
 
 
 def options_hook(spec_doc, **kw):
-    """The options hook. trader-strategy (being built) registers OPTIONS_HOOK = fn(spec_doc, **kw) -> a
-    results dict in this same shape; until then an options spec is refused. See docs/lab.md."""
-    if OPTIONS_HOOK is None:
-        raise SpecError("options strategies run through trader-strategy, which is not installed yet")
-    return OPTIONS_HOOK(spec_doc, **kw)
+    """An options spec's run: OPTIONS_HOOK when something registered one (fn(spec_doc, **kw) -> a results
+    dict in this same shape), else this skill's options package (options/) on the archive's EOD chains."""
+    if OPTIONS_HOOK is not None:
+        return OPTIONS_HOOK(spec_doc, **kw)
+    if strategy_api() is None:
+        raise SpecError("options backtests use trader-strategy's legs and margin: put the trader-strategy folder "
+                        "next to trader-lab")
+    return options_api().run(spec_doc, kw.get("data"), kw.get("context"), kw.get("extra_trials", 0),
+                             kw.get("progress"))
 
 
 OPTIONS_HOOK = None
@@ -2122,7 +2187,7 @@ def run_lab(doc, data, context=None, fno=None, extra_trials=0, progress=None):
     fno       the F&O stock set for the session rules (None: every stock treated as an F&O stock)
     extra_trials  variants tried before (earlier spec versions), on top of the spec's trials_tried"""
     if isinstance(doc, dict) and doc.get("kind") == "options":
-        return options_hook(doc, data=data, context=context)
+        return options_hook(doc, data=data, context=context, extra_trials=extra_trials, progress=progress)
     spec = validate_spec(doc)
     context = context or {}
     names, axes, pts, home = grid_points(spec)
@@ -2207,14 +2272,7 @@ def run_lab(doc, data, context=None, fno=None, extra_trials=0, progress=None):
     regimes = regime_split(full_trades, context, spec["vix_edges"])
     regs = lab_regimes(context)
     if regs:
-        api, need = regime_api(), int(spec["gates"]["min_regime_trades"])
-        last = regs[max(regs)]
-        regimes["market"] = {"whole_sample": api.split_by_regime(full_trades, regs, need),
-                             "out_of_sample": api.split_by_regime(oos_trades, regs, need),
-                             "current": {"date": last["date"], "key": api.regime_key(last, expiry=False),
-                                         "words": last["words"]},
-                             "basis": "NIFTY 50 trend or range x India VIX bucket x expiry flag (trader-regime), "
-                                      "as of the close before each signal day"}
+        regimes["market"] = market_regimes(full_trades, oos_trades, regs, int(spec["gates"]["min_regime_trades"]))
     gates = evaluate_gates(spec["gates"], oos, full, dsr, pbo, cost_oos, pos_share)
     if spec["gates"]["require_regime_edge"]:
         gates.append(regime_gate(spec["gates"], oos_trades, regs))
@@ -2281,6 +2339,8 @@ def _pf(x):
 
 
 def does_not_prove(res):
+    if res.get("kind") == "options":
+        return options_api().does_not_prove(res)
     d = res["data"]
     lines = [
         "It does not predict the future. It shows how these exact rules would have traded %d sessions "
@@ -2312,17 +2372,24 @@ def scorecard(res, status=None):
     v = (status or {}).get("verdict") or res.get("verdict") or "REJECT"
     why = (status or {}).get("why") or res.get("verdict_why") or ""
     d, full, oos = res["data"], res["full"], res["walk_forward"]["stats"]
+    opt = res.get("kind") == "options"
     L = ["# %s: %s" % (res["name"], res["title"]), ""]
     L.append("**Verdict: %s**" % VERDICT_WORDS[v])
     if why:
         L.append("")
         L.append("Why: %s." % why.rstrip("."))
     L.append("")
-    L.append("Data: %d NSE stocks (%s), %s bars, %s to %s, %d sessions (the first %d warm up the indicators). "
-             "%s, %s. Spec %s." % (len(d["symbols"]), ", ".join(d["symbols"]), res["timeframe"], d["from"], d["to"],
-                                   d["sessions"], d["warmup_sessions"], res["product"],
-                                   "intraday, flat by the safe flat-by" if res["product"] == "MIS" else "delivery",
-                                   res["spec_hash"]))
+    if opt:
+        L.append("Data: %s end-of-day option chains (NSE F&O bhavcopy settle prices), %s to %s, %d sessions, %s. "
+                 "Rules: %s. Capital %s. Spec %s." % (res["underlying"], d["from"], d["to"], d["sessions"],
+                                                     d.get("source") or "the archive", res.get("rules") or "",
+                                                     inr(res["config"]["capital"]), res["spec_hash"]))
+    else:
+        L.append("Data: %d NSE stocks (%s), %s bars, %s to %s, %d sessions (the first %d warm up the indicators). "
+                 "%s, %s. Spec %s." % (len(d["symbols"]), ", ".join(d["symbols"]), res["timeframe"], d["from"],
+                                       d["to"], d["sessions"], d["warmup_sessions"], res["product"],
+                                       "intraday, flat by the safe flat-by" if res["product"] == "MIS" else "delivery",
+                                       res["spec_hash"]))
     if d["missing"]:
         L.append("No bars for: %s." % ", ".join(d["missing"]))
     L.append("")
@@ -2337,10 +2404,13 @@ def scorecard(res, status=None):
                           ("Sharpe (annualised)", "sharpe_annual", lambda x: "%.2f" % x)):
         L.append("| %s | %s | %s |" % (label, fmt(full[k]), fmt(oos[k])))
     L.append("")
-    L.append("R is a trade's net result over the rupees it risked at the stop. Expectancy is the average R "
-             "per trade: +0.10R means about %s on a %s risk, before luck."
-             % (inr(0.1 * res["config"]["max_loss_per_trade"]), inr(res["config"]["max_loss_per_trade"])))
-    L.append("")
+    if opt:
+        L.extend(options_api().scorecard_lines(res))
+    else:
+        L.append("R is a trade's net result over the rupees it risked at the stop. Expectancy is the average R "
+                 "per trade: +0.10R means about %s on a %s risk, before luck."
+                 % (inr(0.1 * res["config"]["max_loss_per_trade"]), inr(res["config"]["max_loss_per_trade"])))
+        L.append("")
     L.append("## Gates (written in the spec before the run)")
     L.append("")
     L.append("| gate | needs | got | |")
@@ -2391,7 +2461,8 @@ def scorecard(res, status=None):
     co = res["costs_sensitivity"]["out_of_sample"]
     L.append("- Costs: out-of-sample expectancy %s." % ", ".join("%s at %s" % (_r(co[k]["expectancy_r"]), k)
                                                               for k in sorted(co, key=lambda s: float(s[:-1]))))
-    for kind, title in (("vix", "India VIX the day before"), ("trend", "NIFTY 50 trend the day before")):
+    for kind, title in (("vix", "India VIX the day before"), ("trend", "NIFTY 50 trend the day before"),
+                        ("iv_rank", "IV rank on the entry day")):
         rows = res["regimes"].get(kind) or []
         if rows:
             L.append("- By %s: %s." % (title, "; ".join("%s: %d trades, %s" % (r["regime"], r["trades"],
@@ -2493,9 +2564,35 @@ def seen_by(bars, timeframe, now):
     return [b for b in bars if b["date"] < day or (b["date"] == day and m >= CLOSE_MIN)]
 
 
+def load_options_data(spec, archive=None, now=None, progress=None):
+    """(Chains, {"nifty", "vix"}, notes) for a compiled options spec, from the local archive only (the NSE
+    F&O bhavcopies), as seen at `now`: a session's EOD chain counts once its day has closed."""
+    root = archive or ARCHIVE_DIR
+    api = archive_api()
+    if api is None:
+        raise LabError("options backtests read the local F&O archive: put the trader-archive folder next to "
+                       "trader-lab")
+    if not os.path.isdir(root):
+        raise LabError("no archive at %s: options backtests need the EOD F&O chains (archive.py backfill "
+                       "--years 2 --datasets fo,index,vix,lots)" % root)
+    end = None
+    if now is not None:
+        end = now.date() if now.hour * 60 + now.minute >= CLOSE_MIN else now.date() - datetime.timedelta(days=1)
+    chains = options_api().load_chains(spec["underlying"], root, api, None, end, progress)
+    ctx = {}
+    for key, sym in (("nifty", "^NSEI"), ("vix", "^INDIAVIX")):
+        bars = archive_bars(sym, "1d", root)
+        bars = seen_by(bars or [], "1d", now)
+        ctx[key] = Series(sym, "1d", bars) if bars else None
+    return chains, ctx, ["%s %s from the local archive (%s)" % (spec["underlying"], chains.source, root)]
+
+
 def load_data(spec, data_dir=None, cache_dir=None, fetch=True, now=None, archive=None):
     """({symbol: Series}, {"nifty", "vix"}, notes) for a compiled spec, as seen at `now`. archive: a
-    trader-archive folder to prefer over Yahoo (None: Yahoo and the cache only)."""
+    trader-archive folder to prefer over Yahoo (None: Yahoo and the cache only). An options spec reads
+    the archive only and returns its Chains in place of the {symbol: Series}."""
+    if spec.get("kind") == "options":
+        return load_options_data(spec, archive, now)
     data, notes = {}, []
     from_archive = 0
     for sym in spec["universe"]:
@@ -2606,6 +2703,8 @@ def forward(doc, data, out, today=None, fno=None, now=None, write=True):
     h = spec_hash(doc)
     if not res or res.get("spec_hash") != h:
         raise LabError("run it first (lab.py run %s): the forward test follows the spec that was backtested" % name)
+    if doc.get("kind") == "options":
+        return options_api().forward(doc, data, out, res, status, today, now, write)
     params = dict(validate_spec(doc)["base_params"])
     params.update(res["walk_forward"].get("latest_params") or {})
     spec = validate_spec(doc, params=params)
@@ -2700,7 +2799,7 @@ def cmd_list(a):
     print("Built-in library (specs to test, not promises):")
     for n in sorted(lib):
         s = lib[n]
-        print("  %-22s %-3s %s" % (n, s.get("timeframe"), s.get("title")))
+        print("  %-30s %-7s %s" % (n, "options" if s.get("kind") == "options" else s.get("timeframe"), s.get("title")))
     rows = []
     if os.path.isdir(a.out):
         for n in sorted(os.listdir(a.out)):
@@ -2744,7 +2843,7 @@ def cmd_run(a):
     now = ist_now(a.now)
     data, ctx, notes = load_data(spec, a.data, os.path.join(a.out, "data"), not a.offline, now,
                                  None if a.no_archive else a.archive)
-    fno, fnote = _fno(a, spec["cfg"])
+    fno, fnote = _fno(a, spec["cfg"]) if spec.get("kind") != "options" else (None, "options: EOD chains, no F&O list needed")
     res = run_and_decide(doc, data, ctx, a.out, fno, now, None if a.json else _progress)
     res["notes"] = notes + [fnote]
     st = save_run(a.out, doc, res, now)
@@ -2817,12 +2916,14 @@ def cmd_forward(a):
     now = ist_now(a.now)
     data, ctx, notes = load_data(spec, a.data, os.path.join(a.out, "data"), not a.offline, now,
                                  None if a.no_archive else a.archive)
-    fno, _ = _fno(a, spec["cfg"])
+    fno = _fno(a, spec["cfg"])[0] if spec.get("kind") != "options" else None
     r = forward(doc, data, a.out, a.date, fno, now)
     if a.json:
         print(json.dumps(r, indent=1))
         return 0
     print("%s, %s: verdict %s. %s." % (r["name"], r["today"], r["verdict"], r["why"].rstrip(".")))
+    if r.get("kind") == "options":
+        return _print_option_forward(r)
     print("Paper forward record: %d trades (%d settled now), %s a trade, %s net." % (
         r["forward"]["trades"], r["settled"], _r(r["forward"]["expectancy_r"]), inr(r["forward"]["net"])))
     for n in r["notes"]:
@@ -2839,6 +2940,33 @@ def cmd_forward(a):
               "your yes on each paper ticket.")
     elif r["verdict"] in ("WATCH", "PROMOTE"):
         print("No fresh signal on the latest bar.")
+    print("Education and tooling, not financial advice.")
+    return 0
+
+
+def _print_option_forward(r):
+    print("Paper forward record: %d positions (%d settled now), %s a position on margin, %s net." % (
+        r["forward"]["trades"], r["settled"], _r(r["forward"]["expectancy_r"]), inr(r["forward"]["net"])))
+    for n in r["notes"]:
+        print(n)
+    if r["baskets"]:
+        print("")
+        print("Draft paper baskets (nothing is checked or placed yet):")
+        for b, path in zip(r["baskets"], r["written"] or [None] * len(r["baskets"])):
+            st = b["strategy"]
+            print("  %s %s, expiry %s, %s: margin about %s, max loss %s" % (
+                st["underlying"], st["name"], b["expiry"], st["net_premium"]["kind"] + " " +
+                inr(abs(st["net_premium"]["amount"])), inr(st["margin"]["required"]),
+                "unlimited" if st["margin"]["max_loss_unlimited"] else inr(st["margin"]["max_loss"] or 0)))
+            for o in b["orders"]["orders"]:
+                print("    %s %d x %s %s %s at %.2f" % (o["side"], o["qty"], o["symbol"], o["strike"],
+                                                      o["option_type"], o["price"]))
+            if path:
+                print("    copy %s to trader/orders.json and its strategy-*.json to trader/strategy.json," % path)
+        print("  then: python3 <trader-risk dir>/check.py (it checks the legs as ONE basket), and python3 "
+              "<trader-broker dir>/ticket.py show for your yes on each paper leg.")
+    elif r["verdict"] in ("WATCH", "PROMOTE"):
+        print("No entry on the latest session.")
     print("Education and tooling, not financial advice.")
     return 0
 

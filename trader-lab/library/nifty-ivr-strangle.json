@@ -1,0 +1,59 @@
+{
+ "schema": "bharat-trader/lab-spec/1",
+ "kind": "options",
+ "timeframe": "1d",
+ "name": "nifty-ivr-strangle",
+ "title": "NIFTY weekly 16-delta strangle, only when IV rank is high",
+ "description": "The weekly 16-delta short strangle, entered only when NIFTY's 30-day ATM implied volatility (rebuilt from the bhavcopy settle prices) ranks at least 50 over the last 126 sessions. Fewer trades, sold when premium is rich. Same exits as the plain strangle.",
+ "underlying": "NIFTY",
+ "structure": "short-strangle",
+ "expiry": "weekly",
+ "params": {
+  "delta": 0.16,
+  "ivr": 50,
+  "target": 50,
+  "stop": 2
+ },
+ "strikes": {
+  "by": "delta",
+  "value": "$delta"
+ },
+ "entry": {
+  "days_to_expiry": 6,
+  "iv_rank_min": "$ivr"
+ },
+ "iv_rank": {
+  "lookback": 126,
+  "days": 30
+ },
+ "exit": {
+  "profit_target_pct": "$target",
+  "stop_loss_mult": "$stop"
+ },
+ "grid": {
+  "ivr": [
+   30,
+   50,
+   70
+  ],
+  "delta": [
+   0.12,
+   0.16,
+   0.2
+  ]
+ },
+ "lots": 1,
+ "capital": 500000,
+ "costs": {
+  "slippage_pct": 2,
+  "slippage_ticks": 1
+ },
+ "walk_forward": {
+  "in_sample": 120,
+  "out_of_sample": 60
+ },
+ "seed": 16,
+ "references": [
+  "The 16-delta strangle and managing winners at 50% are practitioner habits, not evidence: this spec tests them on NSE data"
+ ]
+}

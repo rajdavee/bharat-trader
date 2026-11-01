@@ -1,0 +1,24 @@
+{
+ "name": "nifty-expiry-iron-fly",
+ "verdict": "REJECT",
+ "why": "2 of 8 gates failed: out-of-sample profit factor; deflated Sharpe ratio",
+ "spec_hash": "4709a8071c44abc6",
+ "updated": "2026-11-01 12:00",
+ "history": [
+  {
+   "at": "2026-11-01 12:00",
+   "verdict": "REJECT",
+   "why": "2 of 8 gates failed: out-of-sample profit factor; deflated Sharpe ratio",
+   "spec_hash": "4709a8071c44abc6"
+  }
+ ],
+ "spec_hashes": [
+  "4709a8071c44abc6"
+ ],
+ "forward": {
+  "trades": 0,
+  "net": 0.0,
+  "expectancy_r": 0.0,
+  "profit_factor": null
+ }
+}
