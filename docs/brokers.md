@@ -292,6 +292,12 @@ native linked order** (next section): the broker holds the stop and the
 target together and cancels the other when one fills, even if this machine
 is off.
 
+The live co-pilot (`trader-copilot`, [copilot.md](copilot.md)) uses exactly
+these commands for PROMOTED strategies: its typed phrase per order becomes the
+yes that `confirm` records, and `place` checks every gate above itself. It
+adds eligibility, daily live caps and an automatic live kill on top; it never
+opens a gate on its own.
+
 ## Native linked exits: one stop + target at the broker
 
 | broker | how | when | `--leg` |

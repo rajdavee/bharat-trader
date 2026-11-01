@@ -7,6 +7,25 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **`trader-copilot`: the live co-pilot** (#46). Live proposals only for
+  trader-lab PROMOTE strategies whose paper forward record meets config
+  thresholds (trades, weeks, drawdown in R, the co-trader's Brier score, no
+  recent demote); everything else is paper only and the eligibility table
+  says why. Each proposal: a PROMOTED co-trader candidate, sized by
+  trader-budget in the co-pilot's own live capital bucket, trader-risk PASS on
+  the live config, a plain live ticket (order, size, max loss with charges,
+  linked exits, evidence and calibration, the broker's margin), then the
+  user's exact typed phrase (`copilot.py approve ID` in the terminal, or the
+  UI dialog after a 10-second countdown enforced by the server), tied to the
+  proposal's fingerprint and used once, then trader-broker's six gates and
+  preflight. Bracket with the entry at Upstox and Dhan, GTT OCO after the fill
+  at Kite (`copilot.py exits ID`, its own phrase), a shadow paper twin of every
+  live order. Daily caps (live orders, capital at risk, live loss with an
+  automatic live kill switch and flatten tickets that still need the phrase),
+  a cool-off after a live loss, expiry and price-move invalidation, optional
+  local bell / desktop notification. There is no auto-approve. UI: a Co-pilot
+  page. MCP: `copilot_status` and `copilot_proposals`, read only (no approval
+  tool). Docs: docs/copilot.md (safety model first).
 - **Hinglish output mode** (#52). `--lang hi-en`, or `"lang": "hi-en"` in
   `trader/config.json`, turns the plain-words output into Hinglish (Hindi in
   Roman script, trading words in English): trader-broker tickets and

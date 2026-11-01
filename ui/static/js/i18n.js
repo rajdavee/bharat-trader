@@ -7,7 +7,7 @@ const MSG = /* catalogue:start */ {
   "en": {
     "nav.today": "Today", "nav.chart": "Chart", "nav.scanner": "Scanner", "nav.options": "Option chain",
     "nav.strategy": "Strategy builder", "nav.cotrader": "Co-trader", "nav.ask": "Ask",
-    "nav.portfolio": "Portfolio and orders", "nav.risk": "Risk", "nav.autopilot": "Auto-pilot",
+    "nav.portfolio": "Portfolio and orders", "nav.risk": "Risk", "nav.autopilot": "Auto-pilot", "nav.copilot": "Co-pilot (live)",
     "nav.lab": "Strategy Lab", "nav.journal": "Journal", "nav.tax": "Tax", "nav.agents": "Agents",
     "nav.settings": "Settings", "nav.welcome": "Setup guide", "nav.about": "About",
     "nav.portfolio_short": "Portfolio", "nav.menu": "Menu",
@@ -108,7 +108,7 @@ const MSG = /* catalogue:start */ {
   "hi-en": {
     "nav.today": "Aaj", "nav.chart": "Chart", "nav.scanner": "Scanner", "nav.options": "Option chain",
     "nav.strategy": "Strategy builder", "nav.cotrader": "Co-trader", "nav.ask": "Poochiye",
-    "nav.portfolio": "Portfolio aur orders", "nav.risk": "Risk", "nav.autopilot": "Auto-pilot",
+    "nav.portfolio": "Portfolio aur orders", "nav.risk": "Risk", "nav.autopilot": "Auto-pilot", "nav.copilot": "Co-pilot (live)",
     "nav.lab": "Strategy Lab", "nav.journal": "Journal", "nav.tax": "Tax", "nav.agents": "Agents",
     "nav.settings": "Settings", "nav.welcome": "Setup guide", "nav.about": "About",
     "nav.portfolio_short": "Portfolio", "nav.menu": "Menu",

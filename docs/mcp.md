@@ -38,7 +38,7 @@ Python standard library only. Nothing to install beyond the repo.
 On Windows use `"command": "python"` and paths like
 `"C:\\Users\\you\\bharat-trader\\mcp\\server.py"`.
 
-4. Restart the client. It should list 53 tools and 16 prompts from
+4. Restart the client. It should list 55 tools and 16 prompts from
    `bharat-trader`.
 
 Try it without your own data first: point `--offline` at the saved real
@@ -148,6 +148,8 @@ the config's `lang` decides.
 | `autopilot_replay` | **Auto-pilot: replay a past day.** Replay one or more past NSE sessions with the auto-pilot on a simulated clock, in a sandbox (trader/autopilot/replays/): the enabled strategies' lab runs are re-run as of the close before the first day (no look-ahead), a fresh paper account starts from your capital, and every step runs from the pre-open to the end-of-day report, with exact charges. Read only for your account: it never touches your paper account, orders or lab runs. | `date`, `to`? | read-only |
 | `autopilot_start` | **Auto-pilot: start on paper.** Start the auto-pilot loop on the PAPER account, with the user's typed confirmation (the words start paper). A config that is not paper is refused before anything. When the client supports elicitation the server asks the user directly; otherwise typed must be the user's own words. Never type them yourself. There is no live auto-pilot. | `typed`? | writes trader/ |
 | `autopilot_stop` | **Auto-pilot: stop.** Ask the running auto-pilot loop to finish its current step and stop, with the user's typed confirmation (the words stop paper). Open paper positions stay as they are. | `typed`? | writes trader/ |
+| `copilot_status` | **Co-pilot: status (read only).** The LIVE co-pilot, read only: which trader-lab strategies may make live proposals and the reason for each one that may not (lab verdict, paper forward trades and weeks, drawdown in R, Brier score of its odds, a recent demote), today's live caps (orders, capital at risk, live loss, cool-off), the live kill switch and what was sent today. It cannot propose, approve or send anything. | none | read-only |
+| `copilot_proposals` | **Co-pilot: pending live tickets (read only).** The live proposals waiting for the user's own typed approval, each as a plain ticket: the order, size in the live bucket, max loss with charges, linked exits, the evidence tier, odds with n and range, calibration, trader-risk's verdict, the broker's margin and when it expires. Read only: there is no tool that approves one; the user does that in their terminal or the local UI. | none | read-only |
 <!-- tools:end -->
 
 `?` marks an optional argument. Every tool also carries MCP annotations:

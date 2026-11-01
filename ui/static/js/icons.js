@@ -10,6 +10,7 @@ const P = {
   ask: 'M4 5h16v11H9l-5 4zM8 9h8M8 12h5',
   portfolio: 'M3 8h18v11H3zM8 8V5h8v3M3 13h18',
   risk: 'M12 3l8 3v6c0 4.5-3.4 8-8 9c-4.6-1-8-4.5-8-9V6zM9 12l2 2l4-4',
+  copilot: 'M12 3l8 3v6c0 4.5-3.4 8-8 9c-4.6-1-8-4.5-8-9V6zM8 12h8M12 8v8',
   autopilot: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M12 12l4-4M12 7v1M7 12h1M16 12h1',
   lab: 'M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3M7.5 15h9',
   journal: 'M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11M9 8h6',
