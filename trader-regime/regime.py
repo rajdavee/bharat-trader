@@ -1361,6 +1361,16 @@ class Sources(object):
                 bars = [{"date": b["date"], "time": "", "o": b["o"], "h": b["h"], "l": b["l"], "c": b["c"],
                          "v": int(b.get("v") or 0)} for b in got]
                 src = "archive %s to %s" % (bars[0]["date"], bars[-1]["date"])
+                if len(bars) < DEFAULTS["vol_lookback"] and self.fetch:
+                    try:
+                        more = yahoo_daily(sym, now)
+                    except RegimeError as e:
+                        more = None
+                        self.notes.append("%s: the archive has %d sessions and Yahoo failed (%s)" % (sym, len(bars), e))
+                    if more and len(more) > len(bars):
+                        self.notes.append("%s: the archive has only %d sessions, so the daily bars are Yahoo's (the "
+                                          "calendar and breadth still come from the archive)" % (sym, len(bars)))
+                        bars, src = more, "Yahoo %s (2 years, unofficial)" % file_name(sym)
         if bars is None:
             if not self.fetch:
                 raise RegimeError("no daily bars for %s: no archive (python3 trader-archive/archive.py backfill) and "
@@ -1721,13 +1731,21 @@ def render_now(r):
     L = [r["words"]]
     d = r["daily"]
     t, v = d["trend"], d["vol"]
-    L.append("  close %s on %s (%s); ADX %s, ER %s, %s the %d-day average (%s%%)" % (
-        num(d["close"]), d["date"], r["source"], t["adx"], t["er"],
-        "above" if t["above_sma_long"] else ("below" if t["above_sma_long"] is not None else "n/a vs"),
-        DEFAULTS["sma_long"], t["vs_sma_long_pct"]))
-    L.append("  vol: %s by %s; realised %s%% (20d) vs %s%% (1y)%s" % (
-        v["bucket"], v["basis"], v["rv20"], v["rv_long"],
-        "; IV rank %s (%s)" % (v["iv_rank"], v["iv_source"]) if v.get("iv_rank") is not None else ""))
+    if t["adx"] is None or t["sma_long"] is None or v["bucket"] == "unknown":
+        L.append("  close %s on %s (%s): too little history for every input (the %d-day average needs %d "
+                 "sessions, the vol bucket %d; backfill the archive or let it use Yahoo)"
+                 % (num(d["close"]), d["date"], r["source"], DEFAULTS["sma_long"], DEFAULTS["sma_long"],
+                    DEFAULTS["vol_min_history"]))
+    if t["adx"] is not None and t["sma_long"] is not None:
+        L.append("  close %s on %s (%s); ADX %s, ER %s, %s the %d-day average (%+.2f%%)" % (
+            num(d["close"]), d["date"], r["source"], t["adx"], t["er"],
+            "above" if t["above_sma_long"] else "below", DEFAULTS["sma_long"], t["vs_sma_long_pct"]))
+    elif t["adx"] is not None:
+        L.append("  ADX %s, ER %s" % (t["adx"], t["er"]))
+    if v["rv20"] is not None:
+        L.append("  vol: %s by %s; realised %s%% (20d) vs %s (1y)%s" % (
+            v["bucket"], v["basis"], v["rv20"], "%s%%" % v["rv_long"] if v["rv_long"] is not None else "n/a",
+            "; IV rank %s (%s)" % (v["iv_rank"], v["iv_source"]) if v.get("iv_rank") is not None else ""))
     rec = r["today"] or d
     cal = rec["calendar"]
     e = cal["expiry"]

@@ -76,6 +76,7 @@ free endpoints again.
 | GET | `/api/fno` | the paper F&O book by strategy: marks, P&L, Greeks, margin, payoff at expiry |
 | GET | `/api/options?symbol=&expiry=&strikes=` | trader-options' analysis of one expiry, the expiry list, why panels |
 | GET | `/api/strategy` | the templates, symbols and the saved `trader/strategy.json` |
+| GET | `/api/regime?symbols=NIFTY,BANKNIFTY` | trader-regime's read for now (up to 6 symbols): trend, volatility bucket, gap, expiry and event flags, time-of-day bucket, with the inputs; archive first, Yahoo daily bars else (offline: the archive only); cached 15 min. No page yet: the redesign will show it |
 | GET | `/api/broker` | the live broker connection, no network: variables set (names only), capabilities, plans, last preflight |
 | GET | `/api/broker/holdings?broker=`, `/api/broker/positions?broker=` | read only, from the broker's API (cached 30 s; never called offline) |
 | GET | `/api/doctor` | the last data self-test from `trader/doctor.json` (the header's Data badge) |

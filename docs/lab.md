@@ -120,6 +120,18 @@ the gate fails ("not measured").
 NIFTY 50 trend (up: close above its 50-day average and that average higher
 than 10 sessions ago; down: the mirror; else ranging).
 
+**Market regimes** (with `trader-regime` next to `trader-lab`). Every trade
+is also labelled with trader-regime's read of NIFTY 50 as of the close
+before its signal day: trend or range (ADX, efficiency ratio, the 20/50 EMAs;
+"no clear trend" counts as range) x the India VIX percentile bucket (low,
+normal, high over the last 252 sessions) x the signal day's own expiry flag
+(expiry day, day before expiry, no expiry; expiry unknown before 20 Nov 2024
+without the archive). Each cell shows trades, the mean R with a 95% interval
+(mean +/- 1.96 standard errors) and net P&L, for the whole sample and out of
+sample; a cell under `min_regime_trades` (10) is marked too few to judge. The
+scorecard ends the list with today's regime. The regime thresholds are
+trader-regime's defaults; see [regime.md](regime.md).
+
 **Costs.** The out-of-sample windows (same chosen points) and the whole
 sample again at 1.5x and 2x charges and slippage.
 
@@ -137,6 +149,7 @@ sample again at 1.5x and 2x charges and slippage.
 | `min_neighbourhood_positive` | 0.5 |
 | `min_forward_trades` | 20 paper forward trades before a PROMOTE |
 | `demote_window`, `demote_below_r`, `demote_drawdown_mult` | the last 30 forward trades at 0R or less, or a forward drawdown past 1.5x the out-of-sample one, demotes |
+| `require_regime_edge` | 0 (off). Set 1 for the gate **edge in the current regime**: the out-of-sample trades taken in today's NIFTY regime (trend or range x VIX bucket) must number at least `min_regime_trades` (10) and average above `min_oos_expectancy_r`. Fails as "not measured" without trader-regime or NIFTY bars |
 
 Verdicts: **REJECT** (any gate failed), **WATCH** (every gate passed: paper
 forward test it), **PROMOTE** (WATCH plus `min_forward_trades` forward trades
@@ -190,7 +203,7 @@ bhavcopy archive for the history.
 Everything is a pure function that the UI and an MCP server can call:
 `validate_spec(doc)`, `Series(symbol, timeframe, bars)`, `load_bars(...)`,
 `backtest(spec, data)`, `walk_forward_splits(...)`, `monte_carlo(...)`,
-`deflated_sharpe(...)`, `pbo_cscv(...)`, `regime_split(...)`,
+`deflated_sharpe(...)`, `pbo_cscv(...)`, `regime_split(...)`, `lab_regimes(context)`, `regime_gate(...)`,
 `evaluate_gates(...)`, `decide(...)`, `run_lab(doc, data, context)`,
 `scorecard(results)`, `forward(doc, data, out)`, `compare_rows(out, names)`.
 Nothing writes a file except `save_run` and `forward(..., write=True)`.
