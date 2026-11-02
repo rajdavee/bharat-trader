@@ -271,26 +271,46 @@ _NAN = float("nan")
 _KINDS = ("CE", "PE")
 
 
-class LRU(collections.OrderedDict):
-    """A dict that forgets its least recently used keys past `size` (a bounded cache)."""
+class LRU(object):
+    """A dict-like cache that forgets its least recently used keys past `size`. It wraps an OrderedDict
+    rather than subclassing it: before Python 3.12 OrderedDict.pop() and popitem() call an overridden
+    __getitem__, which would move a key that is being removed."""
 
     def __init__(self, size):
-        collections.OrderedDict.__init__(self)
         self.size = size
+        self._d = collections.OrderedDict()
 
     def __getitem__(self, key):
-        v = collections.OrderedDict.__getitem__(self, key)
-        self.move_to_end(key)
+        v = self._d[key]
+        self._d.move_to_end(key)
         return v
 
+    def get(self, key, default=None):
+        return self[key] if key in self._d else default
+
     def __contains__(self, key):
-        return collections.OrderedDict.__contains__(self, key)
+        return key in self._d
 
     def __setitem__(self, key, value):
-        collections.OrderedDict.__setitem__(self, key, value)
-        self.move_to_end(key)
-        while len(self) > self.size:
-            self.popitem(last=False)
+        self._d[key] = value
+        self._d.move_to_end(key)
+        while len(self._d) > self.size:
+            self._d.popitem(last=False)
+
+    def __delitem__(self, key):
+        del self._d[key]
+
+    def pop(self, key, *default):
+        return self._d.pop(key, *default)
+
+    def __len__(self):
+        return len(self._d)
+
+    def __iter__(self):
+        return iter(self._d)
+
+    def keys(self):
+        return self._d.keys()
 
 
 _HOT = collections.OrderedDict()      # id -> PackedOpts holding an unpacked dict right now
@@ -541,7 +561,7 @@ class Chains(object):
         atm = min(ks, key=lambda k: (abs(k - F), k))
         arow = next(x for x in rows if x["strike"] == atm)
         ivs = [x["iv"] for x in (arow.get("ce"), arow.get("pe")) if x and x.get("iv")]
-        atm_iv = sum(ivs) / len(ivs) if ivs else None
+        atm_iv = math.fsum(ivs) / len(ivs) if ivs else None
         if atm_iv is None:
             sm = [x for x in rows if (x.get("ce") or {}).get("iv") or (x.get("pe") or {}).get("iv")]
             if sm:
@@ -583,7 +603,7 @@ class Chains(object):
                         if v:
                             ivs.append(v)
                 if ivs:
-                    out = sum(ivs) / len(ivs)
+                    out = math.fsum(ivs) / len(ivs)
                     break
         self._an[key] = out
         return out
@@ -1030,7 +1050,7 @@ def open_position(spec, chains, day, expiry, mult):
             return None, "a leg has no price"
         l["mark"] = l["price"]
         l["fill"] = round(_fill(l["price"], l["side"], spec["costs"], mult), 4)
-    premium = sum(-_sign(l) * l["fill"] * l["qty"] for l in legs)
+    premium = math.fsum(-_sign(l) * l["fill"] * l["qty"] for l in legs)
     return {"entry_date": day, "expiry": expiry, "legs": legs, "premium": premium, "flags": flags,
             "credit": premium > 0, "lot_size": legs[0]["lot_size"], "lots": spec["lots"], "far": far,
             "spot_entry": chains.boards[day]["spot"], "forward_entry": a["forward"], "atm_iv": a.get("atm_iv"),
@@ -1192,7 +1212,7 @@ def backtest(spec, chains, cost_mult=1.0):
                 continue
             pos["unreal"] = 0.0
             open_pos.append(pos)
-        mtm[day] = realised + sum(p.get("unreal", 0.0) for p in open_pos)
+        mtm[day] = realised + math.fsum(p.get("unreal", 0.0) for p in open_pos)
     trades.sort(key=lambda t: (t["exit_date"], t["signal_date"], t["expiry"]))
     return {"trades": trades, "skipped": skipped, "pending": pending, "mtm": mtm,
             "open": [{"entry_date": p["entry_date"], "expiry": p["expiry"], "premium": round(p["premium"], 2),
@@ -1233,7 +1253,7 @@ def options_metrics(trades, mtm, days, capital):
         streak = max(streak, run)
     worst5 = sorted(nets)[:max(1, int(math.ceil(len(nets) * 0.05)))] if nets else []
     years = max(1e-9, len(days) / 252.0)
-    avg_m = sum(margins) / len(margins) if margins else 0.0
+    avg_m = math.fsum(margins) / len(margins) if margins else 0.0
     exp = {}
     for t in trades:
         exp.setdefault(t["expiry"], False)
@@ -1244,14 +1264,14 @@ def options_metrics(trades, mtm, days, capital):
     return {
         "positions": len(trades), "avg_margin": L.round_paise(avg_m),
         "max_margin": L.round_paise(max(margins) if margins else 0.0),
-        "return_on_margin_pct": round(100.0 * sum(nets) / avg_m, 2) if avg_m else None,
-        "return_on_margin_annual_pct": round(100.0 * sum(nets) / avg_m / years, 2) if avg_m else None,
-        "avg_return_on_margin_pct": round(sum(roms) / len(roms), 3) if roms else None,
+        "return_on_margin_pct": round(100.0 * math.fsum(nets) / avg_m, 2) if avg_m else None,
+        "return_on_margin_annual_pct": round(100.0 * math.fsum(nets) / avg_m / years, 2) if avg_m else None,
+        "avg_return_on_margin_pct": round(math.fsum(roms) / len(roms), 3) if roms else None,
         "worst_week": L.round_paise(min(weeks.values())) if weeks else 0.0,
         "best_week": L.round_paise(max(weeks.values())) if weeks else 0.0,
         "tail_loss_5pct": L.round_paise(L.percentile(nets, 0.05)) if nets else 0.0,
         "tail_loss_1pct": L.round_paise(L.percentile(nets, 0.01)) if nets else 0.0,
-        "tail_avg_worst_5pct": L.round_paise(sum(worst5) / len(worst5)) if worst5 else 0.0,
+        "tail_avg_worst_5pct": L.round_paise(math.fsum(worst5) / len(worst5)) if worst5 else 0.0,
         "worst_trade": L.round_paise(min(nets)) if nets else 0.0,
         "max_consecutive_losses": streak,
         "time_in_drawdown_pct": round(100.0 * under / len(curve), 2) if curve else 0.0,
@@ -1260,7 +1280,7 @@ def options_metrics(trades, mtm, days, capital):
         "expiries": len(exp), "exits": reasons,
         "model_priced_marks": sum(t.get("model_marks", 0) for t in trades),
         "credit_positions": sum(1 for t in trades if t.get("credit")),
-        "avg_premium": L.round_paise(sum(abs(t["premium"]) for t in trades) / len(trades)) if trades else 0.0,
+        "avg_premium": L.round_paise(math.fsum(abs(t["premium"]) for t in trades) / len(trades)) if trades else 0.0,
     }
 
 
@@ -1292,7 +1312,7 @@ def run(doc, chains, context=None, extra_trials=0, progress=None):
     for ins, outs in splits:
         iset, oset = set(ins), set(outs)
         is_tr = [[t for t in r["res"]["trades"] if t["signal_date"] in iset] for r in runs]
-        is_net = [sum(t["net"] for t in ts) for ts in is_tr]
+        is_net = [math.fsum(t["net"] for t in ts) for ts in is_tr]
         able = [j for j in range(len(runs)) if len(is_tr[j]) >= L.MIN_IS_TRADES] or list(range(len(runs)))
         best = max(able, key=lambda j: (round(is_net[j], 2), j == home, -j))
         picked = [t for t in runs[best]["res"]["trades"] if t["signal_date"] in oset]
@@ -1413,11 +1433,11 @@ def _iv_rank_split(trades, chains, spec):
     for lab in sorted(rows):
         ts = rows[lab]
         nets = [x["net"] for x in ts]
-        gl = -sum(x for x in nets if x <= 0)
-        out.append({"regime": lab, "trades": len(ts), "net": _L().round_paise(sum(nets)),
-                    "expectancy_r": round(sum(x["r"] for x in ts) / len(ts), 4),
+        gl = -math.fsum(x for x in nets if x <= 0)
+        out.append({"regime": lab, "trades": len(ts), "net": _L().round_paise(math.fsum(nets)),
+                    "expectancy_r": round(math.fsum(x["r"] for x in ts) / len(ts), 4),
                     "win_rate": round(sum(1 for x in nets if x > 0) / float(len(ts)), 4),
-                    "profit_factor": round(sum(x for x in nets if x > 0) / gl, 3) if gl > 0 else None})
+                    "profit_factor": round(math.fsum(x for x in nets if x > 0) / gl, 3) if gl > 0 else None})
     return out
 
 

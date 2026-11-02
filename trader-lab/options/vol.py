@@ -81,8 +81,8 @@ def realised_vol(bars, n=20, estimator="close"):
             w = rets[i - n + 1:i + 1]
             if any(x is None for x in w):
                 continue
-            m = sum(w) / n
-            var = sum((x - m) ** 2 for x in w) / (n - 1)
+            m = math.fsum(w) / n
+            var = math.fsum((x - m) ** 2 for x in w) / (n - 1)
             out[bars[i]["date"]] = math.sqrt(var) * math.sqrt(YEAR) * 100.0
         return out
     dv = daily_variance(bars, estimator)
@@ -90,7 +90,7 @@ def realised_vol(bars, n=20, estimator="close"):
         w = [v for _, v, _ in dv[i - n + 1:i + 1]]
         if any(v is None for v in w):
             continue
-        out[dv[i][0]] = annualised(sum(w) / n)
+        out[dv[i][0]] = annualised(math.fsum(w) / n)
     return out
 
 
@@ -99,7 +99,7 @@ def realised_vol(bars, n=20, estimator="close"):
 def _solve(A, y):
     """Least squares by the normal equations (Gaussian elimination with partial pivoting)."""
     k = len(A[0])
-    M = [[sum(r[i] * r[j] for r in A) for j in range(k)] + [sum(r[i] * t for r, t in zip(A, y))] for i in range(k)]
+    M = [[math.fsum(r[i] * r[j] for r in A) for j in range(k)] + [math.fsum(r[i] * t for r, t in zip(A, y))] for i in range(k)]
     for c in range(k):
         p = max(range(c, k), key=lambda r: abs(M[r][c]))
         if abs(M[p][c]) < 1e-30:
@@ -123,9 +123,9 @@ def har_rows(var, h=20, lags=HAR_LAGS):
         hist = var[i - big + 1:i + 1]
         if any(v is None for v in hist):
             continue
-        x = [1.0] + [sum(var[i - L + 1:i + 1]) / float(L) for L in lags]
+        x = [1.0] + [math.fsum(var[i - L + 1:i + 1]) / float(L) for L in lags]
         fut = var[i + 1:i + 1 + h]
-        y = sum(fut) / float(h) if len(fut) == h and all(v is not None for v in fut) else None
+        y = math.fsum(fut) / float(h) if len(fut) == h and all(v is not None for v in fut) else None
         out.append((i, x, y))
     return out
 
@@ -148,10 +148,10 @@ def har_fit(bars, train_from, train_to, h=20, estimator="close", lags=HAR_LAGS):
     A = [x for _, x, _ in rows]
     y = [t for _, _, t in rows]
     coef = _solve(A, y)
-    fit = [sum(c * v for c, v in zip(coef, x)) for x in A]
-    my = sum(y) / len(y)
-    ss_t = sum((t - my) ** 2 for t in y)
-    ss_r = sum((t - f) ** 2 for t, f in zip(y, fit))
+    fit = [math.fsum(c * v for c, v in zip(coef, x)) for x in A]
+    my = math.fsum(y) / len(y)
+    ss_t = math.fsum((t - my) ** 2 for t in y)
+    ss_r = math.fsum((t - f) ** 2 for t, f in zip(y, fit))
     return {"coef": coef, "n": len(rows), "r2": 1.0 - ss_r / ss_t if ss_t > 0 else None, "h": h,
             "estimator": estimator, "lags": list(lags), "train": [train_from, train_to],
             "fitted_through": dates[rows[-1][0] + h] if rows[-1][0] + h < len(dates) else dates[-1]}
@@ -165,7 +165,7 @@ def har_forecast(model, bars):
     var = [v for _, v, _ in dv]
     out = {}
     for i, x, _ in har_rows(var, model["h"], tuple(model["lags"])):
-        f = sum(c * v for c, v in zip(model["coef"], x))
+        f = math.fsum(c * v for c, v in zip(model["coef"], x))
         out[dv[i][0]] = annualised(max(f, 0.1 * x[-1]))
     return out
 
@@ -205,4 +205,4 @@ def forward_realised(bars, day, sessions):
     if i < 0 or i + sessions >= len(bars):
         return None
     w = [math.log(bars[j]["c"] / bars[j - 1]["c"]) for j in range(i + 1, i + sessions + 1)]
-    return math.sqrt(sum(x * x for x in w) / len(w) * YEAR) * 100.0
+    return math.sqrt(math.fsum(x * x for x in w) / len(w) * YEAR) * 100.0
