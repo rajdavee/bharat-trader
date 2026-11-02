@@ -6,7 +6,7 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-11-xx
+## [0.4.0] - 2026-11-03
 
 The edge-hunt release: a long-history archive, lab engines for futures,
 portfolios, events, pairs and options, and 14 hypotheses registered before

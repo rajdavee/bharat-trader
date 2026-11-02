@@ -61,7 +61,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PAISE = Decimal("0.01")
 NSE_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
           "Chrome/130 Safari/537.36")
-YAHOO_UA = "Mozilla/5.0 (compatible; bharat-trader/0.3; +https://github.com/rajdavee/bharat-trader)"
+YAHOO_UA = "Mozilla/5.0 (compatible; bharat-trader/0.4; +https://github.com/rajdavee/bharat-trader)"
 BOARD_URL = "https://www.nseindia.com/api/corporate-board-meetings?index=equities&symbol=%s"
 PAUSE = 1.5            # seconds between network calls
 BACKOFF = 20.0         # seconds to wait once after HTTP 403/429
