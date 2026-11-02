@@ -417,9 +417,36 @@ same command carries on from `trials.jsonl`. How the trials are counted:
   stay charged to the trial count, because their numbers were seen. eh-09
   was stopped at trial 4 of 6 on revision 1 of the event-vol engine (whose
   legacy-year boards had no spot, so it found no trades); resuming it needs
-  `--rerun-superseded` and is charged 6 + 4 trials, plus eh-08's 8 (and
-  today it is blocked anyway until the archive has lot sizes for 2012 to
-  2023, see the memory section).
+  `--rerun-superseded` and is charged 6 + 4 trials, plus eh-08's 8. The
+  option families are now at revision 3 (lots from the dated lot-size
+  history, below), so every earlier option trial is superseded the same way.
+
+### Lot sizes in option hunts
+
+Legacy F&O bhavcopies (before 2024) carry no lot. The option engines (eh-05,
+eh-08, eh-09, eh-14) take a missing lot from trader-archive's dated lot-size
+history (`archive.py backfill --datasets lothist`, see docs/archive.md), per
+contract (underlying and expiry). Each lot there is **exact** (NSE's own
+numbers: the UDiFF lot, the F&O market activity reports, `fo_mktlots.csv`
+copies, the index lot circulars) or **reconstructed** (rebuilt from the legacy
+bhavcopy's turnover and open interest).
+
+- By default only exact lots are used. A position whose lot is only
+  reconstructed is skipped with the reason "lot size only reconstructed, not
+  exact", counted like any other skip, and the run's notes say how many rows
+  were refused.
+- `"allow_reconstructed_lots": true` in `trader/config.json` lets the engines
+  use reconstructed lots too; the notes then say how many were used.
+- Before a hunt runs, the executor measures the history's coverage of the
+  train and the validation windows in contract-days (NIFTY monthly contracts
+  for eh-05, every stock's monthly contracts for eh-08 and eh-09): exact,
+  reconstructed and unknown, by year. Under 95% usable (exact, plus
+  reconstructed when allowed) in either window, the hunt waits ("blocked")
+  and says the numbers and what would unblock it; otherwise the plan records
+  them (`lot_coverage`) and the dry run prints them. The holdout (from late
+  2024) has UDiFF lots, exact.
+- Without a lot history the old check stands: a train window whose first
+  session has no lot sizes waits.
 
 ### The data adapter
 
@@ -713,10 +740,10 @@ A watchdog kill is an interrupted run like any other (see **Interrupted
 runs** above): the trial that was running is run again, counted once.
 
 **Data gaps that remain** (not memory, but they decide what the option
-hunts can show): legacy F&O bhavcopies (before July 2024) carry no lot
-sizes and the archive's lot-size snapshots start in Nov 2026, so eh-05,
-eh-08 and eh-09 are blocked ("no lot sizes ... waits for a dated lot-size
-history") rather than allowed to record a REJECT about missing data. 73
+hunts can show): legacy F&O bhavcopies (before 2024) carry no lot sizes; the
+dated lot-size history fills them (see **Lot sizes in option hunts**), and
+without it eh-05, eh-08 and eh-09 wait rather than record a REJECT about
+missing data. 73
 NIFTY sessions from 2014 to 2023 have no index close in the archive (#87);
 their boards take a futures-implied spot, named in the run's notes.
 

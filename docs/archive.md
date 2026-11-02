@@ -52,7 +52,8 @@ Formats verified on 2026-11-01:
 - `FOSett_prce` rows for `OPTIDX`/`OPTSTK` have no expiry: they are the
   underlying's settlement price.
 - Lot sizes: NSE publishes only today's `fo_mktlots.csv`, so the archive keeps
-  a daily snapshot. From 2024 every F&O bhavcopy row also carries its lot.
+  a daily snapshot. From 2024 every F&O bhavcopy row also carries its lot;
+  before that, the `lothist` dataset (below) rebuilds every contract's lot.
 - India VIX history comes 70 rows a call (fetched a quarter at a time); older
   days are also in the index files.
 
@@ -208,6 +209,79 @@ first snapshot therefore gets the first snapshot, flagged
 `before_first_snapshot`. A stock that changed sector years ago is grouped by
 today's sector: a limit to state in any backtest that uses it.
 
+### F&O lot sizes over time
+
+NSE publishes only today's lot sizes (`fo_mktlots.csv`), and the legacy F&O
+bhavcopies (to July 2024) carry no lot column, so an option backtest of 2010
+to 2023 needs a dated history. `backfill --datasets lothist` builds one:
+every F&O contract's lot on every day, each segment flagged **exact** or
+**reconstructed**, in `lothist/lothist.csv.gz` (columns `underlying, expiry,
+monthly, effective_from, effective_to, lot, source, confidence`).
+
+| Source | Years | Confidence |
+| --- | --- | --- |
+| The UDiFF F&O bhavcopy's own lot (`NewBrdLotQty`) | 2024-01-01 on | exact |
+| NSE's F&O market activity report, `archives/fo/mkt/foDDMMYYYY.zip`: traded quantity / number of contracts of every contract that traded | March 2011 on (2011-02 and earlier are 404); the archive fetches the first session on or after the 1st and the 16th of each month, about 310 files | exact |
+| The Wayback Machine's copies of NSE's `fo_mktlots.csv` (its CDX index, then each copy once) | about 55 copies, 2008 to 2024, thick in 2014 to 2016 | exact (monthly contracts) |
+| The archive's own `lots` snapshots | from the day you started it | exact |
+| NSE's index lot circulars (`Revision in Market Lot of Derivative Contracts on Indices`, NSE/FAOP/26336 to 70616): the present lot on the circular's date, and which expiries took the new lot | 2014 on | exact when the bhavcopy agrees |
+| Bridged: the nearest exact lots of the same underlying before and after a segment are equal (index: at most 400 days apart, stock: 35) and every contract in between rebuilt to that lot | any | exact |
+| Rebuilt from the legacy bhavcopy itself (below) | every archived day | reconstructed |
+
+The rebuild: the legacy file's turnover is notional, so for each traded row
+`turnover / (contracts x (strike + high))` and `turnover / (contracts x
+(strike + low))` bracket the lot (strike 0 for a future), widened by 500
+rupees for the 0.01-lakh rounding and 0.5% for the odd trade printed outside
+the day's range. The lot also divides every open interest and OI change (both
+in shares). The day's candidates are the integers in the bracket that divide
+the gcd of the OI; a contract's segment is the run of days voting for the same
+candidate, cut where three sessions in a row lose it (a bonus or split
+adjusted the lot mid-life). One candidate in at least 80% of the observed
+days is the lot. This is the `lot = round(contract value / price)` rule made
+strict: on the NIFTY April 2015 future, Rs 8,934.5 crore over 416,855
+contracts at 8,512 to 8,645.55 gives 25. Checked against the market activity
+reports: 552 of 552 contracts right on 1 Jun 2023, 417 of 417 on 1 Jun 2012,
+332 of 333 on 1 Apr 2015 (the reports then override it). Positions carried
+through an index lot revision leave open interest that is no whole number of
+lots (NIFTY's long-dated options); the OI is then ignored for that day.
+
+A contract can keep an old lot while newer ones carry the revised lot: in
+November 2014 NIFTY's near months were at 25 while its long-dated options
+(March 2015 on) stayed at 50 until NSE/FAOP/30450 moved them to 75. That is
+why lots are looked up per contract (underlying and expiry), not per date.
+
+```
+python3 trader-archive/archive.py backfill --from 2010-01-01 --datasets lothist   # ~20 min; resumable
+python3 trader-archive/archive.py lots --underlying NIFTY            # coverage by year, each lot change
+python3 trader-archive/archive.py lots --underlying STOCKS --from 2012-01-01
+python3 trader-archive/archive.py lots --underlying HDFCBANK --date 2015-04-06 --expiry 2015-04-30
+python3 trader-archive/archive.py lots --build                       # rebuild the table offline
+```
+
+The build reads every archived F&O bhavcopy once (about 5 minutes for
+2003 to 2026, a few MB of memory); each year's scan is cached in
+`lothist/scan/` and redone only when that year's files change, so run it
+after the F&O backfill. `lothist/manifest.json` records the counts by source,
+the conflicts between sources (an exact source always wins) and the coverage
+by year of NIFTY, BANKNIFTY and the stocks.
+
+Read it with `lot_size(underlying, date, expiry=None)` (`{"lot",
+"confidence", "source", "expiry", "effective_from", "effective_to",
+"nearest"}`, or None: never a guess), `lot_history(underlying)`,
+`lot_coverage(underlying or "STOCKS", start, end)` and `fill_lots(chain,
+accept="exact"|"any")`. `load_fo_chain_eod(underlying, day, lots="exact")`
+fills a missing lot from the history: exact lots only by default (a
+reconstructed one is left None and the row marked `lot_refused`), every lot
+with `lots="any"`.
+
+What it does not cover: contracts that never traded and had no open interest
+(no numbers to rebuild from), days before your F&O backfill starts, and the
+2002 to 2006 HTML `fo_mktlots.htm` pages the Wayback Machine also kept (not
+parsed). NSE's semi-annual stock lot circulars (`Revision in Market Lot of
+Derivative Contracts on Individual Stocks`) carry their tables as `.xls` or
+`.xlsx` annexures and are not read: the market activity reports already give
+each traded contract's lot.
+
 ### Intraday option history
 
 Researched 2026-11-01:
@@ -296,7 +370,8 @@ chain = archive.load_fo_chain_eod("NIFTY", "2026-10-30", root="trader/archive")
 Also `load_daily_many`, `load_intraday`, `load_vix`, `load_index`,
 `load_ban`, `load_settle`, `load_lots`, `trading_days`, `adjustment_factors`,
 `chain_snapshots`, `chain_series`, `load_continuous`, `members`,
-`membership`, `results_dates`, `sectors` and `load_option_intraday`. Nothing in the read
+`membership`, `results_dates`, `sectors`, `lot_size`, `lot_history`,
+`lot_coverage`, `fill_lots` and `load_option_intraday`. Nothing in the read
 API touches the network.
 
 ```python
@@ -304,6 +379,7 @@ cont = archive.load_continuous("NIFTY", "back", "2012-01-01", "2026-10-30", roll
 universe = archive.members("NIFTY 500", "2015-06-30", root="trader/archive")     # who was in it then
 events = archive.results_dates("INFY", "2012-01-01", root="trader/archive")
 groups = archive.sectors(root="trader/archive")                                  # {symbol: NSE sector}
+lot = archive.lot_size("NIFTY", "2015-04-06", "2015-04-30", root="trader/archive")  # {"lot": 25, "confidence": "exact", ...}
 ```
 
 ## Who uses it
