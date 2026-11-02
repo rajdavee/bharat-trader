@@ -188,6 +188,12 @@ All notable changes are documented here. The format follows
   is per stock and day now. Both bump the event-vol engine to revision 2.
   eh-08's recorded REJECT was decided on revision 1 (0 trades in train and
   validation) and is left as recorded.
+- **Option results are the same on every Python**: the built-in `sum()` of
+  floats became compensated in Python 3.12, so an iron condor's premium on a
+  rounding boundary was 3313.76 on Python 3.8-3.11 and 3313.77 on 3.12+. The
+  options package now sums floats with `math.fsum` (correctly rounded
+  everywhere); its bounded cache no longer subclasses `OrderedDict` (before
+  3.12 `pop()` called the overridden `__getitem__`).
 - **Option hunts with no lot sizes for their train years now wait**: legacy
   bhavcopies carry no lot sizes and the archive's lot-size snapshots start in
   Nov 2026, so every eh-05/08/09 position before July 2024 would be skipped

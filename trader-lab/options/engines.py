@@ -199,7 +199,7 @@ def _wing_points(spot, pct, step):
 
 def _mean(xs):
     xs = [x for x in xs if x is not None]
-    return sum(xs) / len(xs) if xs else None
+    return math.fsum(xs) / len(xs) if xs else None
 
 
 def _skip(skipped, why):
@@ -212,7 +212,7 @@ def _metrics(trades, days, capital, mtm):
     m["expectancy_r"] = round(_mean([t.get("r") for t in trades]), 5) if trades else None
     m["win_rate_pct"] = round(100.0 * sum(1 for t in trades if t["net"] > 0) / len(trades), 2) if trades else None
     m["mean_return_on_premium_pct"] = round(_mean(prem), 3) if prem else None
-    m["net"] = round(sum(t["net"] for t in trades), 2)
+    m["net"] = round(math.fsum(t["net"] for t in trades), 2)
     return m
 
 
@@ -238,20 +238,20 @@ def _run_shape(hyp, eng, days, capital, trades, metrics, mtm, skipped, notes, st
         eq += p
         equity.append(eq)
         prev = cur
-        held = sum(t.get("margin") or 0.0 for t in trades if t["entry_date"] <= d < t["exit_date"])
+        held = math.fsum(t.get("margin") or 0.0 for t in trades if t["entry_date"] <= d < t["exit_date"])
         expo.append(held / eq if eq > 0 else 0.0)
     traded = 0.0
     for t in trades:
         legs = t.get("legs") or [{"qty": t.get("lot_size", 1) * t.get("lots", 1), "entry": t.get("entry", 0.0),
                                   "exit": t.get("exit", 0.0)}]
-        traded += sum(abs(l["qty"]) * (abs(l.get("entry") or 0.0) + abs(l.get("exit") or 0.0)) for l in legs)
+        traded += math.fsum(abs(l["qty"]) * (abs(l.get("entry") or 0.0) + abs(l.get("exit") or 0.0)) for l in legs)
     vc = ((hyp.get("gates") or {}).get("extra") or {}).get("verdict_cap")
     ex = {"engine": eng, "status": status, "model_priced": model_priced, "verdict_cap": vc,
           "return_on_margin_pct": metrics.get("return_on_margin_pct"), "options": metrics, "skipped": skipped,
           "margin_model": getattr(_S(), "MARGIN_MODEL", None)}
     ex.update(extra or {})
     return {"days": list(days), "ret": rets, "bench": None, "equity": equity, "exposure": expo, "trades": trades,
-            "traded": traded, "charges": round(sum(t.get("charges") or 0.0 for t in trades), 2), "notes": notes,
+            "traded": traded, "charges": round(math.fsum(t.get("charges") or 0.0 for t in trades), 2), "notes": notes,
             "extra": ex, "capital": float(capital)}
 
 
@@ -847,8 +847,8 @@ def _event_run(hyp, params, a, b, data, cost_mult, short):
     met["event_study"] = E.summary(study)
     met["events_traded"] = len(trades)
     if not short and trades:
-        met["pnl_from_iv_change"] = round(sum(t["attribution"]["iv_change"] for t in trades), 2)
-        met["pnl_from_move_and_time"] = round(sum(t["attribution"]["move_and_time"] for t in trades), 2)
+        met["pnl_from_iv_change"] = round(math.fsum(t["attribution"]["iv_change"] for t in trades), 2)
+        met["pnl_from_move_and_time"] = round(math.fsum(t["attribution"]["move_and_time"] for t in trades), 2)
     notes.append("results events from trader-archive's results dataset; the reacting session re-derived from "
                  "the archive's sessions; implied move = ATM straddle / spot at the entry close on the nearest "
                  "monthly expiry alive after the exit; P&L booked on the exit day")

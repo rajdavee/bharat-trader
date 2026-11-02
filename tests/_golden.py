@@ -1,6 +1,9 @@
 """Digests of engine results on the fixtures, for the memory work (#88): the memory-bounded loaders must give
 the very same numbers as the loaders they replaced. tests/fixtures/trader-lab/memory-golden.json holds these
 digests as computed by the code before the change; tests/test_lab_memory.py recomputes them with the code now.
+The baseline is main before the change with one edit applied to both sides: the options package sums floats
+with math.fsum (correctly rounded on every Python), because the built-in sum() of floats became compensated in
+Python 3.12 and a premium on a rounding boundary came out 3313.76 on 3.8-3.11 and 3313.77 on 3.12+.
 
 Nothing is loaded at import: golden_digests(lab) takes the lab module it should exercise, so the same cases
 can be run against an older checkout to write the golden file.
