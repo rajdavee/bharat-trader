@@ -290,7 +290,8 @@ class LRU(collections.OrderedDict):
         collections.OrderedDict.__setitem__(self, key, value)
         self.move_to_end(key)
         while len(self) > self.size:
-            self.popitem(last=False)
+            # not popitem(): before Python 3.12 it calls the overridden __getitem__
+            collections.OrderedDict.__delitem__(self, next(iter(self)))
 
 
 _HOT = collections.OrderedDict()      # id -> PackedOpts holding an unpacked dict right now
