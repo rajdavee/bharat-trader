@@ -769,6 +769,9 @@ def _event_run(hyp, params, a, b, data, cost_mult, short):
                 _skip(skipped, "no spot on the entry session (no underlying price, close or future)")
                 return row, None
             wing = _wing_points(an["spot"], p["wing_pct_of_spot"], _S().strike_step(an))
+            if wing < 1:
+                _skip(skipped, "wings under 1 point (a low-priced stock on fine strikes: the spec's minimum)")
+                return row, None
             spec = _compiled(sym, "iron-fly", {"by": "atm"}, wing, 1, capital, rate, cache)
         else:
             cap = float(p["iv_percentile_cap"])
