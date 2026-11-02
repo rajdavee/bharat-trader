@@ -18,7 +18,27 @@ FAMILIES_V2 = ("momentum-xs", "low-volatility", "reversal", "trend-ts", "calenda
 FAMILIES_OPTIONS = ("vrp-selling", "event-vol", "option-buying")
 UNIVERSES = {"nifty50": "NIFTY 50", "nifty100": "NIFTY 100", "nifty200": "NIFTY 200", "nifty500": "NIFTY 500",
              "fno": "F&O"}
-WARMUP_DAYS = 560          # calendar days of history read before the first window (252 + 21 sessions and more)
+# The revision of each family's engine, written into every trial row. A change that can move a family's
+# numbers bumps its revision, and the executor then refuses to mix the older rows with new ones (see
+# executor.execute(rerun_superseded=...)). Families not listed are at revision 1.
+ENGINE_REV = {"vrp-selling": 2, "event-vol": 2, "option-buying": 2}
+ENGINE_CHANGES = {
+    "vrp-selling": "a NIFTY board with no index close in the archive now takes a futures-implied spot, or is "
+                   "left out with a logged reason, instead of stopping the run on a missing spot",
+    "event-vol": "legacy F&O bhavcopies (before July 2024) carry no underlying price: the stock's spot now comes "
+                 "from its equity close (else the near future), so ATM straddles exist on those days, and the "
+                 "IV-percentile history is kept per stock and day (it was cut short for every stock after the "
+                 "first on the same days)",
+    "option-buying": "EOD boards with no underlying price take a futures-implied spot before strikes are trimmed",
+}
+
+
+def engine_rev(family):
+    return ENGINE_REV.get(family, 1)
+
+
+BAR_CHUNK = 40             # stocks read at a time into a panel (each stock's history as bar dicts is a few MB)
+WARMUP_DAYS = 560         # calendar days of history read before the first window (252 + 21 sessions and more)
 FUTURES_CAPITAL = 5000000.0
 STOCK_CAPITAL = 1000000.0
 
@@ -230,16 +250,35 @@ class StockJob(Job):
                     raise Blocked("no %s membership on %s" % (ix, m))
                 syms.update(got)
         self.extra_symbols(syms)
-        bars = self.mkt.daily_many(sorted(syms), self.start, until)
+        self.panel = None                      # a reload (the holdout) never holds two panels at once
+        order = sorted(syms)
         idx = self.mkt.index("NIFTY 50", self.start, until)
-        days = sorted(x["date"] for x in idx) if idx else sorted(set(b["date"] for v in bars.values() for b in v))
+        if idx:
+            days = sorted(x["date"] for x in idx)
+        else:                                  # no index: the calendar is every day any member traded
+            seen = set()
+            for k in range(0, len(order), BAR_CHUNK):
+                for v in self.mkt.daily_many(order[k:k + BAR_CHUNK], self.start, until).values():
+                    seen.update(b["date"] for b in v)
+                core.mem_check("reading the universe's sessions")
+            days = sorted(seen)
         self.index_bars = idx
-        self.panel = portfolio.Panel(days, bars)
+        panel = portfolio.Panel(days, {})
+        have = set()
+        for k in range(0, len(order), BAR_CHUNK):
+            # BAR_CHUNK stocks at a time: their bar dicts are folded into the panel's columns and dropped
+            bars = self.mkt.daily_many(order[k:k + BAR_CHUNK], self.start, until)
+            for s, v in bars.items():
+                panel.add(s, v)
+                have.add(s)
+            bars = None
+            core.mem_check("loading daily bars (%d of %d stocks)" % (min(k + BAR_CHUNK, len(order)), len(order)))
+        self.panel = panel
         for ix in self.indexes():
             note = self.mkt.membership_note(ix)
             if note and note not in self.notes:
                 self.notes.append(note)
-        missing = sorted(syms - set(bars))
+        missing = sorted(syms - have)
         if missing:
             self.notes.append("%d member symbols have no bars in the data (%s%s)" % (
                 len(missing), ", ".join(missing[:8]), "..." if len(missing) > 8 else ""))
