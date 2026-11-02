@@ -662,8 +662,10 @@ def decide(doc, h, job, trials, pl, d, now, context=None, path=None):
             why = "the holdout (opened once on %s) failed: %s" % (holdout["opened_at"], "; ".join(bad))
     outcome = {
         "verdict": verdict, "why": why, "registration_hash": h, "decided_at": now.strftime("%Y-%m-%d %H:%M"),
-        "engine": job.engine, "trials": {k: pl[k] for k in ("grid_points", "prior_trials", "family_trials",
-                                                            "extra_trials", "trials_counted")},
+        "engine": job.engine, "trials": dict({k: pl[k] for k in ("grid_points", "prior_trials", "family_trials",
+                                                                 "extra_trials", "trials_counted")},
+                                            **({"superseded_trials": pl["superseded_trials"]}
+                                               if pl.get("superseded_trials") else {})),
         "finalist": ft["params"], "chosen_on": "train (best primary metric), screened on validation",
         "validation": {k: val.get(k) for k in ("primary", "net_value", "sharpe", "cagr_pct", "max_drawdown_pct",
                                                "active_sharpe", "active_return_pct", "trades", "turnover_pct_per_year",
@@ -797,8 +799,10 @@ def scorecard(doc, res):
          ""]
     t = o["trials"]
     L.append("Trials counted: %d (grid %d + earlier trials of this kind %d + this family's other edge-hunt runs %d "
-             "+ declared %d). The deflated Sharpe ratio is charged for all of them." % (
-                 t["trials_counted"], t["grid_points"], t["prior_trials"], t["family_trials"], t["extra_trials"]))
+             "+ declared %d%s). The deflated Sharpe ratio is charged for all of them." % (
+                 t["trials_counted"], t["grid_points"], t["prior_trials"], t["family_trials"], t["extra_trials"],
+                 " + run by an older engine revision and set aside %d" % t["superseded_trials"]
+                 if t.get("superseded_trials") else ""))
     L.append("")
     L.append("Windows: train %s to %s, validation %s to %s, holdout %s to %s (embargo %d days, each window closed "
              "at its last session)." % (doc["span"]["train"]["from"], doc["span"]["train"]["to"],

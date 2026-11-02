@@ -426,7 +426,9 @@ class OptionsJob(Job):
     def load(self, until):
         self.until = until
         O = self._api()
+        O.ENV["mem_check"] = core.mem_check      # the executor's memory guard reaches the option loaders
         E = O.engines_api()
+        self.data = None
         self.data = {"root": self._root(), "archive": getattr(self.mkt, "api", None) or core.ENV.get("archive"),
                      "regime": core.ENV.get("regime"), "capital": self.capital, "notes": []}
         if self.cfg.get("symbols"):

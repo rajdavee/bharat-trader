@@ -378,6 +378,13 @@ class PackedOpts(object):
         return self._a.itemsize * len(self._a)
 
 
+def mem_check(where=""):
+    """The edge-hunt executor's memory guard, when one is bound (ENV["mem_check"]); a no-op otherwise."""
+    fn = ENV.get("mem_check")
+    if fn is not None:
+        fn(where)
+
+
 def release_boards():
     """Drop every unpacked board dict now (an engine calls this when a run is over)."""
     for p in list(_HOT.values()):
@@ -685,6 +692,8 @@ def load_chains(underlying, root, archive, start=None, end=None, progress=None, 
                     implied.append(d)
                 boards[d] = b
         ch = None
+        if i % 50 == 49:
+            mem_check("loading %s EOD chains (%d of %d days)" % (underlying, i + 1, len(days)))
         if progress and i % 100 == 99:
             progress("loaded %d of %d EOD chains" % (i + 1, len(days)))
     if not boards:

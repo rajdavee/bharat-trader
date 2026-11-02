@@ -192,6 +192,8 @@ def _compiled(under, structure, strikes, wing, lots, capital, rate, cache, expir
 
 
 def _wing_points(spot, pct, step):
+    if not spot:
+        raise EngineError("no spot to size the wings from (a board with no underlying price, index close or future)")
     return max(step, round(spot * pct / 100.0 / step) * step)
 
 
@@ -274,7 +276,9 @@ def prepare_vrp(hyp, data, start, until):
     notes = data.setdefault("notes", [])
     try:
         chains = O.load_chains(under, root, A, start, until, band=0.12, keep_dte=63, monthly_only=True)
-    except Exception:  # noqa: BLE001 - the lab's LabError: no chains in the archive
+    except Exception as e:  # noqa: BLE001 - the lab's LabError: no chains in the archive
+        if getattr(e, "memory_limit", False):
+            raise
         raise EngineError("no %s option chains in the archive from %s to %s: the run waits for the F&O history "
                           "(archive.py backfill --from %s --datasets fo,index,vix,lots)" % (under, start, until, start))
     idx = A.load_index(under, start, until, root)
@@ -365,6 +369,10 @@ def vrp_backtest(chains, days, signal, threshold, p, cost_mult, capital, rate, f
                     _skip(skipped, "spread at or under the threshold")
                     mtm[day] = realised
                     continue
+            if not b.get("spot"):
+                _skip(skipped, "no NIFTY spot that day (no index close, no future)")
+                mtm[day] = realised
+                continue
             a = chains.analysis(day, exp, rate)
             if a is None:
                 _skip(skipped, "no chain for the expiry")
@@ -558,6 +566,7 @@ class BoardWindow(object):
                    and (s, day) not in self.live)
         if not want:
             return
+        O.mem_check("reading the F&O boards of %s" % day)
         got = _chain_dicts(A, day, _fo_lines(A, self.data.get("root"), day), want, self.spot_of)
         self.reads += 1
         for s in want:
@@ -586,7 +595,9 @@ def _iv_panel(data, need, rate, spot_of=None):
     A = _arch(data)
     panel = data.setdefault("_ivp", {})
     done = data.setdefault("_ivp_done", set())
-    for day in sorted(need):
+    for i, day in enumerate(sorted(need)):
+        if i % 50 == 0:
+            O.mem_check("the ATM IV history (%s)" % day)
         want = set(s for s in need[day] if (s, day) not in done)
         if not want:
             continue
@@ -926,6 +937,8 @@ def prepare_buying(hyp, data, start, until):
     try:
         data.setdefault("chains", {})[under] = O.load_chains(under, root, A, start, until, band=0.03, keep_dte=10)
     except Exception as e:  # noqa: BLE001 - no EOD chains: IV from India VIX, expiries from the rules
+        if getattr(e, "memory_limit", False):
+            raise
         notes.append("no %s EOD chains (%s): IV from India VIX, expiries from trader-regime's rules" % (under, e))
     return sorted(set(x["date"] for x in bars))
 
