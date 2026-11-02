@@ -65,15 +65,25 @@ def write_json(path, doc, indent=1):
     os.replace(tmp, path)
 
 
+NOT_HYPOTHESES = ("manifest.json", "annotations.json")
+
+
 def library(folder):
     """[(id, path)] of the hypothesis files in a folder, by rank."""
     out = []
     if os.path.isdir(folder):
         for f in sorted(os.listdir(folder)):
-            if f.endswith(".json") and f != "manifest.json":
+            if f.endswith(".json") and f not in NOT_HYPOTHESES:
                 doc = read_json(os.path.join(folder, f))
                 out.append((doc.get("rank") or 99, doc.get("id") or f[:-5], os.path.join(folder, f)))
     return [(i, p) for _, i, p in sorted(out)]
+
+
+def annotations(folder):
+    """{id: annotation} from the folder's annotations.json: notes on a decided verdict (such as VOID) kept
+    outside the hashed hypothesis files, so a recorded verdict is never edited, only annotated."""
+    doc = read_json(os.path.join(folder, "annotations.json"), {}) or {}
+    return {a["id"]: a for a in doc.get("annotations") or [] if isinstance(a, dict) and a.get("id")}
 
 
 def resolve(arg, folder):
@@ -186,10 +196,13 @@ def superseded_count(d):
 
 
 def family_trials(out, folder, doc):
-    """Trials of the same family already run by this executor for other ids (the family's count grows)."""
+    """Trials of the same family already run by this executor for other ids (the family's count grows).
+    A voided run re-registered as this id (annotations.json, re_registered_as) is skipped here: its logged
+    trials are already in this file's prior_trials, and counting them twice would only blur the count."""
     n, ids = 0, []
+    notes = annotations(folder)
     for hid, path in library(folder):
-        if hid == doc["id"]:
+        if hid == doc["id"] or (notes.get(hid) or {}).get("re_registered_as") == doc["id"]:
             continue
         other = read_json(path, {}) or {}
         if other.get("family") != doc["family"]:
@@ -471,9 +484,10 @@ def _execute(path, mkt, out, now, progress, deadline, cancel, extra_trials, dry_
     if doc["status"] == "withdrawn":
         raise HuntError("%s is withdrawn" % doc["id"])
     if st.get("phase") == "decided" or doc["status"] in ("rejected", "watch", "promoted"):
-        # decided once: the file's own outcome stands even if the run folder was deleted
+        # decided once: the file's own outcome stands even if the run folder was deleted (a voided verdict is
+        # annotated, never re-run: the rerun is a new registration with the old trials counted)
         return {"state": "decided", "already": True, "outcome": doc.get("outcome") or st.get("outcome"),
-                "plan": st.get("plan"), "dir": d}
+                "plan": st.get("plan"), "dir": d, "annotation": annotations(folder).get(doc["id"])}
     try:
         job = jobs.job_for(doc, mkt, cfg)
     except jobs.Blocked as e:
@@ -894,6 +908,7 @@ def status(folder, out):
     """Every registered hypothesis with its file status, run state and outcome, plus the programme-level
     Benjamini-Hochberg cut over the holdout p-values recorded so far."""
     rows, pv, q = [], {}, 0.10
+    notes = annotations(folder)
     for hid, path in library(folder):
         doc = read_json(path)
         try:
@@ -906,8 +921,12 @@ def status(folder, out):
         ho = read_json(os.path.join(d, "holdout.json"))
         trials = len(read_trials(d))
         o = doc.get("outcome") or {}
-        # a hypothesis whose holdout stayed sealed counts with p = 1: every registered idea is one chance
-        pv[hid] = ho["p_value"] if ho and ho.get("p_value") is not None else 1.0
+        ann = notes.get(hid)
+        void = bool(ann and ann.get("verdict") == "VOID")
+        # a hypothesis whose holdout stayed sealed counts with p = 1: every registered idea is one chance. A
+        # VOID run tested nothing; its re-registration is the chance that counts, so it is left out here.
+        if not void:
+            pv[hid] = ho["p_value"] if ho and ho.get("p_value") is not None else 1.0
         q = float((doc["gates"].get("extra") or {}).get("fdr_q", q))
         rows.append({"id": hid, "rank": doc.get("rank"), "family": doc["family"], "title": doc["title"],
                      "status": doc["status"], "verdict": o.get("verdict"), "why": o.get("why"),
@@ -917,11 +936,15 @@ def status(folder, out):
                      "problem": None if ok is True else ok,
                      "engine": ("options" if doc["family"] in jobs.FAMILIES_OPTIONS else
                                 jobs.JOBS[doc["family"]].engine if doc["family"] in jobs.JOBS else "none"),
-                     "prior": doc["prior"]["probability"], "outcome": o or None})
+                     "prior": doc["prior"]["probability"], "outcome": o or None, "void": void,
+                     "annotation": ann})
     keep = core.benjamini_hochberg(pv, q) if pv else {}
     opened = sum(1 for r in rows if r["p_value"] is not None)
     for r in rows:
         r["bh_kept"] = keep.get(r["id"]) if r["p_value"] is not None else None
+    voids = sum(1 for r in rows if r["void"])
     return {"hypotheses": rows, "fdr_q": q, "holdouts_opened": opened,
             "bh_note": "Benjamini-Hochberg at q = %g across all %d registered hypotheses (a sealed holdout counts as "
-                       "p = 1); %d holdout p-values so far" % (q, len(rows), opened)}
+                       "p = 1%s); %d holdout p-values so far" % (
+                           q, len(pv), "; %d void run%s left out, re-registered under a new id" % (
+                               voids, "" if voids == 1 else "s") if voids else "", opened)}

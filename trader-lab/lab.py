@@ -3255,6 +3255,11 @@ def _hunt_words(r):
             L.append("%s was decided on %s; nothing was re-run and the holdout is not opened again." % (
                 (r.get("plan") or {}).get("id") or "", o.get("decided_at")))
         L.append("Verdict: %s. %s" % (o.get("verdict"), o.get("why")))
+        ann = r.get("annotation") or {}
+        if ann.get("verdict"):
+            L.append("Annotated %s on %s: %s%s" % (ann["verdict"], ann.get("annotated_on"), ann.get("reason"),
+                                                   " Re-registered as %s, with these trials counted." %
+                                                   ann["re_registered_as"] if ann.get("re_registered_as") else ""))
         L.append("Scorecard: %s" % os.path.join(r["dir"], "scorecard.md"))
     return "\n".join(L)
 
@@ -3275,8 +3280,9 @@ def cmd_hunt(a):
                 extra = "  %s, %d of %d trials%s%s" % (h["phase"], h["trials_run"], h["trial_budget"],
                                                       ", holdout opened %s" % h["holdout_opened"] if h["holdout_opened"]
                                                       else "", ", BH keeps" if h["bh_kept"] else "")
-            print("  %2s %-28s %-17s %-10s %-9s%s" % (h["rank"], h["id"], h["family"], h["status"],
-                                                     h["verdict"] or "-", extra))
+            print("  %2s %-28s %-17s %-10s %-11s%s" % (h["rank"], h["id"], h["family"], h["status"],
+                                                     (h["verdict"] or "-") + (" VOID" if h.get("void") else ""),
+                                                     extra))
             if not h["registered_ok"]:
                 print("     PROBLEM: %s" % h["problem"])
         print("")

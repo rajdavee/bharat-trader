@@ -139,6 +139,41 @@
   },
   "contamination": "Discovery's 527 daily rule trials and the equity library ran on about 2.3 years of daily bars (2024 to 2026) of NIFTY 50 stocks: single-stock timing rules, not this cross-sectional rule. No cross-sectional portfolio has been run on any part of this span in this repo.",
   "registered_on": "2026-11-01",
-  "status": "registered",
-  "outcome": null
+  "status": "rejected",
+  "outcome": {
+    "verdict": "REJECT",
+    "why": "6 of 12 validation gates failed: max drawdown (train + validation, active); deflated Sharpe ratio; probability of backtest overfitting; survives 1.5x costs; parameter neighbourhood; primary metric on validation (active Sharpe over the benchmark). The holdout stays sealed.",
+    "registration_hash": "83158c2b69ac34c814a593b138ddea29b61a06e84790f0ce35e13adf4c3d10f7",
+    "decided_at": "2026-11-02 15:47",
+    "engine": "portfolio",
+    "trials": {
+      "grid_points": 16,
+      "prior_trials": 0,
+      "family_trials": 0,
+      "extra_trials": 0,
+      "trials_counted": 16
+    },
+    "finalist": {
+      "volatility_window_days": 252,
+      "top_n": 20,
+      "rebalance": "quarterly",
+      "universe": "nifty100"
+    },
+    "chosen_on": "train (best primary metric), screened on validation",
+    "validation": {
+      "primary": -0.287,
+      "net_value": -8.108,
+      "sharpe": 0.813,
+      "cagr_pct": 12.35,
+      "max_drawdown_pct": 27.464,
+      "active_sharpe": -0.287,
+      "active_return_pct": -2.469,
+      "trades": 79,
+      "turnover_pct_per_year": 102.3,
+      "charges_pct_per_year": 0.322
+    },
+    "gates_passed": "6 of 12",
+    "holdout": null,
+    "scorecard": "trader/lab/edge-hunt/eh-02-low-volatility/scorecard.md"
+  }
 }

@@ -121,6 +121,40 @@
   },
   "contamination": "trader-regime and the lab's regime split read NIFTY 50 closes for 2024 to 2026; no calendar or trend rule on index futures has been run in this repo. The holdout overlaps those sessions.",
   "registered_on": "2026-11-01",
-  "status": "registered",
-  "outcome": null
+  "status": "rejected",
+  "outcome": {
+    "verdict": "REJECT",
+    "why": "6 of 10 validation gates failed: out-of-sample expectancy after charges; out-of-sample profit factor; deflated Sharpe ratio; probability of backtest overfitting; survives 1.5x costs; primary metric on validation (net Sharpe). The holdout stays sealed.",
+    "registration_hash": "6e096e9fd0a221c89e4d2813a512306abf3d82e0cfb3e58bd5fbc9440a5f9f19",
+    "decided_at": "2026-11-02 22:52",
+    "engine": "futures",
+    "trials": {
+      "grid_points": 8,
+      "prior_trials": 0,
+      "family_trials": 12,
+      "extra_trials": 0,
+      "trials_counted": 20
+    },
+    "finalist": {
+      "event": "pre_holiday",
+      "underlying": "NIFTY",
+      "entry_sessions_before": 1
+    },
+    "chosen_on": "train (best primary metric), screened on validation",
+    "validation": {
+      "primary": -0.074,
+      "net_value": -2.048,
+      "sharpe": -0.074,
+      "cagr_pct": -0.425,
+      "max_drawdown_pct": 12.3,
+      "active_sharpe": -0.747,
+      "active_return_pct": -12.505,
+      "trades": 68,
+      "turnover_pct_per_year": 1400.05,
+      "charges_pct_per_year": 0.385
+    },
+    "gates_passed": "4 of 10",
+    "holdout": null,
+    "scorecard": "trader/lab/edge-hunt/eh-07-preholiday-expiry/scorecard.md"
+  }
 }

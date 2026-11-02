@@ -50,7 +50,10 @@ def nifty_bars():
 def hyp(prefix):
     name = [f for f in os.listdir(LIB) if f.startswith(prefix)][0]
     with open(os.path.join(LIB, name), encoding="utf-8") as fh:
-        return json.load(fh)
+        doc = json.load(fh)
+    # a copy of the registration as it was first filed: the real file may carry its decided status and outcome
+    doc["status"], doc["outcome"] = "registered", None
+    return doc
 
 
 def data(**kw):

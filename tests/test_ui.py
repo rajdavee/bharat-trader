@@ -992,12 +992,14 @@ class LabAndSetup(unittest.TestCase):
         self.assertEqual((status, d["runs"]), (200, []))
         self.assertEqual(d["discovery"], [])
         self.assertIn("lab.py run", d["how"])
-        # the pre-registered edge-hunt hypotheses, with their status, before any run
+        # the pre-registered edge-hunt hypotheses with their status (a decided one keeps its verdict even
+        # with no run folder in this workspace)
         hunt = d["edge_hunt"]["hypotheses"]
-        self.assertEqual(len(hunt), 14)
-        self.assertEqual([h["rank"] for h in hunt], list(range(1, 15)))
-        self.assertTrue(all(h["status"] == "registered" and h["registered_ok"] and h["holdout_opened"] is None
-                            for h in hunt))
+        self.assertGreaterEqual(len(hunt), 15)
+        self.assertEqual([h["rank"] for h in hunt], list(range(1, len(hunt) + 1)))
+        self.assertTrue(all(h["registered_ok"] and h["holdout_opened"] is None for h in hunt))
+        self.assertTrue(all((h["status"] == "rejected") == (h["verdict"] == "REJECT") for h in hunt))
+        self.assertEqual([h["id"] for h in hunt if h["void"]], ["eh-08-event-crush"])
         self.assertIn("holdout", d["edge_hunt"]["limits"])
 
     def test_lab_shows_strategy_portfolios(self):

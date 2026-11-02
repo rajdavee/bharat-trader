@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "note": "Notes on decided verdicts, kept outside the hashed hypothesis files: a recorded verdict is never edited, only annotated. A VOID verdict stays on record in its file; the only way to run that idea again is a new registration with a new id that counts the void run's trials in prior_trials (docs/research/edge-hunt.md, rule 8).",
+  "annotations": [
+    {
+      "id": "eh-08-event-crush",
+      "verdict": "VOID",
+      "recorded_verdict": "REJECT",
+      "registration_hash": "71a6bef9a52e7112feb0dce083bb300412fd53ea8260e18bf467389a7b4bac34",
+      "decided_at": "2026-11-02 15:50",
+      "annotated_on": "2026-11-02",
+      "reason": "The REJECT was decided on 0 trades in train and validation: a data bug, not a test of the idea. The F&O stock bhavcopies before July 2024 carry no underlying price and the event-vol engine (revision 1) took the spot only from them, so no at-the-money iron fly existed on any results day from 2012 to mid-2024. Fixed in #88 (event-vol revision 2: spot from the stock's equity close, else the near future); #90 added the dated lot sizes those boards also lack.",
+      "fixed_in": [
+        88,
+        90
+      ],
+      "evidence": {
+        "trial_log": "trader/lab/edge-hunt/eh-08-event-crush/trials.jsonl",
+        "trials_logged": 8,
+        "engine_rev": 1,
+        "trades_train": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "trades_validation": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "validation_finalist": {
+          "primary": 0.0,
+          "net_value": 0.0,
+          "sharpe": 0.0,
+          "cagr_pct": 0.0,
+          "max_drawdown_pct": 0.0,
+          "active_sharpe": null,
+          "active_return_pct": null,
+          "trades": 0,
+          "turnover_pct_per_year": 0.0,
+          "charges_pct_per_year": 0.0
+        },
+        "scorecard": "trader/lab/edge-hunt/eh-08-event-crush/scorecard.md",
+        "gates_failed_because_empty": "8 of 10 gates failed on an empty run (0 trades, deflated Sharpe not measured, PBO 1.0); the 2 that passed (drawdown 0%, span) pass trivially on no trades."
+      },
+      "re_registered_as": "eh-15-event-crush-r",
+      "trials_carried": 8,
+      "counts_in_bh": false
+    }
+  ]
+}

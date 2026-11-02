@@ -56,7 +56,10 @@ def _hyp(root, prefix):
     lib = os.path.join(root, "trader-lab", "library", "edge-hunt")
     name = [f for f in os.listdir(lib) if f.startswith(prefix)][0]
     with open(os.path.join(lib, name), encoding="utf-8") as fh:
-        return json.load(fh)
+        doc = json.load(fh)
+    # a copy of the registration as it was first filed: the real file may carry its decided status and outcome
+    doc["status"], doc["outcome"] = "registered", None
+    return doc
 
 
 def option_cases(lab, root):

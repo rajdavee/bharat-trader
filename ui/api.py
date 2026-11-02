@@ -2409,7 +2409,7 @@ def edge_hunt(ctx):
     except Exception:  # a broken hypothesis file must not take the Lab page down
         return {"hypotheses": [], "note": "", "limits": EDGE_HUNT_LIMITS}
     keep = ("id", "rank", "family", "title", "status", "verdict", "why", "trials_run", "trial_budget", "phase",
-            "holdout_opened", "p_value", "engine", "prior", "bh_kept", "registered_ok", "problem")
+            "holdout_opened", "p_value", "engine", "prior", "bh_kept", "registered_ok", "problem", "void")
     return {"hypotheses": [{k: h.get(k) for k in keep} for h in st["hypotheses"]], "note": st["bh_note"],
             "limits": EDGE_HUNT_LIMITS,
             "how": "Check one with: python3 trader-lab/lab.py hunt run eh-03-index-trend --dry-run"}

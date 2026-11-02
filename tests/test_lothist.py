@@ -346,7 +346,10 @@ def _hyp(prefix):
     for f in sorted(os.listdir(os.path.join(ROOT, "trader-lab", "library", "edge-hunt"))):
         if f.startswith(prefix):
             with open(os.path.join(ROOT, "trader-lab", "library", "edge-hunt", f), encoding="utf-8") as fh:
-                return json.load(fh)
+                doc = json.load(fh)
+            # a copy of the registration as first filed: the real file may carry its decided status and outcome
+            doc["status"], doc["outcome"] = "registered", None
+            return doc
     raise KeyError(prefix)
 
 

@@ -324,7 +324,7 @@ walk-forward chose lower IV-rank thresholds in some windows.
 ## The edge hunt: running pre-registered hypotheses
 
 [research/edge-hunt.md](research/edge-hunt.md) registers 14 hypotheses
-before any run; each file in `trader-lab/library/edge-hunt/` fixes the data,
+before any run (plus one re-registration since, eh-15); each file in `trader-lab/library/edge-hunt/` fixes the data,
 the parameter grid, the trial budget, the train, validation and holdout
 dates and the gates. `lab.py hunt` runs one exactly as written, with the v2
 engines in `trader-lab/engines/`.
@@ -355,7 +355,9 @@ python3 trader-lab/lab.py hunt status                     # trials, holdout open
    plus the file's `prior_trials`, plus the trials of the same family already
    run by this executor for other ids, plus `--extra-trials`, plus any
    trials set aside after an engine fix (`trials-superseded.jsonl`). The
-   count is fixed at the first run and can only grow.
+   count is fixed at the first run and can only grow. A void run that this
+   file re-registers (`re_registered_as` in `annotations.json`) is left out
+   of the family part, because its trials are already in `prior_trials`.
 4. **The finalist and the validation gates.** The finalist is the point with
    the best primary metric on train. Validation screens it with trader-lab's
    gates and the file's overrides and extras: at least 30 validation trades,
@@ -380,13 +382,22 @@ python3 trader-lab/lab.py hunt status                     # trials, holdout open
    rules, the in-window mean above the other sessions' for calendar ideas,
    a positive predictive slope for intraday momentum), and a one-sided
    stationary-bootstrap p-value of the primary series is recorded for the
-   programme's Benjamini-Hochberg cut (q = 0.10 across all 14; a sealed
-   holdout counts as p = 1). An opened holdout is never opened again: a
+   programme's Benjamini-Hochberg cut (q = 0.10 across every registration
+   except a VOID run, which tested nothing and is replaced by its
+   re-registration; a sealed holdout counts as p = 1). An opened holdout is never opened again: a
    decided run is not re-run, and a holdout that was opened without a
    recorded result (a crash) is a REJECT.
 6. **The verdict.** REJECT, or WATCH: a candidate for the paper forward test
    with its own capital bucket. Nothing here trades; every paper or live
    order still needs trader-risk PASS and the user's typed yes.
+7. **Annotations, never edits.** A decided file is never run or edited
+   again. When a run tested nothing (eh-08: 0 trades in every trial, a data
+   bug), `trader-lab/library/edge-hunt/annotations.json` marks the verdict
+   VOID with the reason and the trial-log evidence, the REJECT stays in the
+   file, and the idea can only run again as a new registration with those
+   trials in `prior_trials` (the brief's rule 8). `hunt list` shows
+   `REJECT VOID`; `hunt run` on the old id prints the annotation. The
+   results are in [research/edge-hunt-results.md](research/edge-hunt-results.md).
 
 Files: `trader/lab/edge-hunt/<id>/state.json`, `trials.jsonl`,
 `holdout.json`, `results.json` and `scorecard.md` (and
