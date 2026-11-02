@@ -740,12 +740,15 @@ macOS, kilobytes on Linux); Windows has no `resource` module and no guard.
 It sees only this process's peak, not the machine's free memory, so for
 long unattended runs also wrap the command in an external watchdog that
 kills it when its memory passes a limit or the machine's free memory drops,
-for example a small `memguard.sh LIMIT_MB LOG cmd...` loop over `ps` and
-`memory_pressure` on macOS:
+for example the small `memguard.sh LIMIT_MB LOG cmd...` loop over `ps` and
+`memory_pressure` on macOS in [examples/memguard.sh](examples/memguard.sh):
 
 ```bash
-~/bharat-data/memguard.sh 3000 hunt.log python3 trader-lab/lab.py hunt run eh-09-event-runup --max-mem-mb 1500
+docs/examples/memguard.sh 3000 hunt.log python3 trader-lab/lab.py hunt run eh-09-event-runup --max-mem-mb 1500
 ```
+
+[running-hunts.md](running-hunts.md) has the whole story: the incident, the
+watchdog explained, one heavy job at a time, and the archive's size and time.
 
 A watchdog kill is an interrupted run like any other (see **Interrupted
 runs** above): the trial that was running is run again, counted once.
