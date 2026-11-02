@@ -417,7 +417,9 @@ same command carries on from `trials.jsonl`. How the trials are counted:
   stay charged to the trial count, because their numbers were seen. eh-09
   was stopped at trial 4 of 6 on revision 1 of the event-vol engine (whose
   legacy-year boards had no spot, so it found no trades); resuming it needs
-  `--rerun-superseded` and is charged 6 + 4 trials, plus eh-08's 8.
+  `--rerun-superseded` and is charged 6 + 4 trials, plus eh-08's 8 (and
+  today it is blocked anyway until the archive has lot sizes for 2012 to
+  2023, see the memory section).
 
 ### The data adapter
 
@@ -649,6 +651,74 @@ exposure, expectancy and profit factor of the trades, charges a year, and
 against the benchmark: its CAGR, Sharpe and drawdown, the active return,
 active Sharpe, the deepest active drawdown and the share of the active
 return from the best two months.
+
+### Memory: what a hunt needs, and the guard
+
+A hunt on the full archive (2.1 GB of bhavcopies from 2010) once made a
+16 GB Mac swap until it froze: the option engines held every board of
+every event in memory, and the stock panels held every stock's whole
+history as bar dicts at once. The engines are memory-bounded now:
+
+- Option boards are packed (9 doubles a contract instead of a dict of
+  tuples, about 7 times smaller) and unpacked only while used, through a
+  bounded LRU (`options.DECODED_BOARDS`, 256); a chain's per-day analyses
+  are an LRU too (`options.ANALYSIS_CACHE`). Boards are trimmed around the
+  spot (band and days to expiry per family) as they are read, a day at a
+  time.
+- The results-day engines (eh-08, eh-09) run the events roughly in date
+  order and read each F&O file once for all the stocks that need it, then
+  drop a board as soon as no later event needs it; the IV history behind
+  eh-09's cap is one float per stock and day.
+- Stock panels are built 40 stocks at a time (`jobs.BAR_CHUNK`), and the
+  archive's equity reader keeps only the requested window of each cache.
+- Numbers are identical: every engine's results on the fixtures match
+  digests computed by the code before the change
+  (`tests/fixtures/trader-lab/memory-golden.json`), also with the caches
+  shrunk to one board and two analyses; on the real archive eh-01 and eh-03
+  gave the same digests before and after.
+
+Peak memory (resource.getrusage peak RSS of the whole process) on the real
+archive, one grid point on train and validation, measured 2 Nov 2026 on
+macOS with the data loaded to the validation's end:
+
+| Family (hypothesis measured) | Before | After |
+|---|---|---|
+| portfolio: momentum, low volatility, reversal (eh-01) | 2,004 MB | 414 MB |
+| events: results drift (eh-06) | over 3,000 MB, killed while loading | 563 MB |
+| futures: trend, calendar, overnight (eh-03) | 136 MB | 133 MB |
+| vrp-selling (eh-05) | 690 MB, then stopped on a missing spot | 457 MB |
+| event-vol, short iron fly (eh-08) | 1,803 MB | 493 MB |
+| event-vol, long straddle (eh-09), 4 trials | 2,667 MB after 2 trials, over 3,000 MB in the third | 554 MB |
+| pairs (eh-11), intraday (eh-12), trend-day buying (eh-14) | not measured: blocked (no sectors, no minute bars) | not measured |
+
+Expect 0.5 to 0.6 GB for a hunt today; 1.5 GB leaves room for a longer
+history. **The guard**: `hunt run ID --max-mem-mb N` (default
+`lab_max_mem_mb` in `trader/config.json`, else 2048; 0 turns it off) checks
+the process's peak memory while loading and after every train and
+validation run. Past the limit the run stops itself with exit code 4,
+every finished trial kept, the holdout sealed and `state.json` noting why;
+the same command carries on. It reads `resource.getrusage` (bytes on
+macOS, kilobytes on Linux); Windows has no `resource` module and no guard.
+It sees only this process's peak, not the machine's free memory, so for
+long unattended runs also wrap the command in an external watchdog that
+kills it when its memory passes a limit or the machine's free memory drops,
+for example a small `memguard.sh LIMIT_MB LOG cmd...` loop over `ps` and
+`memory_pressure` on macOS:
+
+```bash
+~/bharat-data/memguard.sh 3000 hunt.log python3 trader-lab/lab.py hunt run eh-09-event-runup --max-mem-mb 1500
+```
+
+A watchdog kill is an interrupted run like any other (see **Interrupted
+runs** above): the trial that was running is run again, counted once.
+
+**Data gaps that remain** (not memory, but they decide what the option
+hunts can show): legacy F&O bhavcopies (before July 2024) carry no lot
+sizes and the archive's lot-size snapshots start in Nov 2026, so eh-05,
+eh-08 and eh-09 are blocked ("no lot sizes ... waits for a dated lot-size
+history") rather than allowed to record a REJECT about missing data. 73
+NIFTY sessions from 2014 to 2023 have no index close in the archive (#87);
+their boards take a futures-implied spot, named in the run's notes.
 
 ### What the edge hunt does NOT show
 

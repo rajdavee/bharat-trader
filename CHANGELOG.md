@@ -188,6 +188,12 @@ All notable changes are documented here. The format follows
   is per stock and day now. Both bump the event-vol engine to revision 2.
   eh-08's recorded REJECT was decided on revision 1 (0 trades in train and
   validation) and is left as recorded.
+- **Option hunts with no lot sizes for their train years now wait**: legacy
+  bhavcopies carry no lot sizes and the archive's lot-size snapshots start in
+  Nov 2026, so every eh-05/08/09 position before July 2024 would be skipped
+  as "no lot size" and the run would record a REJECT about missing data. The
+  executor reports a blocker instead. An eh-08 iron fly whose wings round
+  under one point is skipped with a reason instead of stopping the run.
 - **Margin model v2 for hedged and naked F&O positions** (#82): one SPAN +
   ELM block shared by trader-strategy, trader-risk and the paper broker, named
   in every output and in lab results and scorecards (`margin_model`,
