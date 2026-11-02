@@ -364,6 +364,13 @@ class PackedOpts(object):
         return self._a.itemsize * len(self._a)
 
 
+def release_boards():
+    """Drop every unpacked board dict now (an engine calls this when a run is over)."""
+    for p in list(_HOT.values()):
+        p._d = None
+    _HOT.clear()
+
+
 def implied_spot(chain, rate=FALLBACK_RATE):
     """(spot, source) for a board whose bhavcopy, index and equity files gave no underlying price: the
     nearest live future's settle (else close) discounted to today, S = F e^(-rT). (None, why) without one."""

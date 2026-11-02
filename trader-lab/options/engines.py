@@ -39,6 +39,7 @@ Education and tooling, not financial advice.
 import bisect
 import csv
 import datetime
+import heapq
 import itertools
 import math
 import os
@@ -490,9 +491,11 @@ def fno_stocks(A, root, start, end):
     return sorted(out)
 
 
-def _chain_dicts(A, day, lines, syms):
-    """One read of a day's F&O bhavcopy -> {symbol: load_fo_chain_eod()-shaped chain} for `syms` (the spot
-    is the bhavcopy's underlying price; a missing lot stays None)."""
+def _chain_dicts(A, day, lines, syms, spot_of=None):
+    """One read of a day's F&O bhavcopy -> {symbol: load_fo_chain_eod()-shaped chain} for `syms`. The spot is
+    the bhavcopy's underlying price (UDiFF files), else spot_of(symbol, day) (the stock's own close that day:
+    legacy files before July 2024 carry no underlying price), else trim_board's futures-implied spot. A
+    missing lot stays None."""
     rows = {}
     for l in lines[1:]:
         k = l.find(",")
@@ -511,36 +514,87 @@ def _chain_dicts(A, day, lines, syms):
             if spot is None and rec["underlying_price"]:
                 spot = rec["underlying_price"]
             (opts if rec["kind"] in ("IDO", "STO") else futs).append(rec)
-        out[s] = {"date": day, "underlying": s, "spot": spot, "futures": futs, "options": opts}
+        src = "the bhavcopy's underlying price" if spot else None
+        if spot is None and spot_of is not None:
+            spot = spot_of(s, day)
+            src = "the stock's close in the equity bhavcopy" if spot else None
+        out[s] = {"date": day, "underlying": s, "spot": spot, "spot_source": src, "futures": futs, "options": opts}
     return out
 
 
-def _boards(data, need):
-    """{(symbol, day): trimmed board} for need = {day: {symbols}}, each day's file read once, cached."""
-    A = _arch(data)
-    cache = data.setdefault("_boards", {})
-    for day in sorted(need):
-        miss = set(s for s in need[day] if (s, day) not in cache)
-        if not miss:
-            continue
-        got = _chain_dicts(A, day, _fo_lines(A, data.get("root"), day), miss)
-        for s in miss:
+def _spot_of(data, A, root):
+    """(symbol, day) -> the stock's unadjusted close that day (cached per symbol), for legacy F&O files."""
+    closes_all = data.setdefault("_closes", {})
+
+    def get(sym, day):
+        if sym not in closes_all:
+            closes_all[sym] = _closes(A, root, sym, data.get("until") or day)
+        return closes_all[sym].get(day)
+    return get
+
+
+class BoardWindow(object):
+    """The trimmed boards of (symbol, day) for the events still to be run, read a day file at a time and
+    dropped as soon as no later event of that symbol needs them: memory follows the events in flight, not
+    the whole history (eh-08 and eh-09 over 2012-2023 once held every board of every event at once).
+
+    need: {day: set of symbols}; uses: {(symbol, day): how many events still need it}."""
+
+    def __init__(self, data, need, uses, spot_of):
+        self.data, self.need, self.uses, self.spot_of = data, need, uses, spot_of
+        self.live = {}
+        self.reads = 0
+        self.peak = 0
+
+    def get(self, sym, day):
+        key = (sym, day)
+        if key not in self.live and self.uses.get(key, 0) > 0:
+            self._read(day)
+        return self.live.get(key)
+
+    def _read(self, day):
+        A = _arch(self.data)
+        want = set(s for s in self.need.get(day, ()) if self.uses.get((s, day), 0) > 0
+                   and (s, day) not in self.live)
+        if not want:
+            return
+        got = _chain_dicts(A, day, _fo_lines(A, self.data.get("root"), day), want, self.spot_of)
+        self.reads += 1
+        for s in want:
             ch = got.get(s)
-            cache[(s, day)] = O.trim_board(ch, keep_dte=EVENT_DTE, band=EVENT_BAND) if ch and ch["options"] else None
-    return cache
+            self.live[(s, day)] = O.trim_board(ch, keep_dte=EVENT_DTE, band=EVENT_BAND) if ch and ch["options"] else None
+        got = None
+        self.peak = max(self.peak, len(self.live))
+
+    def done(self, sym, span):
+        """One event of `sym` over `span` is finished: release the boards no later event needs."""
+        for d in span:
+            key = (sym, d)
+            n = self.uses.get(key, 0) - 1
+            if n <= 0:
+                self.uses.pop(key, None)
+                self.live.pop(key, None)
+            else:
+                self.uses[key] = n
 
 
-def _iv_panel(data, syms, days, rate):
-    """{symbol: {day: near-monthly ATM IV (%)}} (the expiry at least 7 days out), each day read once, cached."""
+def _iv_panel(data, need, rate, spot_of=None):
+    """{symbol: {day: near-monthly ATM IV (%)}} (the expiry at least 7 days out) for need = {day: {symbols}},
+    one streaming pass over the day files, each (symbol, day) computed once and kept across trials (a float
+    each, never a board). Earlier versions marked a DAY done after the first symbol that asked for it, so a
+    second stock's IV history on the same days was silently missing; it is per (symbol, day) now."""
     A = _arch(data)
     panel = data.setdefault("_ivp", {})
-    done = data.setdefault("_ivp_days", set())
-    for day in days:
-        if day in done:
+    done = data.setdefault("_ivp_done", set())
+    for day in sorted(need):
+        want = set(s for s in need[day] if (s, day) not in done)
+        if not want:
             continue
-        got = _chain_dicts(A, day, _fo_lines(A, data.get("root"), day), set(syms))
-        for s, ch in got.items():
-            if not ch["options"]:
+        got = _chain_dicts(A, day, _fo_lines(A, data.get("root"), day), want, spot_of)
+        for s in want:
+            done.add((s, day))
+            ch = got.get(s)
+            if not ch or not ch["options"]:
                 continue
             c = O.Chains(s, {day: O.trim_board(ch, keep_dte=EVENT_DTE, band=0.05)})
             b = c.boards[day]
@@ -548,7 +602,7 @@ def _iv_panel(data, syms, days, rate):
             v = c.atm_iv(day, exps[0], rate) if exps else None
             if v:
                 panel.setdefault(s, {})[day] = v
-        done.add(day)
+        got = None
     return panel
 
 
@@ -633,31 +687,48 @@ def _event_run(hyp, params, a, b, data, cost_mult, short):
     if data.get("symbols") is None:
         data["symbols"] = fno_stocks(A, root, w["from"], w["to"])
     plan, sessions = _event_plan(hyp, p, w, data, short)
-    need = {}
-    for sym, ev, win, entry, exit_, span in plan:
+    need, uses, by_sym = {}, {}, {}
+    for n, (sym, ev, win, entry, exit_, span) in enumerate(plan):
+        by_sym.setdefault(sym, []).append(n)
         for d in span:
             need.setdefault(d, set()).add(sym)
-    boards = _boards(data, need)
+            uses[(sym, d)] = uses.get((sym, d), 0) + 1
+    spot_of = _spot_of(data, A, root)
+    boards = BoardWindow(data, need, uses, spot_of)
+    ivp = None
+    if not short and float(p["iv_percentile_cap"]) < 100:
+        look_need = {}
+        for sym, ev, win, entry, exit_, span in plan:
+            k0 = bisect.bisect_left(sessions, entry)
+            for d in sessions[max(0, k0 - IV_HISTORY):k0 + 1]:
+                look_need.setdefault(d, set()).add(sym)
+        ivp = _iv_panel(data, look_need, rate, spot_of)
+        look_need = None
     closes_all = data.setdefault("_closes", {})
-    trades, skipped, study = [], {}, []
+    skipped, done_rows, done_trades = {}, [], []
     notes = list(data.get("notes") or [])
     cache = data.setdefault("_specs", {})
     eng = "event-crush-iron-fly" if short else "event-runup-straddle"
-    for n, (sym, ev, win, entry, exit_, span) in enumerate(plan):
-        if n % 200 == 199:
-            _say(data, "%s: %d of %d events" % (hyp.get("id"), n + 1, len(plan)))
-        bd = {d: boards.get((sym, d)) for d in span if boards.get((sym, d))}
+
+    def one(n):
+        """One event: (study row or None, trade or None); skips counted in `skipped`."""
+        sym, ev, win, entry, exit_, span = plan[n]
+        bd = {}
+        for d in span:
+            got = boards.get(sym, d)
+            if got:
+                bd[d] = got
         if entry not in bd:
             _skip(skipped, "no options on the entry session (not in the F&O list then)")
-            continue
+            return None, None
         if exit_ not in bd:
             _skip(skipped, "no chain on the exit session")
-            continue
+            return None, None
         ch = O.Chains(sym, bd)
         if sym not in closes_all:
             closes_all[sym] = _closes(A, root, sym, data.get("until") or w["to"])
         closes = closes_all[sym]
-        for d in span:                         # equity closes, else the bhavcopy's underlying price
+        for d in span:                         # equity closes, else the board's spot
             if d not in closes and d in bd:
                 closes[d] = bd[d]["spot"]
         evs = data["_results"][sym]
@@ -669,21 +740,23 @@ def _event_run(hyp, params, a, b, data, cost_mult, short):
                "realised_move_pct": None if rm is None else round(rm, 4),
                "history_mean_pct": round(_mean(hist), 4) if hist else None, "history_n": len(hist)}
         row["realised_above_implied"] = (rm > im["move_pct"]) if im and rm is not None else None
-        study.append(row)
         if im is None:
             _skip(skipped, "no ATM straddle on the entry session")
-            continue
+            return row, None
         exp = im["expiry"]
         if short:
             if len(hist) < min_hist:
                 _skip(skipped, "fewer than %d earlier results moves" % min_hist)
-                continue
+                return row, None
             ratio = im["move_pct"] / _mean(hist) if _mean(hist) else None
             row["ratio_to_history"] = ratio and round(ratio, 4)
             if ratio is None or ratio < float(p["min_event_iv_ratio"]):
                 _skip(skipped, "implied move under %g x the stock's past results moves" % p["min_event_iv_ratio"])
-                continue
+                return row, None
             an = ch.analysis(entry, exp, rate)
+            if not an.get("spot"):
+                _skip(skipped, "no spot on the entry session (no underlying price, close or future)")
+                return row, None
             wing = _wing_points(an["spot"], p["wing_pct_of_spot"], _S().strike_step(an))
             spec = _compiled(sym, "iron-fly", {"by": "atm"}, wing, 1, capital, rate, cache)
         else:
@@ -691,27 +764,27 @@ def _event_run(hyp, params, a, b, data, cost_mult, short):
             if cap < 100:
                 k0 = bisect.bisect_left(sessions, entry)
                 look = sessions[max(0, k0 - IV_HISTORY):k0 + 1]
-                ivp = _iv_panel(data, [sym], look, rate).get(sym, {})
-                hist_iv = [ivp[d] for d in look[:-1] if d in ivp]
-                cur = ivp.get(entry)
+                mine = ivp.get(sym, {})
+                hist_iv = [mine[d] for d in look[:-1] if d in mine]
+                cur = mine.get(entry)
                 if cur is None or len(hist_iv) < IV_HISTORY_MIN:
                     _skip(skipped, "under %d sessions of ATM IV history" % IV_HISTORY_MIN)
-                    continue
+                    return row, None
                 pct = _percentile(hist_iv, cur)
                 row["iv_percentile"] = round(pct, 1)
                 if pct > cap:
                     _skip(skipped, "ATM IV percentile over the cap")
-                    continue
+                    return row, None
             spec = _compiled(sym, "long-straddle", {"by": "atm"}, None, 1, capital, rate, cache)
         pos, why = O.open_position(spec, ch, entry, exp, cost_mult)
         if pos is None:
             _skip(skipped, why)
-            continue
+            return row, None
         if any(l["price_source"] != "settle" for l in pos["legs"]):
             _skip(skipped, "a strike did not trade on the entry session")
-            continue
+            return row, None
         gross, prices, models = O._value(pos, ch, exit_)
-        pos["breached"] = O._breach(pos, bd[exit_]["spot"]) if short else False
+        pos["breached"] = O._breach(pos, bd[exit_]["spot"]) if short and bd[exit_]["spot"] else False
         pos["models"] += models
         t = O.close_position(spec, pos, ch, exit_, "exit session" if short else "close before results",
                              prices, cost_mult, False)
@@ -724,7 +797,35 @@ def _event_run(hyp, params, a, b, data, cost_mult, short):
         if not win["time_known"]:
             t["flags"] = (t.get("flags") or []) + ["results time unknown: the reaction may be on %s or the "
                                                    "session after" % win["event_session"]]
-        trades.append(t)
+        return row, t
+
+    # Events run roughly in date order across the stocks (each stock's own events in their order, which keeps
+    # the closes it fills in identical), so only the boards of the events in flight are held; the study rows
+    # and trades are put back in the plan's order before anything is summed.
+    heap = [(plan[ns[0]][5][0], ns[0], sym) for sym, ns in by_sym.items()]
+    heapq.heapify(heap)
+    nxt = dict((sym, 0) for sym in by_sym)
+    count = 0
+    while heap:
+        _, n, sym = heapq.heappop(heap)
+        count += 1
+        if count % 200 == 0:
+            _say(data, "%s: %d of %d events" % (hyp.get("id"), count, len(plan)))
+        row, t = one(n)
+        boards.done(sym, plan[n][5])
+        if row is not None:
+            done_rows.append((n, row))
+        if t is not None:
+            done_trades.append((n, t))
+        nxt[sym] += 1
+        if nxt[sym] < len(by_sym[sym]):
+            m = by_sym[sym][nxt[sym]]
+            heapq.heappush(heap, (plan[m][5][0], m, sym))
+    study = [r for _, r in sorted(done_rows, key=lambda x: x[0])]
+    trades = [t for _, t in sorted(done_trades, key=lambda x: x[0])]
+    data["_board_window"] = {"file_reads": boards.reads, "peak_boards": boards.peak}
+    boards = None
+    O.release_boards()
     trades.sort(key=lambda t: (t["exit_date"], t["symbol"]))
     days = [d for d in A.Store(A.default_root(root)).dates("fo") if w["from"] <= d <= w["to"]]
     mtm = _realised_mtm(trades, days)
