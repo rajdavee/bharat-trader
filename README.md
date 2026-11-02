@@ -39,15 +39,21 @@ We ran everything it ships through its own tests. Nothing passed:
   rules on about 2.3 years of data counted all 527 trials it ran. 16
   survived validation and none survived the robustness and multiple-testing
   checks (Reality Check p = 0.84). See [docs/discovery.md](docs/discovery.md).
-- **The edge hunt is pre-registered before it runs.** 14 hypotheses
-  (momentum, low volatility, index trend, calendar effects, post-earnings
-  drift, the volatility risk premium, results-day options, reversal, pairs,
-  intraday and overnight index moves, trend-day option buying), each with a
-  fixed grid, a trial budget, a sealed holdout, its kill criteria and a
-  written prior (most are expected to fail). See
-  [docs/research/edge-hunt.md](docs/research/edge-hunt.md). First results:
-  10 decided, all REJECT, holdouts still sealed, one void run re-registered
-  ([docs/research/edge-hunt-results.md](docs/research/edge-hunt-results.md)).
+- **The v0.4 edge hunt found no edge.** 14 hypotheses were registered
+  before any run (momentum, low volatility, index trend, calendar effects,
+  post-earnings drift, the volatility risk premium, results-day options,
+  reversal, pairs, intraday and overnight index moves, trend-day option
+  buying), each with a fixed grid, a trial budget, a sealed holdout, its kill
+  criteria and a written prior; the priors expected about 1.5 survivors. On
+  about 15 to 22 years of NSE data after 2026 charges, **all 12 that could be run
+  properly were REJECTED** before their holdouts (one void run was re-run
+  under a new id; two wait on data). The deflated Sharpe ratio failed for
+  every one (best 0.61), and the Benjamini-Hochberg cut keeps 0. The closest:
+  momentum, the only one to beat its benchmark (net Sharpe 0.87, deflated
+  Sharpe 0.26), and index trend (only 5 validation trades). Neither is
+  re-tested with tweaks. See the
+  [results](docs/research/edge-hunt-results.md) and the
+  [brief](docs/research/edge-hunt.md).
 - **Its own early odds were too high.** On a real prediction log (38
   predictions, December 2025 to October 2026) the probabilities averaged 48%,
   and 29% of those trades made money after charges. Calibration tracking
@@ -402,7 +408,8 @@ Where others are ahead, honestly:
 
 - Paid platforms have years of **intraday** historical option chains. Here
   option backtests use end-of-day bhavcopies, so a stop is seen only at the
-  close. An intraday chain archive is on the [v0.4 list](docs/roadmap.md).
+  close. The live chain capture started in v0.4; intraday options research
+  on it is on the [v0.5 list](docs/roadmap.md).
 - Broker apps have real-time data and one-tap execution. Here the data is
   free, delayed and unofficial, and live orders are deliberately hard.
 - Mobile apps have push notifications and polish.
@@ -466,6 +473,7 @@ Start at [docs/README.md](docs/README.md). The main pages:
 [Hinglish output](docs/hinglish.md) ·
 [architecture](docs/architecture.md) ·
 [data sources](docs/data-sources.md) ·
+[running long hunts safely](docs/running-hunts.md) ·
 [roadmap](docs/roadmap.md).
 
 ## Tests
@@ -484,10 +492,15 @@ v0.3.0 made it a co-trader: the local data archive, the regime engine,
 strategy discovery, options backtests in the lab, calibrated candidates,
 the paper auto-pilot, the journal and counterfactual ledger, the tax
 estimate, native linked exits and Angel One, assistant workflow tools with
-honest trial counting, the redesigned UI and Hinglish. Ideas for v0.4 include
-an intraday option-chain archive for intraday options backtests, more
-brokers, mobile notifications, community strategy specs shared with
-lab-verified scorecards, and speed. See [docs/roadmap.md](docs/roadmap.md).
+honest trial counting, the redesigned UI and Hinglish. v0.4.0 was the edge
+hunt: a long-history archive (equity bhavcopies from 1994, F&O from 2000), lab engines for futures,
+portfolios, events, pairs and options, 14 pre-registered hypotheses run
+exactly as written (0 survivors), a strategy portfolio builder, the
+forward-test dashboard and live chain capture. Ideas for v0.5 include a
+minute-bar archive from your broker's token to unblock intraday research,
+intraday options research on the captured chains, community-registered
+hypotheses under the same rules, and mobile notification polish. See
+[docs/roadmap.md](docs/roadmap.md).
 
 Ideas and pull requests welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
 

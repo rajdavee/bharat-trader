@@ -137,6 +137,41 @@
   },
   "contamination": "The five options library specs (46 grid points, short premium on NIFTY and BANKNIFTY) ran on F&O bhavcopies from 2024-01-01 to 2026-10-30, so most of the holdout has been looked at for related rules. The VIX-minus-realised filter has not been run.",
   "registered_on": "2026-11-01",
-  "status": "registered",
-  "outcome": null
+  "status": "rejected",
+  "outcome": {
+    "verdict": "REJECT",
+    "why": "6 of 10 validation gates failed: out-of-sample expectancy after charges; out-of-sample profit factor; deflated Sharpe ratio; survives 1.5x costs; parameter neighbourhood; primary metric on validation (return on margin). The holdout stays sealed.",
+    "registration_hash": "679f61dc17896f2826248471fd316cd60626e89a8c0160a5d0efa980fbea2dd6",
+    "decided_at": "2026-11-02 23:34",
+    "engine": "options",
+    "trials": {
+      "grid_points": 36,
+      "prior_trials": 46,
+      "family_trials": 0,
+      "extra_trials": 0,
+      "trials_counted": 82
+    },
+    "finalist": {
+      "short_delta": 0.1,
+      "wing_width_pct_of_spot": 1.5,
+      "vrp_threshold_vol_points": 4,
+      "exit": "expiry"
+    },
+    "chosen_on": "train (best primary metric), screened on validation",
+    "validation": {
+      "primary": -45.73,
+      "net_value": -45.73,
+      "sharpe": -0.618,
+      "cagr_pct": -0.639,
+      "max_drawdown_pct": 4.864,
+      "active_sharpe": null,
+      "active_return_pct": null,
+      "trades": 42,
+      "turnover_pct_per_year": 5.59,
+      "charges_pct_per_year": 0.081
+    },
+    "gates_passed": "4 of 10",
+    "holdout": null,
+    "scorecard": "trader/lab/edge-hunt/eh-05-vrp-condor/scorecard.md"
+  }
 }

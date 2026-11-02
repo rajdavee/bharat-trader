@@ -6,101 +6,31 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
-### Added
-- **Edge-hunt results, first batch** (#74):
-  `docs/research/edge-hunt-results.md` publishes every verdict so far. 10 of
-  the registrations are decided, all REJECT before the holdout (every holdout
-  still sealed, no WATCH, Benjamini-Hochberg keeps 0). The deflated Sharpe
-  ratio failed for all of them (best 0.61); the closest was eh-03 index trend
-  (2 of 11 gates failed: 5 validation trades, DSR 0.48), recorded as a near
-  miss and not rerun. The executor's status and outcome are committed in each
-  hypothesis file; the registered content is unchanged (hashes match).
-- **Annotations and re-registration** for edge-hunt verdicts:
-  `trader-lab/library/edge-hunt/annotations.json` (outside the hashed files)
-  marks eh-08 event crush VOID (0 trades in every trial: the pre-July-2024
-  stock boards had no spot, fixed in #88) while its REJECT stays on record.
-  `eh-15-event-crush-r` re-registers the same test with eh-08's 8 trials in
-  `prior_trials`. The brief's new rule 8 makes this the only way to rerun a
-  decided idea. The executor reads the annotations: a re-registered run is
-  left out of its successor's family trial count (counted once, in
-  `prior_trials`) and a VOID run is left out of the Benjamini-Hochberg cut;
-  `hunt list` and `hunt run` show the annotation.
+## [0.4.0] - 2026-11-xx
 
-- **Dated F&O lot-size history** in `trader-archive`: `backfill --datasets
-  lothist` builds every F&O contract's lot on every day,
-  `lothist/lothist.csv.gz` (underlying, expiry, effective_from, effective_to,
-  lot, source, confidence). **Exact** from NSE's own numbers: the UDiFF
-  bhavcopy's lot (2024 on), NSE's F&O market activity reports (traded
-  quantity / contracts, March 2011 on, two sessions a month), the Wayback
-  Machine's copies of `fo_mktlots.csv` (2008 to 2024), NSE's index lot
-  circulars (2014 to 2025, built in), and segments bridged between two equal
-  exact lots. **Reconstructed** otherwise, from the legacy bhavcopy's notional
-  turnover / (contracts x price) and the open interest's divisibility,
-  segment by segment (a bonus or split mid-life cuts it). Read API
-  `lot_size(underlying, date, expiry)`, `lot_history`, `lot_coverage`,
-  `fill_lots`; `load_fo_chain_eod(..., lots="exact"|"any"|"none")` fills a
-  missing lot from it; `archive.py lots` prints the coverage by year and
-  every lot change; `status` shows it.
-- trader-lab's option engines (eh-05 VRP condor, eh-08/eh-09 results-day
-  options, eh-14) take a missing lot from the dated history and **refuse a
-  reconstructed lot** unless `allow_reconstructed_lots` is true in
-  `trader/config.json` (the skip and the counts are in the run's notes). The
-  edge-hunt executor's lot check now measures the history's coverage of the
-  train and validation windows (95% of contract-days needed), reports it in
-  the plan and the dry run, and says what would unblock a run. The option
-  families' engine revision moves to 3 (earlier trials are superseded).
-- **Strategy portfolio** (#75): `lab.py portfolio build|report|list`, a
-  **Portfolio** section on the Lab page and the `portfolio_report` MCP tool
-  (read only). Combines WATCH and PROMOTE strategies (lab runs and edge-hunt
-  finalists; `--research` studies others, never proposed) on their
-  out-of-sample and paper forward daily returns after charges, over only the
-  sessions they all share (the overlap is reported). Pearson, Spearman,
-  downside, stress and weekly correlation, near-duplicate clusters (the same
-  bet), four sizing schemes (equal capital, inverse volatility, risk parity,
-  capped fractional Kelly on shrunk means) under a volatility target and
-  per-strategy caps, each tested walk-forward with weights from earlier
-  sessions only (CAGR, volatility, Sharpe, Sortino, max drawdown, worst
-  month, time in drawdown, diversification ratio, risk shares) and
-  block-bootstrap bands. Writes an `autopilot.strategies` bucket proposal
-  and a trader-risk drawdown-limit proposal to
-  `trader/lab/portfolio/<name>/`; nothing is applied. The edge-hunt executor
-  now records the finalist's net daily returns per window (`returns.json`).
-- **NSE sector classification** in `trader-archive`: `backfill --datasets
-  sectors` stores NSE's own four levels (macro, sector, industry, basic
-  industry, from the quote API's `secInfo`) for every F&O stock, today's list
-  and every stock future in the archive, as dated snapshots, politely and
-  resumable. `sectors(symbol, date=None)` and `archive.py sectors` read them
-  offline. trader-lab's pairs engine reads them, so eh-11's dry run is no
-  longer blocked on a hand-made `sectors.json` (which still wins when given).
-- **Forward-test dashboard** (#76): `lab.py forward-report`, the UI's
-  **Forward tests** page (Review) and the `forward_report` MCP tool (read
-  only). Each strategy's paper forward record against the range its
-  backtest's out-of-sample trades predicted (mean R and win rate, prediction
-  intervals, the record's own 95% ranges), inside / below / above, a lower
-  CUSUM control chart (k 0.5, h 4), decay alerts (10+ trades and the running
-  mean below the range for 5 in a row, or the chart alarms) with a DEMOTE
-  recommendation applied only by `--demote NAME`, the co-trader's Brier
-  score, the promote / demote timeline, and trades and sessions to PROMOTE.
-  The auto-pilot adds it to its end-of-day report (`decay_demote`, off by
-  default, applies the recommendation). Thresholds in `"forward_tests"`.
-- **Intraday option-chain capture job**: the auto-pilot starts and
-  supervises trader-archive's `capture-chains` in market hours (default
-  NIFTY and BANKNIFTY, nearest two expiries, every 5 minutes): heartbeat
-  staleness, restarts of its own capture only (at most 3 a day), gaps,
-  strikes per snapshot and the 16 Nov 2026 holdout deadline of
-  eh-14-trend-day-buying. `autopilot.py capture [--tick]`; launchd, systemd
-  and Task Scheduler examples in docs/forward-tests.md.
-- **Local notifications**, off by default (trader-alerts `notify/`,
-  `alerts.py notify status|test|send`, the `notify_test` MCP tool and
-  `POST /api/notify/test`): desktop pop-ups (macOS `osascript`, Linux
-  `notify-send`, Windows toast) and an optional JSON POST to your own
-  webhook from `BT_NOTIFY_WEBHOOK`, for co-trader candidates, auto-pilot
-  fills and exits, co-pilot proposals waiting, risk locks and kill switches,
-  decay alerts and capture failures. Per-event toggles, quiet hours, a
-  per-event gap, a daily key and an hourly cap; the webhook gets only a short
-  redacted summary (never secrets, positions or approval phrases), and the
-  URL is never written anywhere. docs/notifications.md.
-- MCP: 59 tools (`forward_report`, `notify_test`).
+The edge-hunt release: a long-history archive, lab engines for futures,
+portfolios, events, pairs and options, and 14 hypotheses registered before
+any run and then run exactly as written, every trial counted. The answer is
+published as it came out: **no pre-registered idea showed an edge
+distinguishable from luck after Indian 2026 charges**, 0 survivors where the
+priors expected about 1.5, and the Benjamini-Hochberg cut keeps 0. The tools
+said no, which is their job. See
+[docs/research/edge-hunt-results.md](docs/research/edge-hunt-results.md).
+
+### Added
+- **Edge-hunt research brief and pre-registration** (#70):
+  `docs/research/edge-hunt.md` reviews the evidence for cross-sectional
+  momentum, low volatility, index trend, turn of the month, pre-holiday and
+  expiry week, post-earnings drift, the NIFTY volatility risk premium,
+  results-day straddles, short-term reversal, pairs, intraday market
+  momentum, overnight drift and trend-day option buying, with SEBI's F&O
+  studies and the 2026 charge drag of each idea computed with trader-budget's
+  charges. 14 hypotheses are registered in `trader-lab/library/edge-hunt/`
+  (184 grid points), each with fixed parameters, a trial budget, train,
+  validation and sealed holdout dates, gates, kill criteria and a prior;
+  `manifest.json` freezes their registered content by SHA-256.
+  `tests/test_edge_hunt.py` validates the schema, the date splits, the
+  ranking, the hashes and the brief's cost table.
 - **Long-history archive** (#71) in `trader-archive`: legacy equity
   bhavcopies back to 1994-11-03 and F&O back to 2000-06-12 (formats checked
   year by year; the old `OPTIONTYPE` header, files without ISIN, ban titles
@@ -126,20 +56,28 @@ All notable changes are documented here. The format follows
 - `verify` checks splits and bonuses across the whole span against the
   archive's own closes, and reports membership gaps, roll gaps and missing
   results months.
-- **Edge-hunt research brief and pre-registration** (#70):
-  `docs/research/edge-hunt.md` reviews the evidence for cross-sectional
-  momentum, low volatility, index trend, turn of the month, pre-holiday and
-  expiry week, post-earnings drift, the NIFTY volatility risk premium,
-  results-day straddles, short-term reversal, pairs, intraday market
-  momentum, overnight drift and trend-day option buying, with SEBI's F&O
-  studies and the 2026 charge drag of each idea computed with trader-budget's
-  charges. 14 hypotheses are registered in `trader-lab/library/edge-hunt/`
-  (184 grid points), each with fixed parameters, a trial budget, train,
-  validation and sealed holdout dates, gates, kill criteria and a prior;
-  `manifest.json` freezes their registered content by SHA-256.
-  `tests/test_edge_hunt.py` validates the schema, the date splits, the
-  ranking, the hashes and the brief's cost table.
-
+- **NSE sector classification** in `trader-archive`: `backfill --datasets
+  sectors` stores NSE's own four levels (macro, sector, industry, basic
+  industry, from the quote API's `secInfo`) for every F&O stock, today's list
+  and every stock future in the archive, as dated snapshots, politely and
+  resumable. `sectors(symbol, date=None)` and `archive.py sectors` read them
+  offline. trader-lab's pairs engine reads them, so eh-11's dry run is no
+  longer blocked on a hand-made `sectors.json` (which still wins when given).
+- **Dated F&O lot-size history** in `trader-archive`: `backfill --datasets
+  lothist` builds every F&O contract's lot on every day,
+  `lothist/lothist.csv.gz` (underlying, expiry, effective_from, effective_to,
+  lot, source, confidence). **Exact** from NSE's own numbers: the UDiFF
+  bhavcopy's lot (2024 on), NSE's F&O market activity reports (traded
+  quantity / contracts, March 2011 on, two sessions a month), the Wayback
+  Machine's copies of `fo_mktlots.csv` (2008 to 2024), NSE's index lot
+  circulars (2014 to 2025, built in), and segments bridged between two equal
+  exact lots. **Reconstructed** otherwise, from the legacy bhavcopy's notional
+  turnover / (contracts x price) and the open interest's divisibility,
+  segment by segment (a bonus or split mid-life cuts it). Read API
+  `lot_size(underlying, date, expiry)`, `lot_history`, `lot_coverage`,
+  `fill_lots`; `load_fo_chain_eod(..., lots="exact"|"any"|"none")` fills a
+  missing lot from it; `archive.py lots` prints the coverage by year and
+  every lot change; `status` shows it.
 - **Lab engine v2 and the edge-hunt executor** (#72): `lab.py hunt list |
   run EH-ID [--dry-run] | status` runs a pre-registered hypothesis exactly
   as its file says. The file must match its manifest hash; every grid point
@@ -193,6 +131,14 @@ All notable changes are documented here. The format follows
   histories. Tests on trimmed real NSE files (HDFCBANK and ICICIBANK around
   their 17 Oct 2026 results, NIFTY monthly chains, India VIX, NIFTY 5-minute
   bars). No real hunt was run (that is #74).
+- trader-lab's option engines (eh-05 VRP condor, eh-08/eh-09 results-day
+  options, eh-14) take a missing lot from the dated history and **refuse a
+  reconstructed lot** unless `allow_reconstructed_lots` is true in
+  `trader/config.json` (the skip and the counts are in the run's notes). The
+  edge-hunt executor's lot check now measures the history's coverage of the
+  train and validation windows (95% of contract-days needed), reports it in
+  the plan and the dry run, and says what would unblock a run. The option
+  families' engine revision moves to 3 (earlier trials are superseded).
 - **Edge-hunt memory guard and honest resume**: `lab.py hunt run --max-mem-mb N`
   (default `lab_max_mem_mb` in `trader/config.json`, else 2048; 0 turns it
   off) checks the process's peak memory (`resource.getrusage`; bytes on
@@ -204,8 +150,94 @@ All notable changes are documented here. The format follows
   still charged to the trial count). A torn last line is skipped and that
   trial re-run; a grid point logged twice counts once. The holdout's data is
   read before its opening is logged.
+- **Annotations and re-registration** for edge-hunt verdicts:
+  `trader-lab/library/edge-hunt/annotations.json` (outside the hashed files)
+  marks eh-08 event crush VOID (0 trades in every trial: the pre-July-2024
+  stock boards had no spot, fixed in #88) while its REJECT stays on record.
+  `eh-15-event-crush-r` re-registers the same test with eh-08's 8 trials in
+  `prior_trials`. The brief's new rule 8 makes this the only way to rerun a
+  decided idea. The executor reads the annotations: a re-registered run is
+  left out of its successor's family trial count (counted once, in
+  `prior_trials`) and a VOID run is left out of the Benjamini-Hochberg cut;
+  `hunt list` and `hunt run` show the annotation.
+- **Edge-hunt final results** (#74):
+  `docs/research/edge-hunt-results.md` publishes every verdict. 13 of the 15
+  registrations are decided, all REJECT before the holdout (every holdout
+  still sealed, no WATCH, Benjamini-Hochberg keeps 0 of 14); eh-08 is VOID
+  and was re-run as eh-15; eh-12 intraday momentum is blocked (no minute
+  bars) and eh-14 trend-day buying waits for its live holdout (chains
+  captured from 16 Nov 2026). The deflated Sharpe ratio failed for all of
+  them (best 0.61). The last three, eh-05 VRP condor (4 of 10 gates), eh-09
+  results run-up straddle (2 of 10) and eh-15 results-day iron fly (2 of
+  10), lost on validation with 0% of their neighbouring grid points
+  positive. The near misses (eh-03 index trend: 5 validation trades; eh-01
+  momentum: net Sharpe 0.87, the only one to beat its benchmark, DSR 0.26)
+  are recorded and not re-tested with tweaks. The page scores the brief's
+  priors (about 1.4 survivors expected over the 12 scored, 0 found, Brier
+  0.021: too optimistic), says what the results mean for a trader, and how
+  to propose a new hypothesis. The executor's status and outcome are
+  committed in each hypothesis file; the registered content is unchanged
+  (hashes match).
+- **Strategy portfolio** (#75): `lab.py portfolio build|report|list`, a
+  **Portfolio** section on the Lab page and the `portfolio_report` MCP tool
+  (read only). Combines WATCH and PROMOTE strategies (lab runs and edge-hunt
+  finalists; `--research` studies others, never proposed) on their
+  out-of-sample and paper forward daily returns after charges, over only the
+  sessions they all share (the overlap is reported). Pearson, Spearman,
+  downside, stress and weekly correlation, near-duplicate clusters (the same
+  bet), four sizing schemes (equal capital, inverse volatility, risk parity,
+  capped fractional Kelly on shrunk means) under a volatility target and
+  per-strategy caps, each tested walk-forward with weights from earlier
+  sessions only (CAGR, volatility, Sharpe, Sortino, max drawdown, worst
+  month, time in drawdown, diversification ratio, risk shares) and
+  block-bootstrap bands. Writes an `autopilot.strategies` bucket proposal
+  and a trader-risk drawdown-limit proposal to
+  `trader/lab/portfolio/<name>/`; nothing is applied. The edge-hunt executor
+  now records the finalist's net daily returns per window (`returns.json`).
+- **Forward-test dashboard** (#76): `lab.py forward-report`, the UI's
+  **Forward tests** page (Review) and the `forward_report` MCP tool (read
+  only). Each strategy's paper forward record against the range its
+  backtest's out-of-sample trades predicted (mean R and win rate, prediction
+  intervals, the record's own 95% ranges), inside / below / above, a lower
+  CUSUM control chart (k 0.5, h 4), decay alerts (10+ trades and the running
+  mean below the range for 5 in a row, or the chart alarms) with a DEMOTE
+  recommendation applied only by `--demote NAME`, the co-trader's Brier
+  score, the promote / demote timeline, and trades and sessions to PROMOTE.
+  The auto-pilot adds it to its end-of-day report (`decay_demote`, off by
+  default, applies the recommendation). Thresholds in `"forward_tests"`.
+- **Intraday option-chain capture job**: the auto-pilot starts and
+  supervises trader-archive's `capture-chains` in market hours (default
+  NIFTY and BANKNIFTY, nearest two expiries, every 5 minutes): heartbeat
+  staleness, restarts of its own capture only (at most 3 a day), gaps,
+  strikes per snapshot and the 16 Nov 2026 holdout deadline of
+  eh-14-trend-day-buying. `autopilot.py capture [--tick]`; launchd, systemd
+  and Task Scheduler examples in docs/forward-tests.md.
+- **Local notifications**, off by default (trader-alerts `notify/`,
+  `alerts.py notify status|test|send`, the `notify_test` MCP tool and
+  `POST /api/notify/test`): desktop pop-ups (macOS `osascript`, Linux
+  `notify-send`, Windows toast) and an optional JSON POST to your own
+  webhook from `BT_NOTIFY_WEBHOOK`, for co-trader candidates, auto-pilot
+  fills and exits, co-pilot proposals waiting, risk locks and kill switches,
+  decay alerts and capture failures. Per-event toggles, quiet hours, a
+  per-event gap, a daily key and an hourly cap; the webhook gets only a short
+  redacted summary (never secrets, positions or approval phrases), and the
+  URL is never written anywhere. docs/notifications.md.
+- MCP: 59 tools (`forward_report`, `notify_test`).
+- **Running long hunts safely** (`docs/running-hunts.md`, #77): the RAM
+  incident of 2 Nov 2026 and its lessons, the built-in `--max-mem-mb`
+  guard, an external macOS watchdog (`docs/examples/memguard.sh`: kills a
+  job past a memory limit or when the machine's free memory drops, logs a
+  line a minute), one heavy job at a time, and the full archive's size and
+  time (2003 to 2026, about 2.5 GB, about 20 hours at the polite pause).
 
 ### Changed
+- README, the docs index and the roadmap carry the v0.4 result honestly (no
+  edge found, 0 survivors, links to the results and the brief); the roadmap
+  marks v0.4.0 done and lists v0.5 ideas (a minute-bar archive from your
+  broker token to unblock intraday research, intraday options research on
+  the captured chains, community-registered hypotheses under the same rules,
+  mobile notification polish). docs/lab.md points the watchdog example at
+  `docs/examples/memguard.sh`.
 - `tests/test_edge_hunt.py` holds the decided files to the registration: the
   status and the outcome agree (REJECT for rejected, WATCH for watch, none
   while registered or running), the outcome carries this file's hash, a
@@ -550,7 +582,8 @@ paper by default.
   risk checks.
 - Paper broker with broker-neutral order tickets (entry, SL-M stop, LIMIT target).
 
-[Unreleased]: https://github.com/rajdavee/bharat-trader/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/rajdavee/bharat-trader/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/rajdavee/bharat-trader/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/rajdavee/bharat-trader/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/rajdavee/bharat-trader/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/rajdavee/bharat-trader/releases/tag/v0.1.0

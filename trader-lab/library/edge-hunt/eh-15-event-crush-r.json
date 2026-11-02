@@ -119,6 +119,40 @@
   },
   "contamination": "eh-08-event-crush ran this exact grid on the train and validation windows (2012-01-02 to 2023-06-30) and produced 0 trades in all 8 trials, because the stock boards it read had no spot (#88). What that void run revealed is that the data was missing; it revealed no returns, no option prices of an iron fly and no gate number about the idea itself (every metric was zero). Its holdout (2023-07-17 to 2026-10-30) stayed sealed and is unseen for this idea: stock option prices for the holdout are unseen, as eh-08 registered.",
   "registered_on": "2026-11-02",
-  "status": "registered",
-  "outcome": null
+  "status": "rejected",
+  "outcome": {
+    "verdict": "REJECT",
+    "why": "8 of 10 validation gates failed: out-of-sample expectancy after charges; out-of-sample profit factor; max drawdown (train + validation, capital); deflated Sharpe ratio; probability of backtest overfitting; survives 1.5x costs; parameter neighbourhood; primary metric on validation (return on margin). The holdout stays sealed.",
+    "registration_hash": "a9e64843d617bf6325b3db4bee80fccf0536abc5a60ed78619c1128c212d74f8",
+    "decided_at": "2026-11-03 00:07",
+    "engine": "options",
+    "trials": {
+      "grid_points": 8,
+      "prior_trials": 8,
+      "family_trials": 10,
+      "extra_trials": 0,
+      "trials_counted": 26
+    },
+    "finalist": {
+      "wing_pct_of_spot": 8,
+      "exit_session": 1,
+      "min_event_iv_ratio": 1.2
+    },
+    "chosen_on": "train (best primary metric), screened on validation",
+    "validation": {
+      "primary": -5861.66,
+      "net_value": -5861.66,
+      "sharpe": -1.054,
+      "cagr_pct": -100.0,
+      "max_drawdown_pct": 100.932,
+      "active_sharpe": null,
+      "active_return_pct": null,
+      "trades": 1566,
+      "turnover_pct_per_year": 0.0,
+      "charges_pct_per_year": 0.0
+    },
+    "gates_passed": "2 of 10",
+    "holdout": null,
+    "scorecard": "trader/lab/edge-hunt/eh-15-event-crush-r/scorecard.md"
+  }
 }

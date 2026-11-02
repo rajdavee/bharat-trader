@@ -103,17 +103,53 @@ and following declined candidates in the counterfactual ledger.
   autonomy is an open decision, marked not planned, in
   [#67](https://github.com/rajdavee/bharat-trader/issues/67).
 
-## v0.4.0: ideas (not committed)
+## v0.4.0: the edge hunt (done)
+
+Tracked in the [v0.4.0 milestone](https://github.com/rajdavee/bharat-trader/milestone/3).
+The question: is there any idea a retail trader in India could run that
+shows an edge after 2026 charges and honest trial counting? Every item below
+is in the code; the [CHANGELOG](../CHANGELOG.md) has the detail and the
+[results page](research/edge-hunt-results.md) has the answer: **no
+pre-registered idea passed, and Benjamini-Hochberg keeps 0.**
+
+| # | Theme | Done |
+| --- | --- | --- |
+| 1 | Research brief ([#70](https://github.com/rajdavee/bharat-trader/issues/70)) | ✅ The evidence, SEBI's F&O studies, the charge drag of each idea, and 14 hypotheses registered before any run, with grids, sealed holdouts, kill criteria and written priors, frozen by SHA-256. See [research/edge-hunt.md](research/edge-hunt.md). |
+| 2 | Long-history archive ([#71](https://github.com/rajdavee/bharat-trader/issues/71)) | ✅ Legacy bhavcopies back to 1994 (equity) and 2000 (F&O), continuous futures, point-in-time index membership, results dates, sector classification and a dated F&O lot-size history. See [archive.md](archive.md). |
+| 3 | Lab engine v2 ([#72](https://github.com/rajdavee/bharat-trader/issues/72)) | ✅ Futures, cross-sectional portfolios, events and pairs engines, and the edge-hunt executor (`lab.py hunt`): runs a registration exactly as written, counts every trial, opens a holdout once. See [lab.md](lab.md#the-edge-hunt-running-pre-registered-hypotheses). |
+| 4 | Options edge v2 ([#73](https://github.com/rajdavee/bharat-trader/issues/73)) | ✅ VIX-timed condors, results-day iron flies and straddles, trend-day buying on model prices, realised-vol and HAR-RV forecasts; the SPAN + ELM margin model v2 ([#82](https://github.com/rajdavee/bharat-trader/issues/82)). |
+| 5 | Edge-hunt runs ([#74](https://github.com/rajdavee/bharat-trader/issues/74)) | ✅ 13 of 15 registrations decided, all REJECT before the holdout; eh-08 void and re-run as eh-15; eh-12 blocked (no minute bars), eh-14 waiting for its live holdout. See [research/edge-hunt-results.md](research/edge-hunt-results.md). |
+| 6 | Strategy portfolio ([#75](https://github.com/rajdavee/bharat-trader/issues/75)) | ✅ Correlation, clusters, risk parity and capped Kelly, tested walk-forward, with auto-pilot bucket proposals. See [lab.md](lab.md#the-strategy-portfolio-combining-survivors). |
+| 7 | Forward-test ops ([#76](https://github.com/rajdavee/bharat-trader/issues/76)) | ✅ The forward-test dashboard, intraday option-chain capture from 16 Nov 2026, local notifications. See [forward-tests.md](forward-tests.md), [notifications.md](notifications.md). |
+| 8 | Docs and release ([#77](https://github.com/rajdavee/bharat-trader/issues/77)) | ✅ The final results, the priors scored, how to propose a new hypothesis, and [running long hunts safely](running-hunts.md) (memory-bounded engines, the guard, a watchdog). |
+
+Carried over: shadow-mode reports, broker sandbox smoke tests, declined
+candidates in the counterfactual ledger, more brokers, and the index-file
+date parsing fix ([#87](https://github.com/rajdavee/bharat-trader/issues/87)).
+
+### Design decisions (v0.4)
+
+- **Register before you run.** Every idea is written down, hashed and merged
+  before it touches the data. The run fills only `status` and `outcome`.
+- **A REJECT is final under its id.** Near misses are recorded, not tuned.
+  The only rerun is a re-registration of a VOID run (a run that tested
+  nothing), with the void run's trials charged to it.
+- **The live future is the cleanest holdout.** eh-14's holdout is option
+  chains captured after its registration, so nobody can have seen it.
+- **Memory is a safety issue.** A hunt that freezes the machine can take the
+  rest of your work with it; the engines are bounded and the runs are
+  guarded.
+
+## v0.5.0: ideas (not committed)
 
 Drafts for discussion; open an issue to shape or challenge any of them.
 
 | Theme | Idea |
 | --- | --- |
-| Intraday option-chain archive | Record option chains through the session (from `snapshot-chain` and broker history where allowed), so option strategies can be backtested intraday, with stops seen when they happen and not only at the close. |
-| More brokers | More adapters behind the same contract and six gates (candidates: Groww, Fyers, ICICI Direct, Kotak Neo), plus the OpenAlgo bridge. |
-| Mobile notifications | Alerts, the pre-open brief, a co-trader candidate or the auto-pilot's report pushed to your phone through a channel you host or choose, never with an order button. |
-| Community strategy specs | Share a trader-lab spec as a file with a lab-verified scorecard (the data range, trial count, gates and verdict, reproducible by anyone with the archive), so claims can be re-run, not trusted. No signals, no paid tips. |
-| Performance | Faster backtests and discovery on years of archive data (caching, incremental walk-forward, parallel trials within the trial budget) and a lighter UI on slow phones. |
-| Carried from v0.3 | Shadow-mode reports, broker sandbox smoke tests, declined candidates in the counterfactual ledger. |
+| Minute-bar archive | Store index, futures and stock minute bars from your own broker token (Upstox's history starts January 2022 for minute candles), so intraday ideas such as eh-12 intraday momentum stop being blocked. |
+| Intraday options research | Use the option chains captured since 16 Nov 2026 for intraday option research with stops seen when they happen, starting with eh-14's live holdout once it has ended. |
+| Community-registered hypotheses | Anyone can propose a hypothesis by pull request, under exactly the same rules: registered and hashed before any run, every trial and the family's earlier trials counted, the programme's Benjamini-Hochberg cut, verdict published whatever it is. See [how to propose one](research/edge-hunt-results.md#how-to-propose-a-new-hypothesis). |
+| Mobile notifications polish | Phone-friendly delivery through the webhook you host (ntfy, Telegram or a channel you choose), richer pre-open and end-of-day summaries, never with an order button. |
+| Carried from v0.3 and v0.4 | Shadow-mode reports, broker sandbox smoke tests, declined candidates in the counterfactual ledger, more broker adapters. |
 
 Ideas and pull requests welcome: open an issue first for anything large.
