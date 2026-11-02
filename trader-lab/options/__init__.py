@@ -305,6 +305,10 @@ class PackedOpts(object):
     __slots__ = ("_exps", "_a", "_d", "__weakref__")
 
     def __init__(self, opts):
+        self._pack(opts)
+        self._d = None
+
+    def _pack(self, opts):
         exps, pos = [], {}
         a = array.array("d")
         for (e, k, t), v in opts.items():
@@ -316,7 +320,6 @@ class PackedOpts(object):
                       _NAN if lot is None else lot))
         self._exps = tuple(exps)
         self._a = a
-        self._d = None
 
     def _dict(self):
         d = self._d
@@ -359,6 +362,17 @@ class PackedOpts(object):
 
     def values(self):
         return self._dict().values()
+
+    def pop(self, key, *default):
+        d = self._dict()
+        v = d.pop(key, *default)
+        self._pack(d)
+        return v
+
+    def __setitem__(self, key, value):
+        d = self._dict()
+        d[key] = value
+        self._pack(d)
 
     def nbytes(self):
         return self._a.itemsize * len(self._a)
