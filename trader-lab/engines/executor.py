@@ -480,6 +480,8 @@ def _execute(path, mkt, out, now, progress, deadline, cancel, extra_trials, dry_
         return {"state": "blocked", "plan": {"id": doc["id"], "family": doc["family"], "blockers": [str(e)]},
                 "dir": d}
     pl = plan(doc, h, job, out, folder, extra_trials)
+    if getattr(job, "lot_cov", None):
+        pl["lot_coverage"] = job.lot_cov       # the dated lot-size history over train and validation
     if st.get("plan"):
         # the trial count is fixed by the first run: later family runs and declarations only add to it
         pl["family_trials"] = max(pl["family_trials"], st["plan"].get("family_trials", 0))

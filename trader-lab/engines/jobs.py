@@ -21,16 +21,20 @@ UNIVERSES = {"nifty50": "NIFTY 50", "nifty100": "NIFTY 100", "nifty200": "NIFTY 
 # The revision of each family's engine, written into every trial row. A change that can move a family's
 # numbers bumps its revision, and the executor then refuses to mix the older rows with new ones (see
 # executor.execute(rerun_superseded=...)). Families not listed are at revision 1.
-ENGINE_REV = {"vrp-selling": 2, "event-vol": 2, "option-buying": 2}
+ENGINE_REV = {"vrp-selling": 3, "event-vol": 3, "option-buying": 3}
+LOT_CHANGE = ("; and from revision 3 a contract with no lot in its bhavcopy takes its lot from trader-archive's "
+              "dated lot-size history (exact lots only unless allow_reconstructed_lots is on)")
 ENGINE_CHANGES = {
     "vrp-selling": "a NIFTY board with no index close in the archive now takes a futures-implied spot, or is "
-                   "left out with a logged reason, instead of stopping the run on a missing spot",
+                   "left out with a logged reason, instead of stopping the run on a missing spot" + LOT_CHANGE,
     "event-vol": "legacy F&O bhavcopies (before July 2024) carry no underlying price: the stock's spot now comes "
                  "from its equity close (else the near future), so ATM straddles exist on those days, and the "
                  "IV-percentile history is kept per stock and day (it was cut short for every stock after the "
-                 "first on the same days)",
-    "option-buying": "EOD boards with no underlying price take a futures-implied spot before strikes are trimmed",
+                 "first on the same days)" + LOT_CHANGE,
+    "option-buying": "EOD boards with no underlying price take a futures-implied spot before strikes are trimmed"
+                     + LOT_CHANGE,
 }
+LOT_COVERAGE_MIN = 95.0    # % of a window's contract-days an option hunt needs an acceptable lot for
 
 
 def engine_rev(family):
@@ -427,14 +431,26 @@ class OptionsJob(Job):
                 out.append(gap)
         return out
 
+    def allow_reconstructed(self):
+        return bool(self.cfg.get("allow_reconstructed_lots"))
+
     def lot_gap(self, api):
-        """Why the train window cannot size a single position, or None: the F&O bhavcopy of its first session
-        carries no lot sizes (legacy files before July 2024 have none) and no lot-size snapshot in the
-        archive covers that day. eh-05 and eh-08/09 would then skip every legacy-year entry as "no lot size"
-        and record a REJECT that is about missing data, not the idea; the run waits instead."""
+        """Why the run cannot size its positions, or None. With trader-archive's dated lot-size history: the
+        share of the train and the validation windows' contract-days (NIFTY monthly contracts for eh-05, every
+        stock's monthly contracts for eh-08/09) with an exact lot, plus the reconstructed ones when
+        allow_reconstructed_lots is on, must reach LOT_COVERAGE_MIN; self.lot_cov keeps the numbers for the
+        plan. Without the history: the train window's first session must carry lot sizes. Otherwise every
+        position would be skipped as "no lot size" and the run would record a REJECT about missing data, not
+        about the idea; the run waits instead."""
         fam = self.doc["family"]
         if fam not in ("vrp-selling", "event-vol"):
             return None           # trend-day buying takes its lot from the chain or a stated default
+        O = self._api()
+        sym = O.engines_api()._underlying(self.doc) if fam == "vrp-selling" else None
+        if getattr(api, "lot_coverage", None) is not None:
+            gap = self._lot_cov_gap(api, sym)
+            if gap is not False:
+                return gap
         try:
             st = api.Store(api.default_root(self._root()))
             days = [d for d in st.dates("fo") if d >= self.span["train"]["from"]]
@@ -444,8 +460,6 @@ class OptionsJob(Job):
             lines = api._gz_lines(st.path("fo", day))
         except (AttributeError, OSError):
             return None
-        O = self._api()
-        sym = O.engines_api()._underlying(self.doc) if fam == "vrp-selling" else None
         kinds = ("IDO", "IDF") if sym else ("STO", "STF")
         rows = [l.split(",") for l in lines[1:] if (sym is None or l.startswith(sym + ","))]
         rows = [r for r in rows if len(r) > 15 and r[1] in kinds]
@@ -461,6 +475,44 @@ class OptionsJob(Job):
                 "idea, so it waits for a dated lot-size history of those years"
                 % (sym or "stock option", day, "start on %s" % snaps[0] if snaps else "are missing"))
 
+    def _lot_cov_gap(self, api, sym):
+        """The coverage check of lot_gap: a reason, None (enough coverage), or False (no lot history)."""
+        allow = self.allow_reconstructed()
+        under = sym or "STOCKS"
+        cov = {}
+        for k in ("train", "validation"):
+            w = self.span[k]
+            c = api.lot_coverage(under, w["from"], w["to"], root=self._root(), monthly_only=True)
+            if c is None:
+                return False
+            usable = c["exact_pct"] + (c["reconstructed_pct"] if allow else 0.0)
+            cov[k] = {"from": w["from"], "to": w["to"], "exact_pct": c["exact_pct"],
+                      "reconstructed_pct": c["reconstructed_pct"], "none_pct": c["none_pct"],
+                      "usable_pct": round(usable, 1), "by_year": c["by_year"]}
+        what = "%s monthly contracts" % sym if sym else "stock monthly contracts"
+        self.lot_cov = {"underlying": under, "allow_reconstructed_lots": allow, "minimum_pct": LOT_COVERAGE_MIN,
+                        "windows": cov}
+        line = "lot sizes of the %s: %s" % (what, "; ".join(
+            "%s %s to %s %.1f%% exact, %.1f%% reconstructed (%s), %.1f%% unknown" % (
+                k, v["from"], v["to"], v["exact_pct"], v["reconstructed_pct"], "used" if allow else "refused",
+                v["none_pct"]) for k, v in sorted(cov.items(), reverse=True)))
+        if line not in self.notes:
+            self.notes.append(line)
+        short = [k for k, v in sorted(cov.items(), reverse=True) if v["usable_pct"] < LOT_COVERAGE_MIN]
+        if not short:
+            return None
+        k = short[0]
+        v = cov[k]
+        hint = ("set allow_reconstructed_lots to true in trader/config.json to accept the reconstructed ones "
+                "(the scorecard then says so)" if not allow and v["exact_pct"] + v["reconstructed_pct"]
+                >= LOT_COVERAGE_MIN else "backfill the lot history further (archive.py backfill --datasets "
+                "lothist) and the F&O bhavcopies it is rebuilt from")
+        return ("the dated lot-size history covers %.1f%% of the %s window's contract-days with a lot this run "
+                "accepts (%s; %.1f%% exact, %.1f%% reconstructed, %.1f%% unknown), under the %.0f%% a run needs: "
+                "positions on the other days would be skipped and the verdict would be about missing data. %s"
+                % (v["usable_pct"], k, what, v["exact_pct"], v["reconstructed_pct"], v["none_pct"],
+                   LOT_COVERAGE_MIN, hint[0].upper() + hint[1:]))
+
     def load(self, until):
         self.until = until
         O = self._api()
@@ -468,7 +520,8 @@ class OptionsJob(Job):
         E = O.engines_api()
         self.data = None
         self.data = {"root": self._root(), "archive": getattr(self.mkt, "api", None) or core.ENV.get("archive"),
-                     "regime": core.ENV.get("regime"), "capital": self.capital, "notes": []}
+                     "regime": core.ENV.get("regime"), "capital": self.capital, "notes": [],
+                     "allow_reconstructed_lots": self.allow_reconstructed()}
         if self.cfg.get("symbols"):
             self.data["symbols"] = list(self.cfg["symbols"])
         try:

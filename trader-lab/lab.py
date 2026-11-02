@@ -3200,12 +3200,37 @@ def hunt_market(a):
     return eng.market.ArchiveMarket(root, api)
 
 
+def _lot_cov_lines(pl):
+    """The plan's lot-size coverage (option hunts with trader-archive's dated lot history) as plain lines."""
+    lc = pl.get("lot_coverage") or {}
+    out = []
+    for k in ("train", "validation"):
+        v = (lc.get("windows") or {}).get(k)
+        if v:
+            out.append("  lot sizes, %s %s to %s: %.1f%% of contract-days exact, %.1f%% reconstructed (%s), "
+                       "%.1f%% unknown" % (k, v["from"], v["to"], v["exact_pct"], v["reconstructed_pct"],
+                                           "used: allow_reconstructed_lots is on" if lc.get("allow_reconstructed_lots")
+                                           else "refused", v["none_pct"]))
+    return out
+
+
+def hunt_config(workdir=None):
+    """The settings of trader/config.json an edge-hunt run reads: allow_reconstructed_lots (default false:
+    option engines refuse a lot the dated lot history only reconstructed)."""
+    cfg = read_json(os.path.join(workdir or os.getcwd(), "trader", "config.json"), {}) or {}
+    v = cfg.get("allow_reconstructed_lots", False)
+    if not isinstance(v, bool):
+        raise LabError("allow_reconstructed_lots in trader/config.json must be true or false")
+    return {"allow_reconstructed_lots": v}
+
+
 def _hunt_words(r):
     pl = r.get("plan") or {}
     L = []
     if r["state"] == "blocked":
         L.append("%s cannot run yet:" % pl.get("id"))
         L.extend("  - %s" % b for b in pl.get("blockers") or [])
+        L.extend(_lot_cov_lines(pl))
     elif r["state"] == "dry-run":
         L.append("%s would run on the %s engine: %d grid points on train and validation, each one trial." % (
             pl["id"], pl["engine"], pl["grid_points"]))
@@ -3214,6 +3239,7 @@ def _hunt_words(r):
             " + superseded by an engine fix %d" % pl["superseded_trials"] if pl.get("superseded_trials") else ""))
         for k, c in sorted((pl.get("coverage") or {}).items()):
             L.append("  %s: data %s to %s, %d sessions" % (k, c["first"], c["last"], c["sessions"]))
+        L.extend(_lot_cov_lines(pl))
         L.append("The holdout %s to %s stays sealed; only a finalist that passes every validation gate opens it, "
                  "once." % (pl["windows"]["holdout"]["from"], pl["windows"]["holdout"]["to"]))
         L.append("Nothing was written (dry run).")
@@ -3267,7 +3293,7 @@ def cmd_hunt(a):
         _progress("memory guard: stops at %d MB of this process's memory (--max-mem-mb, lab_max_mem_mb)" % limit)
     r = ex.execute(path, hunt_market(a), a.out, ist_now(a.now).replace(tzinfo=None), None if a.json else
                    (lambda msg, f: _progress(msg)), deadline, None, a.extra_trials or 0, a.dry_run,
-                   mem_guard=guard, rerun_superseded=bool(getattr(a, "rerun_superseded", False)))
+                   cfg=hunt_config(), mem_guard=guard, rerun_superseded=bool(getattr(a, "rerun_superseded", False)))
     if r.get("memory"):
         if a.json:
             print(json.dumps({k: v for k, v in r.items() if k != "results"}, indent=1, ensure_ascii=False, default=str))
