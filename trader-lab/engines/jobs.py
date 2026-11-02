@@ -18,7 +18,27 @@ FAMILIES_V2 = ("momentum-xs", "low-volatility", "reversal", "trend-ts", "calenda
 FAMILIES_OPTIONS = ("vrp-selling", "event-vol", "option-buying")
 UNIVERSES = {"nifty50": "NIFTY 50", "nifty100": "NIFTY 100", "nifty200": "NIFTY 200", "nifty500": "NIFTY 500",
              "fno": "F&O"}
-WARMUP_DAYS = 560          # calendar days of history read before the first window (252 + 21 sessions and more)
+# The revision of each family's engine, written into every trial row. A change that can move a family's
+# numbers bumps its revision, and the executor then refuses to mix the older rows with new ones (see
+# executor.execute(rerun_superseded=...)). Families not listed are at revision 1.
+ENGINE_REV = {"vrp-selling": 2, "event-vol": 2, "option-buying": 2}
+ENGINE_CHANGES = {
+    "vrp-selling": "a NIFTY board with no index close in the archive now takes a futures-implied spot, or is "
+                   "left out with a logged reason, instead of stopping the run on a missing spot",
+    "event-vol": "legacy F&O bhavcopies (before July 2024) carry no underlying price: the stock's spot now comes "
+                 "from its equity close (else the near future), so ATM straddles exist on those days, and the "
+                 "IV-percentile history is kept per stock and day (it was cut short for every stock after the "
+                 "first on the same days)",
+    "option-buying": "EOD boards with no underlying price take a futures-implied spot before strikes are trimmed",
+}
+
+
+def engine_rev(family):
+    return ENGINE_REV.get(family, 1)
+
+
+BAR_CHUNK = 40             # stocks read at a time into a panel (each stock's history as bar dicts is a few MB)
+WARMUP_DAYS = 560         # calendar days of history read before the first window (252 + 21 sessions and more)
 FUTURES_CAPITAL = 5000000.0
 STOCK_CAPITAL = 1000000.0
 
@@ -230,16 +250,35 @@ class StockJob(Job):
                     raise Blocked("no %s membership on %s" % (ix, m))
                 syms.update(got)
         self.extra_symbols(syms)
-        bars = self.mkt.daily_many(sorted(syms), self.start, until)
+        self.panel = None                      # a reload (the holdout) never holds two panels at once
+        order = sorted(syms)
         idx = self.mkt.index("NIFTY 50", self.start, until)
-        days = sorted(x["date"] for x in idx) if idx else sorted(set(b["date"] for v in bars.values() for b in v))
+        if idx:
+            days = sorted(x["date"] for x in idx)
+        else:                                  # no index: the calendar is every day any member traded
+            seen = set()
+            for k in range(0, len(order), BAR_CHUNK):
+                for v in self.mkt.daily_many(order[k:k + BAR_CHUNK], self.start, until).values():
+                    seen.update(b["date"] for b in v)
+                core.mem_check("reading the universe's sessions")
+            days = sorted(seen)
         self.index_bars = idx
-        self.panel = portfolio.Panel(days, bars)
+        panel = portfolio.Panel(days, {})
+        have = set()
+        for k in range(0, len(order), BAR_CHUNK):
+            # BAR_CHUNK stocks at a time: their bar dicts are folded into the panel's columns and dropped
+            bars = self.mkt.daily_many(order[k:k + BAR_CHUNK], self.start, until)
+            for s, v in bars.items():
+                panel.add(s, v)
+                have.add(s)
+            bars = None
+            core.mem_check("loading daily bars (%d of %d stocks)" % (min(k + BAR_CHUNK, len(order)), len(order)))
+        self.panel = panel
         for ix in self.indexes():
             note = self.mkt.membership_note(ix)
             if note and note not in self.notes:
                 self.notes.append(note)
-        missing = sorted(syms - set(bars))
+        missing = sorted(syms - have)
         if missing:
             self.notes.append("%d member symbols have no bars in the data (%s%s)" % (
                 len(missing), ", ".join(missing[:8]), "..." if len(missing) > 8 else ""))
@@ -382,12 +421,52 @@ class OptionsJob(Job):
                        "--datasets fo,index,vix,lots, and results for the event families)")
         elif self.doc["family"] == "event-vol" and getattr(api, "results_dates", None) is None:
             out.append("results dates history (trader-archive's results_dates, backfill the results dataset)")
+        if not out:
+            gap = self.lot_gap(api)
+            if gap:
+                out.append(gap)
         return out
+
+    def lot_gap(self, api):
+        """Why the train window cannot size a single position, or None: the F&O bhavcopy of its first session
+        carries no lot sizes (legacy files before July 2024 have none) and no lot-size snapshot in the
+        archive covers that day. eh-05 and eh-08/09 would then skip every legacy-year entry as "no lot size"
+        and record a REJECT that is about missing data, not the idea; the run waits instead."""
+        fam = self.doc["family"]
+        if fam not in ("vrp-selling", "event-vol"):
+            return None           # trend-day buying takes its lot from the chain or a stated default
+        try:
+            st = api.Store(api.default_root(self._root()))
+            days = [d for d in st.dates("fo") if d >= self.span["train"]["from"]]
+            if not days:
+                return None       # the coverage check reports a missing history
+            day = days[0]
+            lines = api._gz_lines(st.path("fo", day))
+        except (AttributeError, OSError):
+            return None
+        O = self._api()
+        sym = O.engines_api()._underlying(self.doc) if fam == "vrp-selling" else None
+        kinds = ("IDO", "IDF") if sym else ("STO", "STF")
+        rows = [l.split(",") for l in lines[1:] if (sym is None or l.startswith(sym + ","))]
+        rows = [r for r in rows if len(r) > 15 and r[1] in kinds]
+        if not rows or any(r[15].strip() for r in rows):
+            return None
+        lots = api.load_lots(day, root=self._root()) or {}
+        if (sym and lots.get(sym)) or (sym is None and lots):
+            return None
+        snaps = st.dates("lots")
+        return ("no lot sizes for the %s contracts on %s, the train window's first session: legacy F&O bhavcopies "
+                "(before July 2024) carry none, and the archive's lot-size snapshots %s. Every position would be "
+                "skipped as \"no lot size\" and the run would record a REJECT about missing data, not about the "
+                "idea, so it waits for a dated lot-size history of those years"
+                % (sym or "stock option", day, "start on %s" % snaps[0] if snaps else "are missing"))
 
     def load(self, until):
         self.until = until
         O = self._api()
+        O.ENV["mem_check"] = core.mem_check      # the executor's memory guard reaches the option loaders
         E = O.engines_api()
+        self.data = None
         self.data = {"root": self._root(), "archive": getattr(self.mkt, "api", None) or core.ENV.get("archive"),
                      "regime": core.ENV.get("regime"), "capital": self.capital, "notes": []}
         if self.cfg.get("symbols"):

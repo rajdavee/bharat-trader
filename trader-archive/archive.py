@@ -1063,8 +1063,9 @@ def _eq_rows(root, symbols, start, end):
     under archive/.cache/eq/ remembers which days were scanned (delete it any time)."""
     want = sorted(set(s.upper() for s in symbols))
     files = _files(root, "eq")
-    out = {s: {} for s in want}
-    todo = {}
+    sizes = dict((k, os.path.getsize(p)) for k, p in files)
+    a, b = (iso(start) if start else "0000"), (iso(end) if end else "9999")
+    out, stale, todo = {}, {}, {}
     for s in want:
         cpath = os.path.join(root, ".cache", "eq", "%s.json.gz" % s)
         cache = None
@@ -1075,10 +1076,15 @@ def _eq_rows(root, symbols, start, end):
             except (OSError, ValueError):
                 cache = None
         cache = cache or {"scanned": {}, "rows": {}}
-        out[s] = cache
-        for k, p in files:
-            if cache["scanned"].get(k) != os.path.getsize(p):
+        # only the days inside the window are (re)scanned now; the rest stay marked unscanned for a later call
+        miss = [k for k, _ in files if a <= k <= b and cache["scanned"].get(k) != sizes[k]]
+        if miss:
+            stale[s] = cache            # kept whole until it is written back
+            for k in miss:
                 todo.setdefault(k, []).append(s)
+        else:                           # fresh: keep only the window, drop the rest of the history now
+            out[s] = {k: v for k, v in cache["rows"].items() if a <= k <= b}
+        cache = None
     paths = dict(files)
     for k in sorted(todo):
         lines = _gz_lines(paths[k])
@@ -1086,19 +1092,20 @@ def _eq_rows(root, symbols, start, end):
             prefix = s + ","
             rows = [next(csv.reader([l])) for l in lines[1:] if l.startswith(prefix)]
             if rows:
-                out[s]["rows"][k] = rows
+                stale[s]["rows"][k] = rows
             else:
-                out[s]["rows"].pop(k, None)
-            out[s]["scanned"][k] = os.path.getsize(paths[k])
-    if todo:
-        for s in set(x for v in todo.values() for x in v):
-            try:
-                atomic_write(os.path.join(root, ".cache", "eq", "%s.json.gz" % s),
-                             gz_bytes(json.dumps(out[s], sort_keys=True)))
-            except OSError:
-                pass      # a read-only archive still reads
-    a, b = (iso(start) if start else "0000"), (iso(end) if end else "9999")
-    return {s: {k: v for k, v in out[s]["rows"].items() if a <= k <= b} for s in want}
+                stale[s]["rows"].pop(k, None)
+            stale[s]["scanned"][k] = sizes[k]
+        lines = None
+    for s in sorted(stale):
+        try:
+            atomic_write(os.path.join(root, ".cache", "eq", "%s.json.gz" % s),
+                         gz_bytes(json.dumps(stale[s], sort_keys=True)))
+        except OSError:
+            pass      # a read-only archive still reads
+        out[s] = {k: v for k, v in stale[s]["rows"].items() if a <= k <= b}
+        stale[s] = None
+    return {s: out[s] for s in want}
 
 
 def _daily_bars(symbol, by_day, adjusted, root, series):

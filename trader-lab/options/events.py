@@ -147,7 +147,7 @@ def study(symbol, events, chains, close_of, sessions, rate, monthly=True, start=
         im = implied_move(chains, w["entry"], w["move_end"], rate, monthly)
         rm = realised_move(close_of, w["entry"], w["move_end"])
         hist = history_moves(events, close_of, sessions, w["entry"])
-        hm = sum(hist) / len(hist) if hist else None
+        hm = math.fsum(hist) / len(hist) if hist else None
         row = {"symbol": symbol, "date": w["date"], "event_session": w["event_session"],
                "time_known": w["time_known"], "entry": w["entry"], "move_end": w["move_end"],
                "implied_move_pct": None if im is None else round(im["move_pct"], 4),
@@ -171,8 +171,8 @@ def summary(rows):
     above = sum(1 for r in both if r["realised_above_implied"])
     p = above / float(n)
     half = 1.96 * math.sqrt(p * (1 - p) / n) if n > 1 else None
-    return {"events": len(rows), "with_both": n, "mean_implied_pct": round(sum(im) / n, 3),
-            "mean_realised_pct": round(sum(rm) / n, 3), "realised_above_implied": above,
+    return {"events": len(rows), "with_both": n, "mean_implied_pct": round(math.fsum(im) / n, 3),
+            "mean_realised_pct": round(math.fsum(rm) / n, 3), "realised_above_implied": above,
             "realised_above_implied_pct": round(100.0 * p, 1),
             "ci95_pct": None if half is None else [round(100 * max(0.0, p - half), 1), round(100 * min(1.0, p + half), 1)],
             "time_unknown": sum(1 for r in both if not r["time_known"])}

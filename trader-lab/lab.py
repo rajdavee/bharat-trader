@@ -3171,6 +3171,23 @@ def _print_option_forward(r):
 EDGE_HUNT_DIR = os.path.join(LIBRARY_DIR, "edge-hunt")
 
 
+def hunt_memory_guard(a, workdir=None):
+    """(guard, limit MB) for a hunt run: --max-mem-mb, else lab_max_mem_mb in trader/config.json, else
+    2048; 0 turns it off ((None, 0)). Where the resource module is missing (Windows) there is no guard."""
+    core = engines_api().core
+    limit = getattr(a, "max_mem_mb", None)
+    if limit is None:
+        cfg = read_json(os.path.join(workdir or os.getcwd(), "trader", "config.json"), {}) or {}
+        limit = cfg.get("lab_max_mem_mb", core.DEFAULT_MAX_MEM_MB)
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        raise LabError("lab_max_mem_mb in trader/config.json must be a whole number of MB (0 turns the guard off)")
+    if limit <= 0 or core.peak_rss_mb() is None:
+        return None, 0
+    return core.MemoryGuard(limit), limit
+
+
 def hunt_market(a):
     """The data an edge-hunt run reads: --data DIR (a plain folder), else the local trader-archive."""
     eng = engines_api()
@@ -3192,8 +3209,9 @@ def _hunt_words(r):
     elif r["state"] == "dry-run":
         L.append("%s would run on the %s engine: %d grid points on train and validation, each one trial." % (
             pl["id"], pl["engine"], pl["grid_points"]))
-        L.append("Trials charged to the deflated Sharpe ratio: %d (grid %d + prior %d + family %d + declared %d)." % (
-            pl["trials_counted"], pl["grid_points"], pl["prior_trials"], pl["family_trials"], pl["extra_trials"]))
+        L.append("Trials charged to the deflated Sharpe ratio: %d (grid %d + prior %d + family %d + declared %d%s)." % (
+            pl["trials_counted"], pl["grid_points"], pl["prior_trials"], pl["family_trials"], pl["extra_trials"],
+            " + superseded by an engine fix %d" % pl["superseded_trials"] if pl.get("superseded_trials") else ""))
         for k, c in sorted((pl.get("coverage") or {}).items()):
             L.append("  %s: data %s to %s, %d sessions" % (k, c["first"], c["last"], c["sessions"]))
         L.append("The holdout %s to %s stays sealed; only a finalist that passes every validation gate opens it, "
@@ -3244,8 +3262,20 @@ def cmd_hunt(a):
     if a.max_seconds:
         t0 = time.monotonic()
         deadline = (lambda: time.monotonic() - t0 > a.max_seconds)
+    guard, limit = hunt_memory_guard(a)
+    if not a.json and guard is not None and not a.dry_run:
+        _progress("memory guard: stops at %d MB of this process's memory (--max-mem-mb, lab_max_mem_mb)" % limit)
     r = ex.execute(path, hunt_market(a), a.out, ist_now(a.now).replace(tzinfo=None), None if a.json else
-                   (lambda msg, f: _progress(msg)), deadline, None, a.extra_trials or 0, a.dry_run)
+                   (lambda msg, f: _progress(msg)), deadline, None, a.extra_trials or 0, a.dry_run,
+                   mem_guard=guard, rerun_superseded=bool(getattr(a, "rerun_superseded", False)))
+    if r.get("memory"):
+        if a.json:
+            print(json.dumps({k: v for k, v in r.items() if k != "results"}, indent=1, ensure_ascii=False, default=str))
+        else:
+            print("%s paused by the memory guard after %s of %s trials." % (os.path.basename(path)[:-5], r.get("done"),
+                                                                        r.get("of")))
+            print(r["why"])
+        return 4
     if a.json:
         print(json.dumps({k: v for k, v in r.items() if k != "results"}, indent=1, ensure_ascii=False, default=str))
     else:
@@ -3386,6 +3416,10 @@ def main(argv=None):
     q.add_argument("--archive", default=ARCHIVE_DIR, help="the trader-archive folder (default trader/archive)")
     q.add_argument("--extra-trials", type=int, default=0, help="more earlier trials to charge the deflated Sharpe for")
     q.add_argument("--max-seconds", type=int, help="pause after this long (run again to carry on)")
+    q.add_argument("--max-mem-mb", type=int, help="pause cleanly when this process passes this much memory (default: "
+                   "lab_max_mem_mb in trader/config.json, else 2048; 0 turns the guard off)")
+    q.add_argument("--rerun-superseded", action="store_true", help="trials logged by an older engine revision: set "
+                   "them aside (still counted) and run those grid points again")
     q.add_argument("--now", help="pretend it is this IST time")
     q.add_argument("--json", action="store_true")
     p = sub.add_parser("portfolio", help="combine WATCH / PROMOTE strategies: correlation, sizing, a walk-forward "

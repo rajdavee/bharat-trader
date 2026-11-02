@@ -135,21 +135,54 @@ def run_dir(out, hid):
     return os.path.join(out, "edge-hunt", hid)
 
 
-def read_trials(d):
-    rows = []
-    p = os.path.join(d, "trials.jsonl")
+def read_trials(d, name="trials.jsonl", torn=None):
+    """The trial rows logged in d, one per grid point. A run killed while writing can leave a torn last line:
+    it is skipped (that trial never finished, so it is run again and counted once) and its line number is
+    added to `torn` when a list is given. A grid point logged twice counts once (the first row stands)."""
+    rows, seen = [], set()
+    p = os.path.join(d, name)
     if os.path.exists(p):
         with open(p, encoding="utf-8") as fh:
-            for line in fh:
-                if line.strip():
-                    rows.append(json.loads(line))
+            for k, line in enumerate(fh):
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    if torn is not None:
+                        torn.append(k + 1)
+                    continue
+                key = row.get("trial")
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(row)
     return rows
 
 
-def append_trial(d, row):
+def append_trial(d, row, name="trials.jsonl"):
+    """One finished trial, appended as one line and flushed to disk before the next trial starts. A line torn
+    by an earlier crash is ended first, so the new row is never glued to it."""
     os.makedirs(d, exist_ok=True)
-    with open(os.path.join(d, "trials.jsonl"), "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row, sort_keys=True) + "\n")
+    p = os.path.join(d, name)
+    lead = ""
+    if os.path.exists(p) and os.path.getsize(p):
+        with open(p, "rb") as fh:
+            fh.seek(-1, os.SEEK_END)
+            if fh.read(1) != b"\n":
+                lead = "\n"
+    with open(p, "a", encoding="utf-8") as fh:
+        fh.write(lead + json.dumps(row, sort_keys=True) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+
+
+SUPERSEDED = "trials-superseded.jsonl"
+
+
+def superseded_count(d):
+    """Trials set aside after an engine fix (trials-superseded.jsonl): still charged to the trial count."""
+    return len(read_trials(d, SUPERSEDED))
 
 
 def family_trials(out, folder, doc):
@@ -161,7 +194,7 @@ def family_trials(out, folder, doc):
         other = read_json(path, {}) or {}
         if other.get("family") != doc["family"]:
             continue
-        k = len(read_trials(run_dir(out, hid)))
+        k = len(read_trials(run_dir(out, hid))) + superseded_count(run_dir(out, hid))
         if k:
             n += k
             ids.append(hid)
@@ -379,11 +412,54 @@ def plan(doc, h, job, out, folder, extra_trials=0):
             "blockers": job.blockers(), "status": doc["status"]}
 
 
+def supersede(d, rows, stale, rev, stamp):
+    """Move the trial rows an older engine revision produced to trials-superseded.jsonl (kept, and still
+    charged to the trial count) and leave trials.jsonl with the current revision's rows only."""
+    for r in stale:
+        append_trial(d, dict(r, superseded_at=stamp, superseded_by_engine_rev=rev), SUPERSEDED)
+    keep = [r for r in rows if r not in stale]
+    p = os.path.join(d, "trials.jsonl")
+    with open(p + ".tmp", "w", encoding="utf-8") as fh:
+        for r in keep:
+            fh.write(json.dumps(r, sort_keys=True) + "\n")
+    os.replace(p + ".tmp", p)
+    return keep
+
+
 def execute(path, mkt, out, now=None, progress=None, deadline=None, cancel=None, extra_trials=0, dry_run=False,
-            cfg=None, context=None):
+            cfg=None, context=None, mem_guard=None, rerun_superseded=False):
     """Run one hypothesis file as registered. Returns {"state", "plan", ...}; state is one of dry-run,
-    blocked, paused, decided. Raises HuntError when the file or its run history do not match."""
+    blocked, paused, waiting, decided. Raises HuntError when the file or its run history do not match.
+
+    mem_guard (core.MemoryGuard): checked while loading and after every train or validation run; past its
+    limit the run stops with state "paused" (memory: True), every finished trial kept in trials.jsonl and
+    the holdout sealed, so the same call later carries on where it stopped.
+    rerun_superseded: trial rows logged by an older revision of the family's engine (jobs.ENGINE_REV) are
+    refused by default (a run must not mix two engines' numbers); True moves them to
+    trials-superseded.jsonl, where they stay charged to the trial count, and runs those grid points again."""
     now = now or datetime.datetime.now()
+    prev = core.ENV.get("mem_guard")
+    if mem_guard is not None:
+        core.ENV["mem_guard"] = mem_guard
+    try:
+        return _execute(path, mkt, out, now, progress, deadline, cancel, extra_trials, dry_run, cfg, context,
+                        rerun_superseded)
+    except core.MemoryLimit as e:
+        doc = read_json(path) or {}
+        d = run_dir(out, doc.get("id", "?"))
+        st = read_json(os.path.join(d, "state.json"), {}) or {}
+        n = len(read_trials(d))
+        if st:
+            st["last_stop"] = {"why": str(e), "at": now.strftime("%Y-%m-%d %H:%M"), "trials_done": n}
+            write_json(os.path.join(d, "state.json"), st)
+        return {"state": "paused", "memory": True, "why": str(e), "plan": st.get("plan"), "done": n,
+                "of": doc.get("trial_budget"), "dir": d}
+    finally:
+        core.ENV["mem_guard"] = prev
+
+
+def _execute(path, mkt, out, now, progress, deadline, cancel, extra_trials, dry_run, cfg, context,
+             rerun_superseded):
     stamp = now.strftime("%Y-%m-%d %H:%M")
     folder = os.path.dirname(os.path.abspath(path))
     doc, h = load(path)
@@ -408,10 +484,34 @@ def execute(path, mkt, out, now=None, progress=None, deadline=None, cancel=None,
         # the trial count is fixed by the first run: later family runs and declarations only add to it
         pl["family_trials"] = max(pl["family_trials"], st["plan"].get("family_trials", 0))
         pl["extra_trials"] = max(pl["extra_trials"], st["plan"].get("extra_trials", 0))
-        pl["trials_counted"] = pl["grid_points"] + pl["prior_trials"] + pl["family_trials"] + pl["extra_trials"]
+    # an interrupted run resumes from its trial log: a finished trial is one complete row (a torn line from a
+    # crash is no trial and runs again); rows of an older engine revision are never mixed with new ones
+    rev = jobs.engine_rev(doc["family"])
+    torn = []
+    rows = read_trials(d, torn=torn)
+    stale = [r for r in rows if r.get("engine_rev", 1) != rev]
+    pending = 0
+    if stale and not rerun_superseded:
+        pl["blockers"].append(
+            "%d of the %d trials in %s were run by revision %s of the %s engine, which has changed since (now "
+            "revision %d: %s). They are not mixed with new trials: run again with --rerun-superseded to set them "
+            "aside in %s (kept, and still charged to the deflated Sharpe's trial count) and run those grid "
+            "points again" % (len(stale), len(rows), os.path.join(d, "trials.jsonl"),
+                              ", ".join(sorted(set(str(r.get("engine_rev", 1)) for r in stale))), doc["family"],
+                              rev, jobs.ENGINE_CHANGES.get(doc["family"], "see the changelog"), SUPERSEDED))
+    elif stale and dry_run:
+        pending = len(stale)
+    elif stale:
+        supersede(d, rows, stale, rev, now.strftime("%Y-%m-%d %H:%M"))
+    pl["engine_rev"] = rev
+    pl["superseded_trials"] = superseded_count(d) + pending
+    pl["torn_lines"] = torn
+    pl["trials_counted"] = (pl["grid_points"] + pl["prior_trials"] + pl["family_trials"] + pl["extra_trials"]
+                            + pl["superseded_trials"])
     if pl["blockers"]:
         return {"state": "blocked", "plan": pl, "dir": d}
     val_to = doc["span"]["validation"]["to"]
+    core.mem_check("before loading the data")
     try:
         job.load(val_to)
     except jobs.Blocked as e:
@@ -428,6 +528,7 @@ def execute(path, mkt, out, now=None, progress=None, deadline=None, cancel=None,
             pl["blockers"].append("the data covers %s to %s of the %s window %s to %s: the run waits for the "
                                   "history (the long-history archive)" % (first, last, k, w["from"], w["to"]))
     pl["coverage"] = cov
+    core.mem_check("after loading the data")
     if pl["blockers"]:
         return {"state": "blocked", "plan": pl, "dir": d}
     if dry_run:
@@ -450,9 +551,12 @@ def execute(path, mkt, out, now=None, progress=None, deadline=None, cancel=None,
             return {"state": "paused", "plan": pl, "done": len(done), "of": len(pts), "dir": d, "why": "cancelled"}
         if deadline is not None and deadline():
             return {"state": "paused", "plan": pl, "done": len(done), "of": len(pts), "dir": d, "why": "time budget"}
+        core.mem_check("trial %d of %d" % (j + 1, len(pts)))
         tr = job.run(p, doc["span"]["train"]["from"], doc["span"]["train"]["to"])
+        core.mem_check("trial %d of %d, after train" % (j + 1, len(pts)))
         va = job.run(p, doc["span"]["validation"]["from"], val_to)
-        row = {"trial": j, "params": p, "at": now.strftime("%Y-%m-%d %H:%M:%S"),
+        core.mem_check("trial %d of %d, after validation" % (j + 1, len(pts)))
+        row = {"trial": j, "params": p, "at": now.strftime("%Y-%m-%d %H:%M:%S"), "engine_rev": rev,
                "train": summary(doc, tr), "validation": summary(doc, va),
                "dates": tr["days"] + va["days"],
                "series": _round(primary_series(doc, tr) + primary_series(doc, va)),
@@ -462,7 +566,7 @@ def execute(path, mkt, out, now=None, progress=None, deadline=None, cancel=None,
         if progress:
             progress("trial %d of %d: %s" % (len(done), len(pts), ", ".join("%s=%s" % kv for kv in p.items())),
                      len(done) / float(len(pts)))
-    trials = [done[j] for j in range(len(pts))]
+    trials = [done[j] for j in range(len(pts))]     # every grid point finished: only now can the holdout open
     res = decide(doc, h, job, trials, pl, d, now, context, path)
     if res["verdict"] == "WAITING":
         st.update({"phase": "waiting for the holdout", "updated": stamp, "why": res["why"]})
@@ -558,8 +662,10 @@ def decide(doc, h, job, trials, pl, d, now, context=None, path=None):
             why = "the holdout (opened once on %s) failed: %s" % (holdout["opened_at"], "; ".join(bad))
     outcome = {
         "verdict": verdict, "why": why, "registration_hash": h, "decided_at": now.strftime("%Y-%m-%d %H:%M"),
-        "engine": job.engine, "trials": {k: pl[k] for k in ("grid_points", "prior_trials", "family_trials",
-                                                            "extra_trials", "trials_counted")},
+        "engine": job.engine, "trials": dict({k: pl[k] for k in ("grid_points", "prior_trials", "family_trials",
+                                                                 "extra_trials", "trials_counted")},
+                                            **({"superseded_trials": pl["superseded_trials"]}
+                                               if pl.get("superseded_trials") else {})),
         "finalist": ft["params"], "chosen_on": "train (best primary metric), screened on validation",
         "validation": {k: val.get(k) for k in ("primary", "net_value", "sharpe", "cagr_pct", "max_drawdown_pct",
                                                "active_sharpe", "active_return_pct", "trades", "turnover_pct_per_year",
@@ -618,12 +724,24 @@ def open_holdout(doc, h, job, params, path, now, extra, file_path=None):
     w = doc["span"]["holdout"]
     rec = {"id": doc["id"], "registration_hash": h, "params": params, "opened_at": now.strftime("%Y-%m-%d %H:%M"),
            "window": [w["from"], w["to"]], "metrics": None, "opened_once": True}
+    # the data through the holdout's end is read BEFORE the opening is logged and before any number is
+    # computed: a memory stop while reading leaves the holdout sealed (MemoryLimit passes through), while
+    # anything that fails after the opening is logged counts as opened
+    loaded = None
+    try:
+        job.load(w["to"])
+        core.mem_check("after loading the holdout data, before opening it")
+    except core.MemoryLimit:
+        raise
+    except core.EngineError as e:
+        loaded = e
     write_json(path, rec)
     if file_path:
         set_status(file_path, doc, "running", {"verdict": None, "holdout_opened_at": rec["opened_at"],
                                                "finalist": params, "registration_hash": h})
     try:
-        job.load(w["to"])
+        if loaded is not None:
+            raise loaded
         first, last, n = job.coverage(w["from"], w["to"])
         if first is None or (core.day(first) - core.day(w["from"])).days > 10 or \
                 (core.day(w["to"]) - core.day(last)).days > 10:
@@ -681,8 +799,10 @@ def scorecard(doc, res):
          ""]
     t = o["trials"]
     L.append("Trials counted: %d (grid %d + earlier trials of this kind %d + this family's other edge-hunt runs %d "
-             "+ declared %d). The deflated Sharpe ratio is charged for all of them." % (
-                 t["trials_counted"], t["grid_points"], t["prior_trials"], t["family_trials"], t["extra_trials"]))
+             "+ declared %d%s). The deflated Sharpe ratio is charged for all of them." % (
+                 t["trials_counted"], t["grid_points"], t["prior_trials"], t["family_trials"], t["extra_trials"],
+                 " + run by an older engine revision and set aside %d" % t["superseded_trials"]
+                 if t.get("superseded_trials") else ""))
     L.append("")
     L.append("Windows: train %s to %s, validation %s to %s, holdout %s to %s (embargo %d days, each window closed "
              "at its last session)." % (doc["span"]["train"]["from"], doc["span"]["train"]["to"],

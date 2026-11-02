@@ -151,8 +151,55 @@ All notable changes are documented here. The format follows
   histories. Tests on trimmed real NSE files (HDFCBANK and ICICIBANK around
   their 17 Oct 2026 results, NIFTY monthly chains, India VIX, NIFTY 5-minute
   bars). No real hunt was run (that is #74).
+- **Edge-hunt memory guard and honest resume**: `lab.py hunt run --max-mem-mb N`
+  (default `lab_max_mem_mb` in `trader/config.json`, else 2048; 0 turns it
+  off) checks the process's peak memory (`resource.getrusage`; bytes on
+  macOS, kilobytes on Linux; no guard on Windows) while loading and after
+  every train and validation run, and pauses the hunt cleanly (exit code 4)
+  with every finished trial kept and the holdout sealed. Trial rows record
+  their engine revision; rows of an older revision are refused on resume
+  unless `--rerun-superseded` sets them aside (`trials-superseded.jsonl`,
+  still charged to the trial count). A torn last line is skipped and that
+  trial re-run; a grid point logged twice counts once. The holdout's data is
+  read before its opening is logged.
 
 ### Fixed
+- **Edge-hunt engines are memory-bounded** (the real 2.1 GB archive made a
+  16 GB Mac swap and freeze): option boards are packed (9 doubles a
+  contract, about 7 times smaller, unpacked on use through a bounded LRU);
+  per-day analyses are an LRU; results-day options stream the F&O files
+  event by event and drop each board when no later event needs it; stock
+  panels load 40 stocks at a time; the archive's equity reader keeps only
+  the requested window of a fresh cache. Numbers are identical on every
+  fixture (digests from before the change in
+  `tests/fixtures/trader-lab/memory-golden.json`). Peak memory per family on
+  the real archive is in docs/lab.md.
+- **eh-05 stopped on a missing NIFTY spot**: 73 F&O sessions from 2014 to
+  2023 have no index close in the archive (missing or unparsed index files,
+  #87) and legacy F&O bhavcopies carry no underlying price. Such a board now
+  takes a futures-implied spot (the nearest future, S = F e^(-rT)), named in
+  the run's notes, or is left out with a logged reason when there is no
+  future either; never a zero.
+- **Results-day options (eh-08, eh-09) found no trades before July 2024**:
+  legacy bhavcopies carry no underlying price, so every stock board had no
+  spot and no ATM straddle. The spot now comes from the stock's equity close
+  (else the near future). The IV-percentile history (eh-09) was kept per day
+  and silently missing for every stock after the first on the same days; it
+  is per stock and day now. Both bump the event-vol engine to revision 2.
+  eh-08's recorded REJECT was decided on revision 1 (0 trades in train and
+  validation) and is left as recorded.
+- **Option results are the same on every Python**: the built-in `sum()` of
+  floats became compensated in Python 3.12, so an iron condor's premium on a
+  rounding boundary was 3313.76 on Python 3.8-3.11 and 3313.77 on 3.12+. The
+  options package now sums floats with `math.fsum` (correctly rounded
+  everywhere); its bounded cache no longer subclasses `OrderedDict` (before
+  3.12 `pop()` called the overridden `__getitem__`).
+- **Option hunts with no lot sizes for their train years now wait**: legacy
+  bhavcopies carry no lot sizes and the archive's lot-size snapshots start in
+  Nov 2026, so every eh-05/08/09 position before July 2024 would be skipped
+  as "no lot size" and the run would record a REJECT about missing data. The
+  executor reports a blocker instead. An eh-08 iron fly whose wings round
+  under one point is skipped with a reason instead of stopping the run.
 - **Margin model v2 for hedged and naked F&O positions** (#82): one SPAN +
   ELM block shared by trader-strategy, trader-risk and the paper broker, named
   in every output and in lab results and scorecards (`margin_model`,

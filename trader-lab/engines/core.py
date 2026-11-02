@@ -32,6 +32,68 @@ class EngineError(ValueError):
     pass
 
 
+# ---------------------------------------------------------------- the memory guard
+
+DEFAULT_MAX_MEM_MB = 2048      # lab_max_mem_mb in trader/config.json, --max-mem-mb on the command line; 0 = off
+
+
+def peak_rss_mb(usage=None, platform=None):
+    """This process's peak resident memory in MB (resource.getrusage maxrss: bytes on macOS, kilobytes on
+    Linux and the BSDs), or None where the resource module does not exist (Windows)."""
+    import sys
+    if usage is None:
+        try:
+            import resource
+        except ImportError:
+            return None
+        usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    platform = platform or sys.platform
+    return usage / (1024.0 * 1024.0) if platform == "darwin" else usage / 1024.0
+
+
+class MemoryLimit(EngineError):
+    """The run passed its memory limit and stopped itself, before the machine started swapping."""
+    memory_limit = True
+
+
+class MemoryGuard(object):
+    """Checked between trials and inside the loaders' day loops: when the process's peak RSS passes
+    limit_mb, MemoryLimit is raised, so the executor stops cleanly with every finished trial kept on disk.
+    reader: () -> MB (tests pass a fake one); limit_mb 0 or None turns the guard off."""
+
+    def __init__(self, limit_mb, reader=None):
+        self.limit_mb = float(limit_mb or 0)
+        self.reader = reader or peak_rss_mb
+        self.calls = 0
+        self.last_mb = None
+        self.where = None
+
+    def active(self):
+        return self.limit_mb > 0 and self.reader() is not None
+
+    def check(self, where=""):
+        if self.limit_mb <= 0:
+            return
+        self.calls += 1
+        mb = self.reader()
+        if mb is None:
+            return
+        self.last_mb, self.where = mb, where
+        if mb > self.limit_mb:
+            raise MemoryLimit("memory guard: this run's memory reached %.0f MB, over the %.0f MB limit (%s), "
+                              "so it stopped itself before the machine runs short. Every finished trial is kept "
+                              "and the holdout is untouched; run the same command again to carry on from the "
+                              "trial log (with more free memory, or a higher --max-mem-mb / lab_max_mem_mb)"
+                              % (mb, self.limit_mb, where or "while loading"))
+
+
+def mem_check(where=""):
+    """The bound guard's check (a no-op when none is set)."""
+    g = ENV.get("mem_guard")
+    if g is not None:
+        g.check(where)
+
+
 def L():
     lab = ENV["lab"]
     if lab is None:

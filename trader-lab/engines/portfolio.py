@@ -43,23 +43,28 @@ class Panel(object):
         self.index = {d: k for k, d in enumerate(self.days)}
         self.o, self.c, self.cf, self.tv, self.first = {}, {}, {}, {}, {}
         for sym, bars in bars_by_symbol.items():
-            o, c, tv = [None] * self.n, [None] * self.n, [None] * self.n
-            for b in bars:
-                k = self.index.get(b["date"])
-                if k is None:
-                    continue
-                cl = float(b["c"])
-                o[k] = float(b.get("o") or cl)
-                c[k] = cl
-                t = b.get("turnover")
-                tv[k] = float(t) if t not in (None, "") else cl * float(b.get("v") or 0)
-            cf, last = [None] * self.n, None
-            for k in range(self.n):
-                if c[k] is not None:
-                    last = c[k]
-                cf[k] = last
-            self.o[sym], self.c[sym], self.cf[sym], self.tv[sym] = o, c, cf, tv
-            self.first[sym] = next((k for k in range(self.n) if c[k] is not None), None)
+            self.add(sym, bars)
+
+    def add(self, sym, bars):
+        """One stock's bars onto the calendar (the loader adds a chunk of stocks at a time and drops their bars,
+        so the full universe's bar dicts never sit in memory together)."""
+        o, c, tv = [None] * self.n, [None] * self.n, [None] * self.n
+        for b in bars:
+            k = self.index.get(b["date"])
+            if k is None:
+                continue
+            cl = float(b["c"])
+            o[k] = float(b.get("o") or cl)
+            c[k] = cl
+            t = b.get("turnover")
+            tv[k] = float(t) if t not in (None, "") else cl * float(b.get("v") or 0)
+        cf, last = [None] * self.n, None
+        for k in range(self.n):
+            if c[k] is not None:
+                last = c[k]
+            cf[k] = last
+        self.o[sym], self.c[sym], self.cf[sym], self.tv[sym] = o, c, cf, tv
+        self.first[sym] = next((k for k in range(self.n) if c[k] is not None), None)
 
     def fresh(self, sym, k, stale):
         c = self.c.get(sym)
