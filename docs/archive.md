@@ -245,6 +245,24 @@ reports: 552 of 552 contracts right on 1 Jun 2023, 417 of 417 on 1 Jun 2012,
 through an index lot revision leave open interest that is no whole number of
 lots (NIFTY's long-dated options); the OI is then ignored for that day.
 
+When a segment the rebuild kept whole gets two different exact lots (a split
+the turnover did not show), it is cut at the observations: exact before,
+exact after, and the days between with no lot. Exact sources that disagree
+back and forth leave the segment as rebuilt.
+
+Measured on the maintainer's archive (F&O bhavcopies 2003 to Nov 2026, 309
+market activity reports, 54 Wayback copies; 2 Nov 2026), share of
+monthly-contract days with an exact lot (the rest reconstructed unless
+noted): NIFTY 2003 to 2007 0%, 2008 87%, 2009 93%, 2010 to 2026 100% (2015
+98%, 2% unknown around a long-dated contract's change); BANKNIFTY 2005 to
+2007 0%, 2008 26%, 2009 3%, 2010 13%, 2011 92%, 2012 to 2026 100% (2023 95%,
+5% unknown); stocks 2003 to 2007 0%, 2008 24%, 2009 3%, 2010 11%, 2011 92%,
+2012 to 2026 98 to 100%. 58 observations conflicted with the rebuild or with
+each other (an exact source wins). The rebuilt index history matches NSE's
+circulars: NIFTY 50 to 25 (Oct 2014), 75 (Nov 2015 expiry), 50 (Jul 2021),
+25 (May 2024), 75 (Feb 2025), 65 (Jan 2026); BANKNIFTY 25 to 30 (Nov 2015),
+40 (Jul 2016), 20 (Nov 2018), 25 (Jul 2020), 15 (Jul 2023), 30, 35, 30.
+
 A contract can keep an old lot while newer ones carry the revised lot: in
 November 2014 NIFTY's near months were at 25 while its long-dated options
 (March 2015 on) stayed at 50 until NSE/FAOP/30450 moved them to 75. That is

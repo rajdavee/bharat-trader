@@ -508,10 +508,12 @@ def build_table(scan, mkt, snaps, sessions):
             report["conflicts"].append([u, s["e"], d, "/".join(str(c) for c in s["cands"][:4]), lot, src])
         s["lot"], s["conf"], s["src"], s["cands"] = lot, EXACT, src, [lot]
 
+    seen = {}          # id(segment) -> (segment, underlying, [(day, lot, source)]) from contract-level sources
     for d, u, e, lot in mkt:
         s = seg_on(u, e, d)
         if s is not None:
-            confirm(u, s, lot, "NSE F&O market activity report %s (traded quantity / contracts)" % d, d)
+            seen.setdefault(id(s), (s, u, []))[2].append(
+                (d, lot, "NSE F&O market activity report %s (traded quantity / contracts)" % d))
     for d, u, month, lot, src in snaps:
         d2 = _next_session(sessions, d)
         for e, ss in by_u.get(u, {}).items():
@@ -519,7 +521,36 @@ def build_table(scan, mkt, snaps, sessions):
                 continue
             s = seg_on(u, e, d2)
             if s is not None and s["m"]:
-                confirm(u, s, lot, "%s %s" % (src, d), d2)
+                seen.setdefault(id(s), (s, u, []))[2].append((d2, lot, "%s %s" % (src, d)))
+    for s, u, obs in seen.values():
+        obs.sort()
+        runs = []
+        for d, lot, src in obs:
+            if runs and runs[-1][0] == lot:
+                runs[-1][2] = d
+            else:
+                runs.append([lot, d, d, src])
+        if len(runs) == 1 or s["conf"] == EXACT:
+            for d, lot, src in obs:
+                confirm(u, s, lot, src, d)
+            continue
+        for r in runs[1:]:
+            report["conflicts"].append([u, s["e"], r[1], runs[0][0], r[0], r[3]])
+        if len(runs) > 2:      # the exact sources disagree back and forth: nothing here is exact
+            s["src"] += "; the exact sources disagree (%s)" % "/".join(str(r[0]) for r in runs)
+            continue
+        # one change inside the segment (a corporate action the rebuild did not cut): split it at the observations
+        (la, fa, ta, sa), (lb, fb, tb, sb) = runs
+        gap_from = (_day(ta) + datetime.timedelta(days=1)).isoformat()
+        gap_to = (_day(fb) - datetime.timedelta(days=1)).isoformat()
+        pieces = [dict(s, **{"from": s["from"], "to": ta, "lot": la, "cands": [la], "conf": EXACT, "src": sa})]
+        if gap_from <= gap_to:
+            pieces.append(dict(s, **{"from": gap_from, "to": gap_to, "lot": None, "cands": [], "conf": NONE,
+                                     "src": "between two exact lots (%d, then %d): the change day is unknown" % (la, lb)}))
+        pieces.append(dict(s, **{"from": fb, "to": s["to"], "lot": lb, "cands": [lb], "conf": EXACT, "src": sb}))
+        ss = by_u[u][s["e"]]
+        i = next(k for k, x in enumerate(ss) if x is s)
+        ss[i:i + 1] = pieces
     for u, es in by_u.items():
         if kind_of(u) != "index":
             continue

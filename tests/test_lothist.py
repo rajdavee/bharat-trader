@@ -236,6 +236,18 @@ class Rules(unittest.TestCase):
         self.assertEqual(L.circular_lots("BANKNIFTY", "2023-06-29", "2023-05-02")[0], {25})
         self.assertEqual(L.circular_lots("NIFTY", "2012-06-28", "2012-05-02"), (None, None))   # no circular then
 
+    def test_two_exact_lots_in_one_segment_split_it(self):
+        # TATAPOWER's November 2011 contract as the archive saw it: the rebuild kept one segment, NSE's market
+        # activity reports said 250 on 16 Sep 2011 and 2500 from 3 Oct 2011 (the 1:10 split)
+        scan = [["R", "TATAPOWER", "2011-11-24", "M", "2011-08-26", "2011-11-24", "2500:40;250:20", 63, 60, ""]]
+        mkt = [("2011-09-16", "TATAPOWER", "2011-11-24", 250), ("2011-10-03", "TATAPOWER", "2011-11-24", 2500),
+               ("2011-11-01", "TATAPOWER", "2011-11-24", 2500)]
+        rows, rep = L.build_table(scan, mkt, [], [])
+        self.assertEqual([(r[3], r[4], r[5], r[7]) for r in rows],
+                         [("2011-08-26", "2011-09-16", 250, "exact"), ("2011-09-17", "2011-10-02", "", "none"),
+                          ("2011-10-03", "2011-11-24", 2500, "exact")])
+        self.assertEqual(len(rep["conflicts"]), 1)
+
     def test_pick_and_coverage(self):
         rows = [("X", "2015-04-30", "M", "2015-03-31", "2015-04-30", 25, "s", "exact"),
                 ("X", "2015-05-28", "M", "2015-03-31", "2015-05-28", 25, "s", "reconstructed"),
