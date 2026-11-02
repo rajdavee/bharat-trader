@@ -27,7 +27,9 @@ EOD only: no intraday stops, no adjustments, strikes that never traded are price
 Education and tooling, not financial advice. Nothing here places an order.
 """
 
+import array
 import bisect
+import collections
 import datetime
 import math
 import os
@@ -262,6 +264,126 @@ def _dte(day, expiry):
     return (_d(expiry) - _d(day)).days
 
 
+DECODED_BOARDS = 256          # boards kept unpacked at once (least recently used first out); the rest stay packed
+ANALYSIS_CACHE = 4096         # (day, expiry) analyses a Chains remembers (least recently used first out)
+FALLBACK_RATE = 0.0557        # the rate behind a futures-implied spot (S = F e^(-rT)); T is days / 365
+_NAN = float("nan")
+_KINDS = ("CE", "PE")
+
+
+class LRU(collections.OrderedDict):
+    """A dict that forgets its least recently used keys past `size` (a bounded cache)."""
+
+    def __init__(self, size):
+        collections.OrderedDict.__init__(self)
+        self.size = size
+
+    def __getitem__(self, key):
+        v = collections.OrderedDict.__getitem__(self, key)
+        self.move_to_end(key)
+        return v
+
+    def __contains__(self, key):
+        return collections.OrderedDict.__contains__(self, key)
+
+    def __setitem__(self, key, value):
+        collections.OrderedDict.__setitem__(self, key, value)
+        self.move_to_end(key)
+        while len(self) > self.size:
+            self.popitem(last=False)
+
+
+_HOT = collections.OrderedDict()      # id -> PackedOpts holding an unpacked dict right now
+
+
+class PackedOpts(object):
+    """A board's option contracts, packed: 9 doubles a contract (expiry number, strike, CE/PE, settle, close,
+    open, volume, OI, lot or NaN) instead of a dict of tuples (about 7 times smaller). Read like the dict it
+    replaces, {(expiry, strike, "CE"|"PE"): (settle, close, open, volume, oi, lot)}, in the same order; the
+    dict is rebuilt on first use and dropped again when DECODED_BOARDS other boards were used since."""
+
+    __slots__ = ("_exps", "_a", "_d", "__weakref__")
+
+    def __init__(self, opts):
+        exps, pos = [], {}
+        a = array.array("d")
+        for (e, k, t), v in opts.items():
+            if e not in pos:
+                pos[e] = len(exps)
+                exps.append(e)
+            lot = v[5]
+            a.extend((pos[e], k, 0.0 if t == "CE" else 1.0, v[0], v[1], v[2], v[3], v[4],
+                      _NAN if lot is None else lot))
+        self._exps = tuple(exps)
+        self._a = a
+        self._d = None
+
+    def _dict(self):
+        d = self._d
+        if d is None:
+            d, a, exps = {}, self._a, self._exps
+            for i in range(0, len(a), 9):
+                lot = a[i + 8]
+                d[(exps[int(a[i])], a[i + 1], _KINDS[int(a[i + 2])])] = (
+                    a[i + 3], a[i + 4], a[i + 5], int(a[i + 6]), int(a[i + 7]), None if lot != lot else int(lot))
+            self._d = d
+        key = id(self)
+        if key in _HOT:
+            _HOT.move_to_end(key)
+        else:
+            _HOT[key] = self
+            while len(_HOT) > DECODED_BOARDS:
+                _HOT.popitem(last=False)[1]._d = None
+        return d
+
+    def get(self, key, default=None):
+        return self._dict().get(key, default)
+
+    def __getitem__(self, key):
+        return self._dict()[key]
+
+    def __contains__(self, key):
+        return key in self._dict()
+
+    def __iter__(self):
+        return iter(self._dict())
+
+    def __len__(self):
+        return len(self._a) // 9
+
+    def items(self):
+        return self._dict().items()
+
+    def keys(self):
+        return self._dict().keys()
+
+    def values(self):
+        return self._dict().values()
+
+    def nbytes(self):
+        return self._a.itemsize * len(self._a)
+
+
+def implied_spot(chain, rate=FALLBACK_RATE):
+    """(spot, source) for a board whose bhavcopy, index and equity files gave no underlying price: the
+    nearest live future's settle (else close) discounted to today, S = F e^(-rT). (None, why) without one."""
+    day = chain.get("date")
+    best = None
+    for f in chain.get("futures") or []:
+        px = f.get("settle") or f.get("close")
+        e = f.get("expiry")
+        if not px or not e or not day:
+            continue
+        dte = _dte(day, e)
+        if dte < 0:
+            continue
+        if best is None or dte < best[0]:
+            best = (dte, px, e)
+    if best is None:
+        return None, "no underlying price, index close or future that day"
+    return best[1] * math.exp(-rate * best[0] / 365.0), "futures-implied (the %s future, S = F e^-rT)" % best[2]
+
+
 class Chains(object):
     """Every session's end-of-day board of one underlying, trimmed to the contracts a backtest can use.
 
@@ -276,8 +398,10 @@ class Chains(object):
         self.index = {b["date"]: b for b in index_bars or []}
         self.vix = {b["date"]: b["c"] for b in vix or [] if b.get("c") is not None}
         self.source = source
-        self._an = {}
+        self._an = LRU(ANALYSIS_CACHE)
         self._iv30 = None
+        self.skipped_days = {}     # day -> why its board was left out (no spot at all that day)
+        self.implied_spot_days = []   # days whose spot is futures-implied (no index close in the archive)
 
     def board(self, day):
         return self.boards.get(day)
@@ -495,6 +619,9 @@ def trim_board(chain, keep_dte=MAX_DTE_LOADED, band=STRIKE_BAND, monthly_only=Fa
     """trader-archive's load_fo_chain_eod() -> the compact board Chains keeps (monthly_only: only the expiries
     that have a future, NSE's monthly contracts)."""
     day, spot = chain["date"], chain.get("spot")
+    source = chain.get("spot_source") or ("bhavcopy, index or equity close" if spot else None)
+    if not spot:
+        spot, source = implied_spot(chain)
     futures, monthly = {}, set()
     for f in chain.get("futures") or []:
         if f.get("kind") in ("IDF", "STF") and f.get("expiry"):
@@ -515,7 +642,8 @@ def trim_board(chain, keep_dte=MAX_DTE_LOADED, band=STRIKE_BAND, monthly_only=Fa
         opts[(e, float(k), t)] = (o.get("settle") or 0.0, o.get("close") or 0.0, o.get("open") or 0.0,
                                   int(o.get("volume") or 0), int(o.get("oi") or 0), o.get("lot"))
         exps.add(e)
-    return {"spot": spot, "futures": futures, "opts": opts, "expiries": sorted(exps), "monthly": monthly}
+    return {"spot": spot, "spot_source": source, "futures": futures, "opts": PackedOpts(opts),
+            "expiries": sorted(exps), "monthly": monthly}
 
 
 def load_chains(underlying, root, archive, start=None, end=None, progress=None, band=STRIKE_BAND,
@@ -523,11 +651,19 @@ def load_chains(underlying, root, archive, start=None, end=None, progress=None, 
     """Chains for one underlying from a trader-archive folder (offline). archive: trader-archive's module.
     band, keep_dte, monthly_only: what trim_board keeps (a long history needs less of each board)."""
     days = archive.trading_days(start, end, root=root)
-    boards = {}
+    boards, skipped, implied = {}, {}, []
     for i, d in enumerate(days):
-        ch = archive.load_fo_chain_eod(underlying, d, root=root)
-        if ch and ch.get("options"):
-            boards[d] = trim_board(ch, keep_dte, band, monthly_only)
+        ch = archive.load_fo_chain_eod(underlying, d, root=root)      # one day at a time: only the trimmed,
+        if ch and ch.get("options"):                                  # packed board is kept
+            b = trim_board(ch, keep_dte, band, monthly_only)
+            if not b["spot"]:
+                skipped[d] = ("no %s spot that day: no underlying price in the bhavcopy, no index or equity close "
+                              "in the archive and no future to imply one from; the day is left out" % underlying)
+            else:
+                if str(b.get("spot_source") or "").startswith("futures-implied"):
+                    implied.append(d)
+                boards[d] = b
+        ch = None
         if progress and i % 100 == 99:
             progress("loaded %d of %d EOD chains" % (i + 1, len(days)))
     if not boards:
@@ -542,7 +678,17 @@ def load_chains(underlying, root, archive, start=None, end=None, progress=None, 
     except Exception:
         vix = []
     ds = sorted(boards)
-    return Chains(underlying, boards, idx, vix, "archive %s to %s (%d EOD chains)" % (ds[0], ds[-1], len(ds)))
+    src = "archive %s to %s (%d EOD chains)" % (ds[0], ds[-1], len(ds))
+    if implied:
+        src += "; %d with a futures-implied spot (no index close in the archive: %s%s)" % (
+            len(implied), ", ".join(implied[:6]), "..." if len(implied) > 6 else "")
+    if skipped:
+        src += "; %d left out with no spot at all (%s%s)" % (len(skipped), ", ".join(sorted(skipped)[:6]),
+                                                            "..." if len(skipped) > 6 else "")
+    c = Chains(underlying, boards, idx, vix, src)
+    c.skipped_days = skipped
+    c.implied_spot_days = implied
+    return c
 
 
 def solve_iv(price, F, K, T, r, kind, lo=0.005, hi=5.0):
