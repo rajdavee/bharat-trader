@@ -72,6 +72,13 @@
       "id": "eh-14-trend-day-buying",
       "rank": 14,
       "sha256": "6d3ad0a138a373ad1459f0e6f70968a8e6670ecd59fc43881074f23aedc06e0e"
+    },
+    {
+      "id": "eh-15-event-crush-r",
+      "rank": 15,
+      "sha256": "a9e64843d617bf6325b3db4bee80fccf0536abc5a60ed78619c1128c212d74f8",
+      "registered_on": "2026-11-02",
+      "re_registers": "eh-08-event-crush"
     }
   ]
 }

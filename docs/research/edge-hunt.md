@@ -8,7 +8,10 @@ goalposts after seeing the numbers. Each idea is a file in
 schema is at the end of this page and `tests/test_edge_hunt.py` checks every
 file against it.
 
-Registered on 2026-11-01. 14 hypotheses, 184 grid points in all.
+Registered on 2026-11-01: 14 hypotheses. Re-registered on 2026-11-02:
+`eh-15-event-crush-r`, the same test as `eh-08-event-crush`, whose run was
+void (rule 8). 15 hypotheses, 192 grid points in all. The verdicts so far
+are in [edge-hunt-results.md](edge-hunt-results.md).
 
 Education and research tooling, not financial advice. Nothing here is a
 promise of profit; most of these ideas are expected to fail, and the brief
@@ -51,7 +54,31 @@ says so with a number.
    order still needs trader-risk PASS and the user's typed yes. Nothing here
    trades on its own.
 7. **Publish the failures.** Every scorecard, REJECTs included, goes into
-   `docs/research/edge-hunt-results.md` (#74).
+   [`docs/research/edge-hunt-results.md`](edge-hunt-results.md) (#74).
+8. **A decided verdict is never edited or re-run; a void one is
+   re-registered.** Once the executor has written a verdict into a file,
+   that file is never run again, near misses included: a second run with a
+   tweak is a new trial in disguise. The only allowed way to run a decided
+   idea again is a **re-registration**, and only when the first run tested
+   nothing (for example 0 trades because data was missing):
+   - the earlier verdict stays in its file exactly as the executor wrote
+     it, and is annotated in
+     [`annotations.json`](../../trader-lab/library/edge-hunt/annotations.json)
+     (a separate file the manifest hashes do not cover) with the verdict
+     `VOID`, the reason, the fix, and the evidence from the trial log;
+   - the new file has a new id and the same registered content, except
+     `id`, `title`, `rank` (after the first cohort), `registered_on`,
+     `contamination` (what the void run revealed) and `prior_trials`
+     (which now counts every trial the void run logged);
+   - its manifest row names the run it replaces (`re_registers`); the
+     executor then leaves that run out of the new file's family count (its
+     trials are already in `prior_trials`) and out of the
+     Benjamini-Hochberg cut (it tested nothing; the new file is the chance
+     that counts).
+   `tests/test_edge_hunt.py` refuses any other copy of a registered idea
+   under a new id. So far there is one: `eh-08-event-crush` (0 trades in
+   every trial, a data bug fixed in #88) is re-registered as
+   `eh-15-event-crush-r`.
 
 ## What we already know
 
@@ -446,6 +473,20 @@ feasibility.
 - **Falsified by.** Holdout net at or below zero.
 - **Prior 0.03, feasibility 0.15.**
 
+### 15. Results-day volatility crush, re-registered (`eh-15-event-crush-r`)
+
+Re-registered on 2026-11-02 under rule 8; everything above for idea 8
+applies unchanged (mechanism, evidence, instrument, grid, windows, gates,
+kill criteria, prior 0.10, feasibility 0.40). `eh-08-event-crush` ran on
+2026-11-02 with event-vol engine revision 1 and logged 8 trials, each with
+0 trades in train and in validation: the F&O stock bhavcopies before July
+2024 carry no underlying price, so no at-the-money iron fly was ever priced.
+#88 fixed the spot (the stock's equity close, else the near future) and #90
+added the dated lot sizes. eh-08's REJECT stays on record, annotated VOID;
+eh-15 carries `prior_trials` 8 for those trials. The void run revealed that
+the data was missing and nothing about the idea's returns; the holdout
+stayed sealed. It joins the run order at rank 15.
+
 ### Not registered
 
 - **Futures basis / cash-futures arbitrage.** The basis earns roughly the
@@ -473,6 +514,11 @@ feasibility.
 | 12 | eh-12-intraday-momentum | intraday-momentum | 0.04 | 0.45 | 0.018 | 12 | 4.8 |
 | 13 | eh-13-overnight-drift | overnight | 0.02 | 0.80 | 0.016 | 6 | 21.8 |
 | 14 | eh-14-trend-day-buying | option-buying | 0.03 | 0.15 | 0.005 | 16 | 5.4 |
+| 15 | eh-15-event-crush-r | event-vol | 0.10 | 0.40 | 0.040 | 8 | 14.8 |
+
+Rank 15 is a re-registration (rule 8), ranked after the first cohort
+rather than by its score; it replaces eh-08's void run and does not add a
+new idea, so the expected-survivor count below is unchanged.
 
 If the priors are about right, the expected number of survivors is the sum
 of the priors: about 1.5 out of 14, and zero is a quite likely outcome
@@ -484,7 +530,12 @@ buying trail. Programme-level FDR (rule 5) applies to whichever survive.
 
 One JSON file a hypothesis in `trader-lab/library/edge-hunt/<id>.json`,
 plus `manifest.json`, which holds the SHA-256 of each file's registered
-content (the canonical JSON, keys sorted, without `status` and `outcome`).
+content (the canonical JSON, keys sorted, without `status` and `outcome`);
+a re-registration's row also carries `registered_on` and `re_registers`
+(rule 8). `annotations.json` holds the notes on decided verdicts (`VOID`,
+with `recorded_verdict`, `registration_hash`, `reason`, `fixed_in`,
+`evidence`, `re_registered_as`, `trials_carried`); it is not a hypothesis
+and not hashed.
 The runs may change `status` and fill `outcome`; any other change breaks the
 hash, and the test fails. These files are not trader-lab specs (`lab.py
 list` does not read the subfolder): #72 and #73 turn each into runnable
@@ -517,7 +568,7 @@ specs, and the run must cite the registration hash.
 | `contamination` | string | what of this data has already been looked at |
 | `registered_on` | date | |
 | `status` | enum | registered, running, rejected, watch, promoted, withdrawn; registered at first |
-| `outcome` | null or object | filled by #74 |
+| `outcome` | null or object | written by the executor (#74): null while registered or running (or the holdout's opening with no verdict yet); a rejected file has verdict REJECT, a watch file WATCH, with the registration hash, the decision time (after `registered_on`) and the trial count |
 
 `gates.extra` names: `drawdown_basis` (capital, active, vs_buy_and_hold),
 `max_drawdown_vs_benchmark` (a multiple of the benchmark's drawdown),

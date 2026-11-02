@@ -188,7 +188,7 @@ function edgeHuntCard(d) {
     h('td', null, huntTag(x.status), x.registered_ok === false ? h('div', { class: 'small' }, 'file changed: ' + (x.problem || '')) : null),
     h('td', { class: 'num' }, `${num(x.trials_run, 0)} of ${num(x.trial_budget, 0)}`),
     h('td', null, x.holdout_opened ? `opened ${x.holdout_opened}` + (x.p_value === null || x.p_value === undefined ? '' : `, p ${num(x.p_value, 3)}`) : 'sealed'),
-    h('td', null, x.verdict ? h('span', null, verdictTag(x.verdict), ' ', h('span', { class: 'small muted' }, x.why || '')) : '–')));
+    h('td', null, x.verdict ? h('span', null, verdictTag(x.verdict), x.void ? ' VOID (annotated; re-registered) ' : ' ', h('span', { class: 'small muted' }, x.why || '')) : '–')));
   if (!rows.length) return null;
   return card('Edge hunt: pre-registered hypotheses',
     h('p', { class: 'explain' }, 'Ideas written down with their data, grid, trial budget and gates before any run. ' +

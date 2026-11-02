@@ -45,7 +45,9 @@ We ran everything it ships through its own tests. Nothing passed:
   intraday and overnight index moves, trend-day option buying), each with a
   fixed grid, a trial budget, a sealed holdout, its kill criteria and a
   written prior (most are expected to fail). See
-  [docs/research/edge-hunt.md](docs/research/edge-hunt.md).
+  [docs/research/edge-hunt.md](docs/research/edge-hunt.md). First results:
+  10 decided, all REJECT, holdouts still sealed, one void run re-registered
+  ([docs/research/edge-hunt-results.md](docs/research/edge-hunt-results.md)).
 - **Its own early odds were too high.** On a real prediction log (38
   predictions, December 2025 to October 2026) the probabilities averaged 48%,
   and 29% of those trades made money after charges. Calibration tracking
@@ -135,6 +137,7 @@ broker intraday candles on your disk, adjusted for splits and bonuses. The
 **regime engine** labels every day without look-ahead. See
 [lab](docs/lab.md) · [discovery](docs/discovery.md) ·
 [edge hunt](docs/research/edge-hunt.md) ·
+[edge-hunt results](docs/research/edge-hunt-results.md) ·
 [archive](docs/archive.md) · [regime](docs/regime.md).
 
 **The co-trader.** Today's candidates with evidence tiers (PROMOTED, WATCH,

@@ -135,6 +135,40 @@
   },
   "contamination": "Discovery's 527 daily rule trials and the equity library ran on about 2.3 years of daily bars (2024 to 2026) of NIFTY 50 stocks: single-stock timing rules, not this cross-sectional rule. No cross-sectional portfolio has been run on any part of this span in this repo.",
   "registered_on": "2026-11-01",
-  "status": "registered",
-  "outcome": null
+  "status": "rejected",
+  "outcome": {
+    "verdict": "REJECT",
+    "why": "4 of 10 validation gates failed: max drawdown (train + validation, active); deflated Sharpe ratio; survives 1.5x costs; primary metric on validation (mean abnormal return an event after charges). The holdout stays sealed.",
+    "registration_hash": "5e3cb06bee925abd5ae6165f2ebde24ef8036f93dddd37a342842db126830733",
+    "decided_at": "2026-11-02 22:45",
+    "engine": "events",
+    "trials": {
+      "grid_points": 12,
+      "prior_trials": 0,
+      "family_trials": 0,
+      "extra_trials": 0,
+      "trials_counted": 12
+    },
+    "finalist": {
+      "top_fraction": 0.1,
+      "hold_sessions": 20,
+      "entry_lag_sessions": 1
+    },
+    "chosen_on": "train (best primary metric), screened on validation",
+    "validation": {
+      "primary": -0.40629,
+      "net_value": -0.40629,
+      "sharpe": 0.649,
+      "cagr_pct": 7.181,
+      "max_drawdown_pct": 26.917,
+      "active_sharpe": -0.516,
+      "active_return_pct": -7.698,
+      "trades": 390,
+      "turnover_pct_per_year": 494.03,
+      "charges_pct_per_year": 1.581
+    },
+    "gates_passed": "6 of 10",
+    "holdout": null,
+    "scorecard": "trader/lab/edge-hunt/eh-06-pead/scorecard.md"
+  }
 }

@@ -414,13 +414,24 @@ class Metrics(unittest.TestCase):
 
 
 class Executor(unittest.TestCase):
-    def test_every_real_registration_loads_and_none_was_run(self):
+    def test_every_real_registration_loads_and_none_was_run_twice(self):
         ids = [i for i, _ in X.library(REAL)]
-        self.assertEqual(len(ids), 14)
+        self.assertEqual(len(ids), len(json.load(open(os.path.join(REAL, "manifest.json")))["hypotheses"]))
+        self.assertNotIn("annotations", ids)
         for i, path in X.library(REAL):
             doc, h = X.load(path)
-            self.assertEqual(doc["status"], "registered")
+            self.assertIn(doc["status"], ("registered", "running", "rejected", "watch", "promoted", "withdrawn"))
+            if doc["outcome"] and doc["outcome"].get("verdict"):
+                self.assertEqual(doc["outcome"]["registration_hash"], h, i)
             self.assertEqual(len(X.grid(doc)), doc["trial_budget"])
+        # a decided file is never run again, even with its run folder gone
+        out = tempfile.mkdtemp(prefix="bt-hunt-out-")
+        self.addCleanup(shutil.rmtree, out, True)
+        r = X.execute(os.path.join(REAL, "eh-08-event-crush.json"), M.Market(), out, NOW)
+        self.assertEqual((r["state"], r["already"]), ("decided", True))
+        self.assertEqual(r["annotation"]["verdict"], "VOID")
+        self.assertEqual(r["annotation"]["re_registered_as"], "eh-15-event-crush-r")
+        self.assertEqual(os.listdir(out), [])
 
     def test_refuses_an_edited_file(self):
         lib, out = tmp_library(self)
@@ -562,20 +573,28 @@ class Executor(unittest.TestCase):
 
     def test_blocked_without_the_long_history_data(self):
         before = {f: open(os.path.join(REAL, f), "rb").read() for f in os.listdir(REAL)}
+        # the real registrations as first filed (some are decided now: a decided file is never run again)
+        fresh = tempfile.mkdtemp(prefix="bt-hunt-lib-")
+        self.addCleanup(shutil.rmtree, fresh, True)
+        for f in os.listdir(REAL):
+            doc = json.load(open(os.path.join(REAL, f), encoding="utf-8"))
+            if f.startswith("eh-"):
+                doc["status"], doc["outcome"] = "registered", None
+            X.write_json(os.path.join(fresh, f), doc)
         out = tempfile.mkdtemp(prefix="bt-hunt-out-")
         self.addCleanup(shutil.rmtree, out, True)
         empty = M.Market()
-        r = X.execute(os.path.join(REAL, "eh-01-xs-momentum.json"), empty, out, NOW)
+        r = X.execute(os.path.join(fresh, "eh-01-xs-momentum.json"), empty, out, NOW)
         self.assertEqual(r["state"], "blocked")
         self.assertTrue(any("point-in-time" in b for b in r["plan"]["blockers"]))
-        r = X.execute(os.path.join(REAL, "eh-03-index-trend.json"), empty, out, NOW)
+        r = X.execute(os.path.join(fresh, "eh-03-index-trend.json"), empty, out, NOW)
         self.assertEqual(r["state"], "blocked")
-        r = X.execute(os.path.join(REAL, "eh-05-vrp-condor.json"), empty, out, NOW)
+        r = X.execute(os.path.join(fresh, "eh-05-vrp-condor.json"), empty, out, NOW)
         self.assertIn("trader-archive", " ".join(r["plan"]["blockers"]))
-        r = X.execute(os.path.join(REAL, "eh-06-pead.json"), empty, out, NOW)
+        r = X.execute(os.path.join(fresh, "eh-06-pead.json"), empty, out, NOW)
         self.assertTrue(any("results dates" in b for b in r["plan"]["blockers"]))
         # a futures hypothesis whose data is two years short waits for the history instead of running
-        r = X.execute(os.path.join(REAL, "eh-04-turn-of-month.json"), market(), out, NOW, dry_run=True)
+        r = X.execute(os.path.join(fresh, "eh-04-turn-of-month.json"), market(), out, NOW, dry_run=True)
         self.assertEqual(r["state"], "blocked")
         self.assertIn("waits for the history", " ".join(r["plan"]["blockers"]))
         after = {f: open(os.path.join(REAL, f), "rb").read() for f in os.listdir(REAL)}

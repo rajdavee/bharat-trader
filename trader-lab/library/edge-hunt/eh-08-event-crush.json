@@ -119,6 +119,40 @@
   },
   "contamination": "No results-day option trade has been run in this repo. Stock option prices for the holdout are unseen.",
   "registered_on": "2026-11-01",
-  "status": "registered",
-  "outcome": null
+  "status": "rejected",
+  "outcome": {
+    "verdict": "REJECT",
+    "why": "8 of 10 validation gates failed: enough out-of-sample trades; out-of-sample expectancy after charges; out-of-sample profit factor; deflated Sharpe ratio; probability of backtest overfitting; survives 1.5x costs; parameter neighbourhood; primary metric on validation (return on margin). The holdout stays sealed.",
+    "registration_hash": "71a6bef9a52e7112feb0dce083bb300412fd53ea8260e18bf467389a7b4bac34",
+    "decided_at": "2026-11-02 15:50",
+    "engine": "options",
+    "trials": {
+      "grid_points": 8,
+      "prior_trials": 0,
+      "family_trials": 0,
+      "extra_trials": 0,
+      "trials_counted": 8
+    },
+    "finalist": {
+      "wing_pct_of_spot": 5,
+      "exit_session": 1,
+      "min_event_iv_ratio": 1.0
+    },
+    "chosen_on": "train (best primary metric), screened on validation",
+    "validation": {
+      "primary": 0.0,
+      "net_value": 0.0,
+      "sharpe": 0.0,
+      "cagr_pct": 0.0,
+      "max_drawdown_pct": 0.0,
+      "active_sharpe": null,
+      "active_return_pct": null,
+      "trades": 0,
+      "turnover_pct_per_year": 0.0,
+      "charges_pct_per_year": 0.0
+    },
+    "gates_passed": "2 of 10",
+    "holdout": null,
+    "scorecard": "trader/lab/edge-hunt/eh-08-event-crush/scorecard.md"
+  }
 }

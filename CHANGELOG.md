@@ -7,6 +7,25 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Edge-hunt results, first batch** (#74):
+  `docs/research/edge-hunt-results.md` publishes every verdict so far. 10 of
+  the registrations are decided, all REJECT before the holdout (every holdout
+  still sealed, no WATCH, Benjamini-Hochberg keeps 0). The deflated Sharpe
+  ratio failed for all of them (best 0.61); the closest was eh-03 index trend
+  (2 of 11 gates failed: 5 validation trades, DSR 0.48), recorded as a near
+  miss and not rerun. The executor's status and outcome are committed in each
+  hypothesis file; the registered content is unchanged (hashes match).
+- **Annotations and re-registration** for edge-hunt verdicts:
+  `trader-lab/library/edge-hunt/annotations.json` (outside the hashed files)
+  marks eh-08 event crush VOID (0 trades in every trial: the pre-July-2024
+  stock boards had no spot, fixed in #88) while its REJECT stays on record.
+  `eh-15-event-crush-r` re-registers the same test with eh-08's 8 trials in
+  `prior_trials`. The brief's new rule 8 makes this the only way to rerun a
+  decided idea. The executor reads the annotations: a re-registered run is
+  left out of its successor's family trial count (counted once, in
+  `prior_trials`) and a VOID run is left out of the Benjamini-Hochberg cut;
+  `hunt list` and `hunt run` show the annotation.
+
 - **Dated F&O lot-size history** in `trader-archive`: `backfill --datasets
   lothist` builds every F&O contract's lot on every day,
   `lothist/lothist.csv.gz` (underlying, expiry, effective_from, effective_to,
@@ -185,6 +204,15 @@ All notable changes are documented here. The format follows
   still charged to the trial count). A torn last line is skipped and that
   trial re-run; a grid point logged twice counts once. The holdout's data is
   read before its opening is logged.
+
+### Changed
+- `tests/test_edge_hunt.py` holds the decided files to the registration: the
+  status and the outcome agree (REJECT for rejected, WATCH for watch, none
+  while registered or running), the outcome carries this file's hash, a
+  decision time after `registered_on` and a trial count that adds up, and any
+  copy of a registered idea under a new id must be a declared
+  re-registration of an annotated run. Tests that copy a real registration
+  now start from it as first filed.
 
 ### Fixed
 - **Edge-hunt engines are memory-bounded** (the real 2.1 GB archive made a

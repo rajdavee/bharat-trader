@@ -1,5 +1,10 @@
 """The edge-hunt pre-registration: every hypothesis file obeys the schema in docs/research/edge-hunt.md,
-its dates are split cleanly, its registered content matches the manifest hash, and the brief agrees."""
+its dates are split cleanly, its registered content matches the manifest hash, and the brief agrees.
+
+After the runs it still holds them to it: a run may only fill status and outcome (the hash), the status and
+the outcome agree, each file was registered before its first trial, and the only way to run a decided idea
+again is a re-registration: a new id, the earlier run's trials counted in prior_trials, and the earlier
+verdict kept on record and annotated (annotations.json, outside the hashed files)."""
 
 import datetime
 import hashlib
@@ -14,6 +19,9 @@ from _load import ROOT, load  # noqa: E402
 
 DIR = os.path.join(ROOT, "trader-lab", "library", "edge-hunt")
 BRIEF = os.path.join(ROOT, "docs", "research", "edge-hunt.md")
+RESULTS = os.path.join(ROOT, "docs", "research", "edge-hunt-results.md")
+ANNOTATIONS = os.path.join(DIR, "annotations.json")
+NOT_HYPOTHESES = ("manifest.json", "annotations.json")
 
 FAMILIES = {"momentum-xs", "low-volatility", "trend-ts", "calendar", "vrp-selling", "pead", "event-vol",
             "reversal", "pairs", "intraday-momentum", "overnight", "option-buying"}
@@ -21,6 +29,11 @@ MECHANISMS = {"risk-premium", "behavioural", "structural"}
 SEGMENTS = {"EQ-CNC", "EQ-MIS", "FUT", "OPT", "FUT+EQ"}
 METRICS = {"oos_net_sharpe", "oos_active_sharpe", "oos_expectancy_r", "oos_return_on_margin", "oos_mean_event_return"}
 STATUSES = {"registered", "running", "rejected", "watch", "promoted", "withdrawn"}
+VERDICT_OF = {"rejected": ("REJECT",), "watch": ("WATCH",), "promoted": ("WATCH", "PROMOTE")}
+ANNOTATION_VERDICTS = {"VOID"}
+# what a re-registration may change against the run it replaces: everything else is the same registration
+REREGISTER_FIELDS = {"id", "title", "rank", "registered_on", "contamination", "prior_trials"}
+TRIAL_PARTS = ("grid_points", "prior_trials", "family_trials", "extra_trials", "superseded_trials")
 EXTRA_GATES = {"drawdown_basis", "max_drawdown_vs_benchmark", "min_oos_months", "min_holdout_trades", "fdr_q",
                "verdict_cap"}
 DRAWDOWN_BASES = {"capital", "active", "vs_buy_and_hold"}
@@ -185,20 +198,66 @@ def problems(doc, lab_gates, name=None):
     except ValueError:
         out.append("registered_on is an ISO date")
     need(doc["status"] in STATUSES, "status")
-    if doc["status"] == "registered":
-        need(doc["outcome"] is None, "a registered hypothesis has no outcome")
-    else:
-        need(isinstance(doc["outcome"], dict), "a run hypothesis has an outcome")
+    st, o = doc["status"], doc["outcome"]
+    if st == "registered":
+        need(o is None, "a registered hypothesis has no outcome")
+    elif st == "running":
+        # the executor writes running with no outcome, or with the holdout's opening logged and no verdict yet
+        need(o is None or (isinstance(o, dict) and o.get("verdict") is None), "a running hypothesis has no verdict yet")
+    elif st in VERDICT_OF:
+        need(isinstance(o, dict) and o.get("verdict") in VERDICT_OF[st],
+             "a %s hypothesis has a consistent outcome (verdict %s)" % (st, " or ".join(VERDICT_OF[st])))
+        if isinstance(o, dict) and not out:
+            out.extend(decided_problems(doc))
+    return out
+
+
+def decided_problems(doc):
+    """A decided outcome is the executor's own record of this registration, run after it was filed."""
+    o, out = doc["outcome"], []
+    if o.get("registration_hash") != registered_hash(doc):
+        out.append("outcome.registration_hash is this file's registration")
+    try:
+        decided = day(str(o.get("decided_at"))[:10])
+        if decided < day(doc["registered_on"]):
+            out.append("registered before its first trial (registered_on %s, decided %s)" % (
+                doc["registered_on"], o.get("decided_at")))
+    except (TypeError, ValueError):
+        out.append("outcome.decided_at is an ISO date and time")
+    t = o.get("trials") or {}
+    if t.get("grid_points") != doc["trial_budget"]:
+        out.append("outcome.trials.grid_points is the trial budget")
+    if t.get("prior_trials") != doc["prior_trials"]["count"]:
+        out.append("outcome.trials.prior_trials is the file's prior_trials")
+    if t.get("trials_counted") != sum(t.get(k, 0) for k in TRIAL_PARTS):
+        out.append("outcome.trials.trials_counted is the sum of its parts")
+    if not is_type(o.get("why"), STR) or not is_type(o.get("scorecard"), STR):
+        out.append("outcome why and scorecard")
+    if o.get("verdict") == "REJECT" and o.get("holdout") is None and "sealed" not in o.get("why", ""):
+        out.append("a REJECT before the holdout says the holdout stays sealed")
     return out
 
 
 def read_all():
     docs = {}
     for f in sorted(os.listdir(DIR)):
-        if f.endswith(".json") and f != "manifest.json":
+        if f.endswith(".json") and f not in NOT_HYPOTHESES:
             with open(os.path.join(DIR, f), encoding="utf-8") as fh:
                 docs[f[:-5]] = json.load(fh)
     return docs
+
+
+def read_annotations():
+    if not os.path.exists(ANNOTATIONS):
+        return {}
+    with open(ANNOTATIONS, encoding="utf-8") as fh:
+        return {a["id"]: a for a in json.load(fh)["annotations"]}
+
+
+def same_idea(doc):
+    """The parts of a registration that make it the same test (a copy under a new id is a rerun)."""
+    return json.dumps({k: doc[k] for k in ("family", "hypothesis", "instrument", "universe", "span", "parameters",
+                                           "gates", "primary_metric")}, sort_keys=True)
 
 
 class EdgeHunt(unittest.TestCase):
@@ -210,14 +269,50 @@ class EdgeHunt(unittest.TestCase):
             cls.manifest = json.load(fh)
         with open(BRIEF, encoding="utf-8") as fh:
             cls.brief = fh.read()
+        cls.notes = read_annotations()
+        cls.rereg = {r["id"]: r["re_registers"] for r in cls.manifest["hypotheses"] if r.get("re_registers")}
 
     def good(self):
-        return json.loads(json.dumps(self.docs["eh-01-xs-momentum"]))
+        """eh-01 as it was first filed (registered, no outcome)."""
+        d = json.loads(json.dumps(self.docs["eh-01-xs-momentum"]))
+        d["status"], d["outcome"] = "registered", None
+        return d
+
+    def decided(self):
+        """eh-01 as the executor left it (rejected, with its outcome)."""
+        d = json.loads(json.dumps(self.docs["eh-01-xs-momentum"]))
+        self.assertEqual(d["status"], "rejected")
+        return d
 
     # ------------------------------------------------------------ the validator itself
 
     def test_validator_accepts_a_good_file(self):
         self.assertEqual(problems(self.good(), self.lab.GATE_DEFAULTS, "eh-01-xs-momentum"), [])
+        self.assertEqual(problems(self.decided(), self.lab.GATE_DEFAULTS, "eh-01-xs-momentum"), [])
+
+    def test_validator_rejects_dishonest_outcomes(self):
+        gates = self.lab.GATE_DEFAULTS
+        cases = [
+            (lambda d: d["outcome"].update(verdict="WATCH"), "consistent outcome"),
+            (lambda d: d.update(status="watch"), "consistent outcome"),
+            (lambda d: d.update(outcome=None), "consistent outcome"),
+            (lambda d: d.update(status="running"), "no verdict yet"),
+            (lambda d: d["outcome"].update(registration_hash="0" * 64), "registration_hash"),
+            (lambda d: d["outcome"].update(decided_at="2026-10-30 09:15"), "registered before its first trial"),
+            (lambda d: d["outcome"]["trials"].update(trials_counted=3), "sum of its parts"),
+            (lambda d: d["outcome"]["trials"].update(prior_trials=99), "file's prior_trials"),
+            (lambda d: d["outcome"]["trials"].update(grid_points=1), "trial budget"),
+            (lambda d: d["outcome"].update(why="no reason"), "stays sealed"),
+        ]
+        for mutate, expect in cases:
+            d = self.decided()
+            mutate(d)
+            got = problems(d, gates, "eh-01-xs-momentum")
+            self.assertTrue([p for p in got if expect in p], "%s: expected %r in %r" % (expect, expect, got))
+        # running with the holdout's opening logged and no verdict is what the executor writes mid-holdout
+        d = self.good()
+        d.update(status="running", outcome={"verdict": None, "holdout_opened_at": "2026-11-02 10:00"})
+        self.assertEqual(problems(d, gates, "eh-01-xs-momentum"), [])
 
     def test_validator_rejects_broken_files(self):
         gates = self.lab.GATE_DEFAULTS
@@ -257,11 +352,36 @@ class EdgeHunt(unittest.TestCase):
         for name, doc in self.docs.items():
             self.assertEqual(problems(doc, self.lab.GATE_DEFAULTS, name), [], name)
 
-    def test_all_registered_before_any_run(self):
+    def test_every_file_registered_before_its_first_trial(self):
+        first = self.manifest["registered_on"]
         for name, doc in self.docs.items():
-            self.assertEqual(doc["status"], "registered", name)
-            self.assertIsNone(doc["outcome"], name)
-            self.assertLessEqual(doc["registered_on"], "2026-11-01", name)
+            if name in self.rereg:
+                row = [r for r in self.manifest["hypotheses"] if r["id"] == name][0]
+                self.assertEqual(doc["registered_on"], row["registered_on"], name)
+            else:
+                # the first cohort was filed together, before any run (#70)
+                self.assertLessEqual(doc["registered_on"], first, name)
+            o = doc["outcome"] or {}
+            if o.get("decided_at"):
+                self.assertLessEqual(doc["registered_on"], o["decided_at"][:10], name)
+        # with the run folders at hand (BT_EDGE_HUNT_RUNS=<out>/edge-hunt), each run's first trial is checked too
+        runs = os.environ.get("BT_EDGE_HUNT_RUNS")
+        if not runs or not os.path.isdir(runs):
+            return
+        for name, doc in self.docs.items():
+            stp = os.path.join(runs, name, "state.json")
+            if not os.path.exists(stp):
+                continue
+            with open(stp, encoding="utf-8") as fh:
+                st = json.load(fh)
+            self.assertEqual(st["registration_hash"], registered_hash(doc), name)
+            self.assertLessEqual(doc["registered_on"], st["started"][:10], name)
+            tp = os.path.join(runs, name, "trials.jsonl")
+            if os.path.exists(tp):
+                with open(tp, encoding="utf-8") as fh:
+                    line = fh.readline()
+                if line.strip():
+                    self.assertLessEqual(doc["registered_on"], json.loads(line).get("at", "9999")[:10], name)
 
     def test_holdout_after_validation_after_train(self):
         for name, doc in self.docs.items():
@@ -278,8 +398,13 @@ class EdgeHunt(unittest.TestCase):
     def test_ranks_follow_prior_times_feasibility(self):
         ranked = sorted(self.docs.values(), key=lambda d: d["rank"])
         self.assertEqual([d["rank"] for d in ranked], list(range(1, len(ranked) + 1)))
-        scores = [d["prior"]["probability"] * d["feasibility"]["score"] for d in ranked]
+        # the first cohort is ranked by prior x feasibility; a re-registration joins the run order after it
+        cohort = [d for d in ranked if d["id"] not in self.rereg]
+        scores = [d["prior"]["probability"] * d["feasibility"]["score"] for d in cohort]
         self.assertEqual(scores, sorted(scores, reverse=True))
+        later = [d for d in ranked if d["id"] in self.rereg]
+        self.assertEqual([d["rank"] for d in later], list(range(len(cohort) + 1, len(ranked) + 1)))
+        self.assertEqual([d["registered_on"] for d in later], sorted(d["registered_on"] for d in later))
 
     def test_manifest_hashes_freeze_the_registered_content(self):
         rows = {r["id"]: r for r in self.manifest["hypotheses"]}
@@ -294,6 +419,90 @@ class EdgeHunt(unittest.TestCase):
         self.assertEqual(registered_hash(d), rows["eh-01-xs-momentum"]["sha256"])
         d["parameters"]["top_n"] = [20, 30, 40]
         self.assertNotEqual(registered_hash(d), rows["eh-01-xs-momentum"]["sha256"])
+
+    # ------------------------------------------------------------ a decided verdict: annotated, rerun only anew
+
+    def test_annotations_sit_outside_the_hashed_files_and_keep_the_verdict(self):
+        self.assertTrue(self.notes, "annotations.json")
+        for hid, a in self.notes.items():
+            self.assertIn(hid, self.docs, hid)
+            doc = self.docs[hid]
+            self.assertIn(a["verdict"], ANNOTATION_VERDICTS, hid)
+            # the recorded verdict stays in the file exactly as the executor wrote it
+            self.assertIn(doc["status"], VERDICT_OF, hid)
+            self.assertEqual(doc["outcome"]["verdict"], a["recorded_verdict"], hid)
+            self.assertEqual(doc["outcome"]["decided_at"], a["decided_at"], hid)
+            self.assertEqual(a["registration_hash"], registered_hash(doc), hid)
+            self.assertEqual(a["registration_hash"], doc["outcome"]["registration_hash"], hid)
+            self.assertLessEqual(a["decided_at"][:10], a["annotated_on"], hid)
+            self.assertTrue(is_type(a.get("reason"), STR) and len(a["reason"]) > 40, hid)
+            self.assertTrue(a.get("fixed_in") and all(is_type(x, INT) for x in a["fixed_in"]), hid)
+            ev = a["evidence"]
+            self.assertEqual(ev["trial_log"], "trader/lab/edge-hunt/%s/trials.jsonl" % hid)
+            self.assertEqual(ev["trials_logged"], len(ev["trades_train"]), hid)
+            self.assertEqual(ev["trials_logged"], len(ev["trades_validation"]), hid)
+            self.assertEqual(ev["validation_finalist"], doc["outcome"]["validation"], hid)
+            if a["verdict"] == "VOID":
+                # VOID is for a run that tested nothing: not one trade in any trial, train or validation
+                self.assertEqual(sum(ev["trades_train"]) + sum(ev["trades_validation"]), 0, hid)
+                self.assertEqual(doc["outcome"]["validation"]["trades"], 0, hid)
+                self.assertIs(a["counts_in_bh"], False, hid)
+            self.assertIsNone(doc["outcome"]["holdout"], "%s: a holdout opened is never voided" % hid)
+
+    def test_a_decided_idea_runs_again_only_as_a_re_registration(self):
+        self.assertEqual(self.rereg, {"eh-15-event-crush-r": "eh-08-event-crush"})
+        for new_id, old_id in self.rereg.items():
+            new, old, a = self.docs[new_id], self.docs[old_id], self.notes[old_id]
+            self.assertEqual(a["re_registered_as"], new_id)
+            self.assertIn(old["status"], VERDICT_OF, "only a decided run is re-registered")
+            changed = {k for k in FIELDS if k not in ("status", "outcome") and new[k] != old[k]}
+            self.assertLessEqual(changed, REREGISTER_FIELDS, new_id)
+            self.assertIn("id", changed)
+            self.assertNotEqual(registered_hash(new), registered_hash(old))
+            self.assertLessEqual(old["outcome"]["decided_at"][:10], new["registered_on"])
+            if new["outcome"] is None:
+                self.assertEqual(new["status"], "registered")
+            # the earlier run's logged trials are charged to the new one
+            self.assertEqual(a["trials_carried"], a["evidence"]["trials_logged"])
+            self.assertEqual(a["evidence"]["trials_logged"], old["outcome"]["trials"]["grid_points"])
+            self.assertGreaterEqual(new["prior_trials"]["count"], old["prior_trials"]["count"] + a["trials_carried"])
+            self.assertIn(old_id, new["prior_trials"]["basis"])
+            self.assertIn(old_id, new["contamination"])
+            self.assertIn(new_id, self.brief)
+        # any other copy of a registered idea under a new id is a rerun in disguise
+        seen = {}
+        for hid in sorted(self.docs, key=lambda h: self.docs[h]["rank"]):
+            key = same_idea(self.docs[hid])
+            if key in seen:
+                self.assertEqual(self.rereg.get(hid), seen[key], "%s repeats %s without a re-registration" % (
+                    hid, seen[key]))
+            else:
+                seen[key] = hid
+
+    def test_the_executor_charges_a_re_registration_once(self):
+        import tempfile
+        import shutil
+        X = self.lab.engines_api().executor
+        out = tempfile.mkdtemp(prefix="bt-hunt-rereg-")
+        self.addCleanup(shutil.rmtree, out, True)
+        for hid, n in (("eh-08-event-crush", 8), ("eh-09-event-runup", 4)):
+            for j in range(n):
+                X.append_trial(X.run_dir(out, hid), {"trial": j})
+        new = self.docs["eh-15-event-crush-r"]
+        # eh-08's 8 trials are in eh-15's prior_trials, so its family count holds eh-09 only
+        self.assertEqual(X.family_trials(out, DIR, new), (4, ["eh-09-event-runup"]))
+        self.assertEqual(new["prior_trials"]["count"], 8)
+        # eh-09 is charged for eh-08's trials (and eh-15's, once it has run)
+        self.assertEqual(X.family_trials(out, DIR, self.docs["eh-09-event-runup"]), (8, ["eh-08-event-crush"]))
+        st = X.status(DIR, out)
+        rows = {h["id"]: h for h in st["hypotheses"]}
+        self.assertTrue(rows["eh-08-event-crush"]["void"])
+        self.assertEqual(rows["eh-08-event-crush"]["verdict"], "REJECT")
+        self.assertEqual(sum(1 for h in rows.values() if h["void"]), 1)
+        self.assertIn("across all %d registered hypotheses" % (len(self.docs) - 1), st["bh_note"])
+        self.assertIn("1 void run left out", st["bh_note"])
+        # status only reads: nothing new in the run folders
+        self.assertEqual(sorted(os.listdir(os.path.join(out, "edge-hunt"))), ["eh-08-event-crush", "eh-09-event-runup"])
 
     def test_not_runnable_lab_specs(self):
         lib = self.lab.library()
@@ -315,6 +524,8 @@ class EdgeHunt(unittest.TestCase):
             self.assertEqual(int(grid), d["trial_budget"], hid)
         total = sum(d["trial_budget"] for d in self.docs.values())
         self.assertIn("%d hypotheses, %d grid points" % (len(self.docs), total), self.brief)
+        self.assertIn("re-registration", self.brief)
+        self.assertIn("annotations.json", self.brief)
 
     def test_brief_cost_table_matches_the_charges_helpers(self):
         size = load("trader-budget", "size")
@@ -325,10 +536,33 @@ class EdgeHunt(unittest.TestCase):
         for value in (fut, bank, cnc, mis):
             self.assertIn(size.inr(value), self.brief)
 
-    def test_brief_is_linked(self):
+    def test_brief_and_results_are_linked(self):
         for path in ("README.md", os.path.join("docs", "README.md")):
             with open(os.path.join(ROOT, path), encoding="utf-8") as fh:
-                self.assertIn("research/edge-hunt.md", fh.read(), path)
+                text = fh.read()
+            self.assertIn("research/edge-hunt.md", text, path)
+            self.assertIn("research/edge-hunt-results.md", text, path)
+
+    def test_results_page_publishes_every_verdict(self):
+        with open(RESULTS, encoding="utf-8") as fh:
+            res = fh.read()
+        rows = {}
+        for line in res.splitlines():
+            m = re.match(r"^\| `?(eh-\d\d-[a-z0-9-]+)`? \|", line)
+            if m:
+                rows.setdefault(m.group(1), line)
+        self.assertEqual(set(rows), set(self.docs), "one results row a hypothesis")
+        for hid, doc in self.docs.items():
+            o = doc["outcome"] or {}
+            line = rows[hid]
+            if o.get("verdict"):
+                self.assertIn(o["verdict"], line, hid)
+                self.assertIn(o["gates_passed"], line, hid)
+                self.assertIn(str(o["validation"]["trades"]), line, hid)
+            if hid in self.notes:
+                self.assertIn(self.notes[hid]["verdict"], line, hid)
+        for word in ("Benjamini-Hochberg", "deflated Sharpe", "eh-15-event-crush-r", "holdout"):
+            self.assertIn(word, res)
 
 
 if __name__ == "__main__":
