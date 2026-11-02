@@ -287,7 +287,14 @@ python3 "<skill dir>/lab.py" hunt run EH-03 --dry-run              # file hash, 
 python3 "<skill dir>/lab.py" hunt run eh-03-index-trend            # train + validation for the grid, then the holdout once
 python3 "<skill dir>/lab.py" hunt status                           # trials, holdout openings, the programme's BH cut
 python3 "<skill dir>/lab.py" hunt run EH-ID --data DIR             # a plain data folder instead of the archive
+python3 "<skill dir>/lab.py" hunt run EH-ID --max-mem-mb 1500       # pause cleanly past 1.5 GB (default lab_max_mem_mb, 2048)
+python3 "<skill dir>/lab.py" hunt run EH-ID --rerun-superseded      # trials of an older engine revision: set aside, re-run
 ```
+
+- Memory: a hunt on the full archive stays well under 1.5 GB (docs/lab.md has the peak per family). The
+  built-in guard pauses the run (exit code 4) before the machine runs short, every finished trial kept and
+  the holdout sealed; the same command carries on. An interrupted trial left no row and runs again; the
+  deflated Sharpe is charged for the registered grid, never for the attempts.
 
 - The file must match its manifest hash; an edited file is refused (a change
   is a new hypothesis with a new id). Only `status` and `outcome` are written

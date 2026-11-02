@@ -349,11 +349,13 @@ python3 trader-lab/lab.py hunt status                     # trials, holdout open
    sealed the data is read only up to the validation's last day, so no
    number can depend on a holdout price. Each point is one trial, logged once
    in `trader/lab/edge-hunt/<id>/trials.jsonl`; a paused run carries on
-   without re-running any.
+   without re-running any (see **Interrupted runs** below for how a killed or
+   memory-stopped run is counted).
 3. **The trial count.** The deflated Sharpe ratio is charged for the grid,
    plus the file's `prior_trials`, plus the trials of the same family already
-   run by this executor for other ids, plus `--extra-trials`. The count is
-   fixed at the first run and can only grow.
+   run by this executor for other ids, plus `--extra-trials`, plus any
+   trials set aside after an engine fix (`trials-superseded.jsonl`). The
+   count is fixed at the first run and can only grow.
 4. **The finalist and the validation gates.** The finalist is the point with
    the best primary metric on train. Validation screens it with trader-lab's
    gates and the file's overrides and extras: at least 30 validation trades,
@@ -368,9 +370,11 @@ python3 trader-lab/lab.py hunt status                     # trials, holdout open
    verdict is WATCH at best anyway). Walk-forward by validation year
    (expanding), 2x costs and a regime split (NIFTY trend and India VIX the
    session before) are reported with it.
-5. **The holdout, once.** Only a finalist that passes every gate opens the
-   holdout. `holdout.json` is written first, with the time, the parameters
-   and the registration hash, and only then is the holdout run. The checks
+5. **The holdout, once.** Only a finalist that passes every gate, after
+   every grid point has finished, opens the holdout. Its data is read first
+   (a memory stop while reading leaves it sealed), then `holdout.json` is
+   written, with the time, the parameters and the registration hash, and
+   only then is the holdout run. The checks
    are the registered `pass_if` as numbers (the count from "at least N", the
    primary metric and the after-charges result above zero, the drawdown
    rules, the in-window mean above the other sessions' for calendar ideas,
@@ -385,7 +389,35 @@ python3 trader-lab/lab.py hunt status                     # trials, holdout open
    order still needs trader-risk PASS and the user's typed yes.
 
 Files: `trader/lab/edge-hunt/<id>/state.json`, `trials.jsonl`,
-`holdout.json`, `results.json` and `scorecard.md`.
+`holdout.json`, `results.json` and `scorecard.md` (and
+`trials-superseded.jsonl` after an engine fix).
+
+**Interrupted runs** (killed, out of memory, `--max-seconds`, Ctrl-C). The
+same command carries on from `trials.jsonl`. How the trials are counted:
+
+- A trial exists when its row is in `trials.jsonl`: one complete line,
+  written and flushed to disk after both its train and its validation run.
+  A trial that was running when the process died left no row: it is run
+  again and counted once. A torn last line (a crash while writing) is
+  skipped, reported in the plan as `torn_lines`, and that trial runs again;
+  a grid point logged twice counts once.
+- The deflated Sharpe ratio is charged for the whole registered grid
+  (`trial_budget`) whether the run was interrupted or not, never for the
+  number of attempts, so resuming neither adds nor removes trials. Trials of
+  an interrupted run of another id in the same family count towards that
+  family's total as soon as they are logged.
+- The holdout cannot open early: it is opened only by the decision step,
+  which runs only when every grid point has a row. A memory stop leaves
+  `state.json` in phase trials with a `last_stop` note.
+- Every row records its family's engine revision (`engine_rev`). When an
+  engine is fixed in a way that can move its numbers, its revision goes up
+  and a resumed run refuses to mix old rows with new ones. `hunt run ID
+  --rerun-superseded` moves the old rows to `trials-superseded.jsonl`
+  (kept as they were) and runs those grid points again; the set-aside trials
+  stay charged to the trial count, because their numbers were seen. eh-09
+  was stopped at trial 4 of 6 on revision 1 of the event-vol engine (whose
+  legacy-year boards had no spot, so it found no trades); resuming it needs
+  `--rerun-superseded` and is charged 6 + 4 trials, plus eh-08's 8.
 
 ### The data adapter
 
