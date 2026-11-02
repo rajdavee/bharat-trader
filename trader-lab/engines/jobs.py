@@ -495,10 +495,10 @@ class OptionsJob(Job):
         line = "lot sizes of the %s: %s" % (what, "; ".join(
             "%s %s to %s %.1f%% exact, %.1f%% reconstructed (%s), %.1f%% unknown" % (
                 k, v["from"], v["to"], v["exact_pct"], v["reconstructed_pct"], "used" if allow else "refused",
-                v["none_pct"]) for k, v in sorted(cov.items(), reverse=True)))
+                v["none_pct"]) for k, v in ((k, cov[k]) for k in ("train", "validation"))))
         if line not in self.notes:
             self.notes.append(line)
-        short = [k for k, v in sorted(cov.items(), reverse=True) if v["usable_pct"] < LOT_COVERAGE_MIN]
+        short = [k for k in ("train", "validation") if cov[k]["usable_pct"] < LOT_COVERAGE_MIN]
         if not short:
             return None
         k = short[0]

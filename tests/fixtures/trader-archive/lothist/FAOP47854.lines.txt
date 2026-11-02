@@ -1,0 +1,13 @@
+Revision in Market Lot of Derivative Contracts on Indices
+contracts on Indices shall be revised as follows:
+Sr. No	Unde rlying Index	Symbol Present Market Lot Revised Market lot
+1	NIFTY 50	NIFTY	75	50
+2	NIFTY BANK	BANKNIFTY	25	25
+3	NIFTY FINANCIAL SERVICES FINNIFTY	40	40
+The revised market lot will be applicable as follows:
+1. Only the far month contract i.e. July 2021 expiry contracts will be revised for market lots.
+market lots. All subsequent contracts (i.e. July 2021 monthly expiry and beyond) will have
+revised market lots.
+3. Contracts with August 2021 Weekly expiry & beyond will have revised market lots.
+4. The lot size of all existing NIFTY long term options contracts (having expiry greater than 3
+months) shall be revised from 75 to 50 after expiry of June 20 21 contracts (i.e. June 25,

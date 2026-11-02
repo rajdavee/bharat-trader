@@ -1,0 +1,23 @@
+Revision in Market Lot of Derivative Contracts on Indices
+contracts on the following Indices shall be revised as follows:
+Sr. No	Underlying Index	Symbol	Present Market Lot	Revised Market lot
+1	Nifty 50	NIFTY	75	65
+2	Nifty Bank	BANKNIFTY	35	30
+3	Nifty Financial Services	FINNIFTY	65	60
+4	Nifty Mid Select	MIDCPNIFTY	140	120
+Sr. No	Underlying Index	Symbol	Present Market Lot
+1	Nifty Next 50	NIFTYNXT50	25
+expiry date. Lot size of existing quarterly and half yearly contracts will be revised on 30-Dec -
+Last expiry with
+First expiry with revised lot size
+NIFTY	Weekly	23-Dec -2025	06-Jan-2026
+NIFTY
+BANKNIFTY
+FINNIFTY
+MIDCPNIFTY
+NIFTY
+yearly expiry contracts will be revised
+Lot size of all existing quarterly expiry
+BANKNIFTY	Quarterly	31-Mar-2026*
+contracts will be revised from
+contract of the respective index derivatives on December 202 5 monthly expiry day (EO D).
