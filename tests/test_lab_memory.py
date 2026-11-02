@@ -23,7 +23,7 @@ import shutil
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _load import FIX, ROOT, load  # noqa: E402
@@ -187,6 +187,30 @@ class MissingSpot(unittest.TestCase):
         spot = 8689.8 * math.exp(-0.0557 * 24 / 365.0)
         self.assertEqual(EN._wing_points(spot, 1.5, 100), 100.0)   # 1.5% of about 8,680 on 100-point strikes
 
+    def test_a_hunt_without_lot_sizes_waits_instead_of_rejecting(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        lib = os.path.join(tmp, "edge-hunt")
+        os.makedirs(lib)
+        rows = []
+        for pre, hid in (("eh-05", "eh-95-legacy-vrp"), ("eh-08", "eh-96-legacy-crush")):
+            doc = _golden._hyp(ROOT, pre)
+            doc["id"] = hid
+            doc["span"] = {"train": {"from": "2015-03-31", "to": "2015-04-01"},
+                           "validation": {"from": "2015-04-06", "to": "2015-04-07"},
+                           "holdout": {"from": "2015-04-21", "to": "2015-04-30"}, "embargo_days": 14}
+            with open(os.path.join(lib, hid + ".json"), "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+            rows.append({"id": hid, "sha256": X.registered_hash(doc)})
+        with open(os.path.join(lib, "manifest.json"), "w", encoding="utf-8") as fh:
+            json.dump({"hypotheses": rows}, fh)
+        for hid in ("eh-95-legacy-vrp", "eh-96-legacy-crush"):
+            r = X.execute(os.path.join(lib, hid + ".json"), M.ArchiveMarket(LEGACY, A), os.path.join(tmp, "out"), NOW)
+            self.assertEqual(r["state"], "blocked", hid)
+            self.assertIn("no lot sizes", r["plan"]["blockers"][0])
+            self.assertIn("2015-03-31", r["plan"]["blockers"][0])
+            self.assertFalse(os.path.exists(os.path.join(tmp, "out", "edge-hunt", hid, "trials.jsonl")))
+
     def test_stock_spot_from_the_equity_close_on_legacy_files(self):
         lines = EN._fo_lines(A, LEGACY, "2015-04-06")
         bare = EN._chain_dicts(A, "2015-04-06", lines, {"HDFCBANK"})["HDFCBANK"]
@@ -266,10 +290,11 @@ class Guard(unittest.TestCase):
         if C.peak_rss_mb() is None:
             self.skipTest("no resource module on this platform: no guard")
         lib, out = tmp_library(self)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
+        buf, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(buf), redirect_stderr(err):
             code = lab.main(["--out", out, "hunt", "--library", lib, "run", "eh-92", "--data", HUNT,
                              "--max-mem-mb", "1"])
+        self.assertIn("memory guard: stops at 1 MB", err.getvalue())
         self.assertEqual(code, 4)
         self.assertIn("paused by the memory guard", buf.getvalue())
         self.assertIn("over the 1 MB limit", buf.getvalue())

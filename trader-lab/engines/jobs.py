@@ -421,7 +421,45 @@ class OptionsJob(Job):
                        "--datasets fo,index,vix,lots, and results for the event families)")
         elif self.doc["family"] == "event-vol" and getattr(api, "results_dates", None) is None:
             out.append("results dates history (trader-archive's results_dates, backfill the results dataset)")
+        if not out:
+            gap = self.lot_gap(api)
+            if gap:
+                out.append(gap)
         return out
+
+    def lot_gap(self, api):
+        """Why the train window cannot size a single position, or None: the F&O bhavcopy of its first session
+        carries no lot sizes (legacy files before July 2024 have none) and no lot-size snapshot in the
+        archive covers that day. eh-05 and eh-08/09 would then skip every legacy-year entry as "no lot size"
+        and record a REJECT that is about missing data, not the idea; the run waits instead."""
+        fam = self.doc["family"]
+        if fam not in ("vrp-selling", "event-vol"):
+            return None           # trend-day buying takes its lot from the chain or a stated default
+        try:
+            st = api.Store(api.default_root(self._root()))
+            days = [d for d in st.dates("fo") if d >= self.span["train"]["from"]]
+            if not days:
+                return None       # the coverage check reports a missing history
+            day = days[0]
+            lines = api._gz_lines(st.path("fo", day))
+        except (AttributeError, OSError):
+            return None
+        O = self._api()
+        sym = O.engines_api()._underlying(self.doc) if fam == "vrp-selling" else None
+        kinds = ("IDO", "IDF") if sym else ("STO", "STF")
+        rows = [l.split(",") for l in lines[1:] if (sym is None or l.startswith(sym + ","))]
+        rows = [r for r in rows if len(r) > 15 and r[1] in kinds]
+        if not rows or any(r[15].strip() for r in rows):
+            return None
+        lots = api.load_lots(day, root=self._root()) or {}
+        if (sym and lots.get(sym)) or (sym is None and lots):
+            return None
+        snaps = st.dates("lots")
+        return ("no lot sizes for the %s contracts on %s, the train window's first session: legacy F&O bhavcopies "
+                "(before July 2024) carry none, and the archive's lot-size snapshots %s. Every position would be "
+                "skipped as \"no lot size\" and the run would record a REJECT about missing data, not about the "
+                "idea, so it waits for a dated lot-size history of those years"
+                % (sym or "stock option", day, "start on %s" % snaps[0] if snaps else "are missing"))
 
     def load(self, until):
         self.until = until
