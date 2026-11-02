@@ -1076,7 +1076,8 @@ def _eq_rows(root, symbols, start, end):
             except (OSError, ValueError):
                 cache = None
         cache = cache or {"scanned": {}, "rows": {}}
-        miss = [k for k, _ in files if cache["scanned"].get(k) != sizes[k]]
+        # only the days inside the window are (re)scanned now; the rest stay marked unscanned for a later call
+        miss = [k for k, _ in files if a <= k <= b and cache["scanned"].get(k) != sizes[k]]
         if miss:
             stale[s] = cache            # kept whole until it is written back
             for k in miss:
