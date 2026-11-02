@@ -7,6 +7,29 @@ All notable changes are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Dated F&O lot-size history** in `trader-archive`: `backfill --datasets
+  lothist` builds every F&O contract's lot on every day,
+  `lothist/lothist.csv.gz` (underlying, expiry, effective_from, effective_to,
+  lot, source, confidence). **Exact** from NSE's own numbers: the UDiFF
+  bhavcopy's lot (2024 on), NSE's F&O market activity reports (traded
+  quantity / contracts, March 2011 on, two sessions a month), the Wayback
+  Machine's copies of `fo_mktlots.csv` (2008 to 2024), NSE's index lot
+  circulars (2014 to 2025, built in), and segments bridged between two equal
+  exact lots. **Reconstructed** otherwise, from the legacy bhavcopy's notional
+  turnover / (contracts x price) and the open interest's divisibility,
+  segment by segment (a bonus or split mid-life cuts it). Read API
+  `lot_size(underlying, date, expiry)`, `lot_history`, `lot_coverage`,
+  `fill_lots`; `load_fo_chain_eod(..., lots="exact"|"any"|"none")` fills a
+  missing lot from it; `archive.py lots` prints the coverage by year and
+  every lot change; `status` shows it.
+- trader-lab's option engines (eh-05 VRP condor, eh-08/eh-09 results-day
+  options, eh-14) take a missing lot from the dated history and **refuse a
+  reconstructed lot** unless `allow_reconstructed_lots` is true in
+  `trader/config.json` (the skip and the counts are in the run's notes). The
+  edge-hunt executor's lot check now measures the history's coverage of the
+  train and validation windows (95% of contract-days needed), reports it in
+  the plan and the dry run, and says what would unblock a run. The option
+  families' engine revision moves to 3 (earlier trials are superseded).
 - **Strategy portfolio** (#75): `lab.py portfolio build|report|list`, a
   **Portfolio** section on the Lab page and the `portfolio_report` MCP tool
   (read only). Combines WATCH and PROMOTE strategies (lab runs and edge-hunt

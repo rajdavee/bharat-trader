@@ -93,6 +93,30 @@ def _arch(data):
     return a
 
 
+def _lots(data):
+    """The lot policy of a run: exact lots only, unless allow_reconstructed_lots is on in the config."""
+    return O.lot_accept(bool((data or {}).get("allow_reconstructed_lots")))
+
+
+def _add_lot_counts(data, counts):
+    tot = data.setdefault("_lot_counts", {})
+    for k, v in (counts or {}).items():
+        tot[k] = tot.get(k, 0) + v
+
+
+def lot_note(data):
+    """One plain line on where the option lots of a run came from, or None when every lot was in the data."""
+    c = (data or {}).get("_lot_counts") or {}
+    if not any(c.values()):
+        return None
+    allow = bool((data or {}).get("allow_reconstructed_lots"))
+    return ("lot sizes from the dated lot history (rows): %d exact, %d reconstructed%s, %d with no lot known%s" % (
+        c.get("exact", 0), c.get("reconstructed", 0) if allow else c.get("refused", 0),
+        " and used (allow_reconstructed_lots is on)" if allow else " and refused (allow_reconstructed_lots is off)",
+        c.get("missing", 0), "; positions on refused or unknown lots are skipped" if not allow or c.get("missing")
+        else ""))
+
+
 def _reg(data):
     return (data or {}).get("regime") or O.ENV.get("regime")
 
@@ -275,7 +299,8 @@ def prepare_vrp(hyp, data, start, until):
     under = _underlying(hyp)
     notes = data.setdefault("notes", [])
     try:
-        chains = O.load_chains(under, root, A, start, until, band=0.12, keep_dte=63, monthly_only=True)
+        chains = O.load_chains(under, root, A, start, until, band=0.12, keep_dte=63, monthly_only=True,
+                               lots=_lots(data))
     except Exception as e:  # noqa: BLE001 - the lab's LabError: no chains in the archive
         if getattr(e, "memory_limit", False):
             raise
@@ -299,6 +324,10 @@ def prepare_vrp(hyp, data, start, until):
     except (V.VolError, KeyError) as e:
         notes.append("no HAR-RV forecast: %s" % e)
     notes.append("%s EOD chains: %s" % (under, chains.source))
+    _add_lot_counts(data, getattr(chains, "lot_counts", None))
+    ln = lot_note(data)
+    if ln:
+        notes.append(ln)
     return list(chains.days)
 
 
@@ -499,11 +528,12 @@ def fno_stocks(A, root, start, end):
     return sorted(out)
 
 
-def _chain_dicts(A, day, lines, syms, spot_of=None):
+def _chain_dicts(A, day, lines, syms, spot_of=None, root=None, lots="none", counts=None):
     """One read of a day's F&O bhavcopy -> {symbol: load_fo_chain_eod()-shaped chain} for `syms`. The spot is
     the bhavcopy's underlying price (UDiFF files), else spot_of(symbol, day) (the stock's own close that day:
     legacy files before July 2024 carry no underlying price), else trim_board's futures-implied spot. A
-    missing lot stays None."""
+    missing lot comes from the dated lot history by the lot policy `lots` ("exact", "any"; "none" leaves it
+    None); counts adds up fill_lots' counts."""
     rows = {}
     for l in lines[1:]:
         k = l.find(",")
@@ -527,6 +557,11 @@ def _chain_dicts(A, day, lines, syms, spot_of=None):
             spot = spot_of(s, day)
             src = "the stock's close in the equity bhavcopy" if spot else None
         out[s] = {"date": day, "underlying": s, "spot": spot, "spot_source": src, "futures": futs, "options": opts}
+        if lots != "none" and getattr(A, "fill_lots", None) is not None:
+            got = A.fill_lots(out[s], root, lots)
+            if counts is not None:
+                for k, v in got.items():
+                    counts[k] = counts.get(k, 0) + v
     return out
 
 
@@ -567,7 +602,8 @@ class BoardWindow(object):
         if not want:
             return
         O.mem_check("reading the F&O boards of %s" % day)
-        got = _chain_dicts(A, day, _fo_lines(A, self.data.get("root"), day), want, self.spot_of)
+        got = _chain_dicts(A, day, _fo_lines(A, self.data.get("root"), day), want, self.spot_of,
+                           self.data.get("root"), _lots(self.data), self.data.setdefault("_lot_counts", {}))
         self.reads += 1
         for s in want:
             ch = got.get(s)
@@ -854,6 +890,9 @@ def _event_run(hyp, params, a, b, data, cost_mult, short):
                  "monthly expiry alive after the exit; P&L booked on the exit day")
     notes.append("EOD settle prices: a real fill at 15:29 on a thin stock-option strike can be far worse than "
                  "the slippage model")
+    ln = lot_note(data)
+    if ln:
+        notes.append(ln)
     return _run_shape(hyp, eng, days, capital, trades, met, mtm, skipped, notes,
                       extra={"event_rows": study[:200]})
 
@@ -938,7 +977,8 @@ def prepare_buying(hyp, data, start, until):
     data.setdefault("intraday", {})[under] = bars
     data["vix"] = A.load_vix(start, until, root)
     try:
-        data.setdefault("chains", {})[under] = O.load_chains(under, root, A, start, until, band=0.03, keep_dte=10)
+        data.setdefault("chains", {})[under] = O.load_chains(under, root, A, start, until, band=0.03, keep_dte=10,
+                                                             lots=_lots(data))
     except Exception as e:  # noqa: BLE001 - no EOD chains: IV from India VIX, expiries from the rules
         if getattr(e, "memory_limit", False):
             raise

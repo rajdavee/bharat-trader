@@ -1,0 +1,9 @@
+Revision of Market Lot of Derivative Contracts on Indices
+Market Lot
+Market lot
+1	CNX NIFTY NIFTY	25	75
+2	CNX BANK INDEX BANKNIFTY	25	30
+6	NIFTY MIDCAP 50 NFTYMCAP50	75	150
+1. Only the far month contract i.e. November 2015 expiry contracts will be revised for market
+the existing market lots. All subsequent contracts (i.e. November 2015 expiry and beyond)
+will have revised market lots.

@@ -432,6 +432,9 @@ def implied_spot(chain, rate=FALLBACK_RATE):
     return best[1] * math.exp(-rate * best[0] / 365.0), "futures-implied (the %s future, S = F e^-rT)" % best[2]
 
 
+LOT_REFUSED = ("lot size only reconstructed, not exact (allow_reconstructed_lots is off in trader/config.json)")
+
+
 class Chains(object):
     """Every session's end-of-day board of one underlying, trimmed to the contracts a backtest can use.
 
@@ -449,6 +452,7 @@ class Chains(object):
         self._an = LRU(ANALYSIS_CACHE)
         self._iv30 = None
         self.skipped_days = {}     # day -> why its board was left out (no spot at all that day)
+        self.lot_counts = {}       # option and future rows whose lot came from the dated lot history
         self.implied_spot_days = []   # days whose spot is futures-implied (no index close in the archive)
 
     def board(self, day):
@@ -571,6 +575,7 @@ class Chains(object):
         move = F * (atm_iv or 0) / 100.0 * math.sqrt(T) if atm_iv else None
         a = {"underlying": self.underlying, "expiry": expiry, "forward": F, "spot": b["spot"], "rows": rows,
              "t_years": T, "rate": r, "atm": atm, "atm_iv": atm_iv, "lot_size": lot,
+             "lot_refused": lot is None and expiry in (b.get("lot_refused") or ()),
              "kind": "index" if self.underlying in _index_names() else "stock",
              "expected_move": {"move": move} if move else {}, "asof": "%sT15:30:00" % day,
              "sources": {"chain": "NSE F&O bhavcopy %s (settle prices), IV solved by Black-76" % day}}
@@ -675,13 +680,15 @@ def trim_board(chain, keep_dte=MAX_DTE_LOADED, band=STRIKE_BAND, monthly_only=Fa
         if f.get("kind") in ("IDF", "STF") and f.get("expiry"):
             futures[f["expiry"]] = f.get("settle") or f.get("close")
             monthly.add(f["expiry"])
-    opts, exps = {}, set()
+    opts, exps, refused = {}, set(), set()
     for o in chain.get("options") or []:
         e, k, t = o.get("expiry"), o.get("strike"), o.get("option_type")
         if not e or k is None or t not in ("CE", "PE"):
             continue
         if monthly_only and e not in monthly:
             continue
+        if o.get("lot_refused"):
+            refused.add(e)
         dte = _dte(day, e)
         if dte < 0 or dte > keep_dte:
             continue
@@ -690,19 +697,40 @@ def trim_board(chain, keep_dte=MAX_DTE_LOADED, band=STRIKE_BAND, monthly_only=Fa
         opts[(e, float(k), t)] = (o.get("settle") or 0.0, o.get("close") or 0.0, o.get("open") or 0.0,
                                   int(o.get("volume") or 0), int(o.get("oi") or 0), o.get("lot"))
         exps.add(e)
-    return {"spot": spot, "spot_source": source, "futures": futures, "opts": PackedOpts(opts),
-            "expiries": sorted(exps), "monthly": monthly}
+    out = {"spot": spot, "spot_source": source, "futures": futures, "opts": PackedOpts(opts),
+           "expiries": sorted(exps), "monthly": monthly}
+    if refused:
+        out["lot_refused"] = sorted(refused)
+    return out
+
+
+def lot_accept(allow_reconstructed):
+    """What trader-archive's fill_lots may fill: "any" when the config allows reconstructed lots, else "exact"."""
+    return "any" if allow_reconstructed else "exact"
+
+
+def chain_eod(archive, underlying, day, root, lots="exact"):
+    """archive.load_fo_chain_eod with the lot policy, on an archive copy that predates it too."""
+    try:
+        return archive.load_fo_chain_eod(underlying, day, root=root, lots=lots)
+    except TypeError:
+        return archive.load_fo_chain_eod(underlying, day, root=root)
 
 
 def load_chains(underlying, root, archive, start=None, end=None, progress=None, band=STRIKE_BAND,
-                keep_dte=MAX_DTE_LOADED, monthly_only=False):
+                keep_dte=MAX_DTE_LOADED, monthly_only=False, lots="exact"):
     """Chains for one underlying from a trader-archive folder (offline). archive: trader-archive's module.
-    band, keep_dte, monthly_only: what trim_board keeps (a long history needs less of each board)."""
+    band, keep_dte, monthly_only: what trim_board keeps (a long history needs less of each board). lots: the
+    lot policy for contracts whose bhavcopy has no lot ("exact": only exact lots from the dated lot history;
+    "any": reconstructed ones too). chains.lot_counts adds up fill_lots' counts."""
     days = archive.trading_days(start, end, root=root)
     boards, skipped, implied = {}, {}, []
+    counts = {"exact": 0, "reconstructed": 0, "refused": 0, "missing": 0}
     for i, d in enumerate(days):
-        ch = archive.load_fo_chain_eod(underlying, d, root=root)      # one day at a time: only the trimmed,
+        ch = chain_eod(archive, underlying, d, root, lots)            # one day at a time: only the trimmed,
         if ch and ch.get("options"):                                  # packed board is kept
+            for k, v in (ch.get("lots") or {}).items():
+                counts[k] = counts.get(k, 0) + v
             b = trim_board(ch, keep_dte, band, monthly_only)
             if not b["spot"]:
                 skipped[d] = ("no %s spot that day: no underlying price in the bhavcopy, no index or equity close "
@@ -738,6 +766,7 @@ def load_chains(underlying, root, archive, start=None, end=None, progress=None, 
     c = Chains(underlying, boards, idx, vix, src)
     c.skipped_days = skipped
     c.implied_spot_days = implied
+    c.lot_counts = counts
     return c
 
 
@@ -844,6 +873,8 @@ def pick_legs(spec, chains, day, expiry, far=None):
     if a is None:
         raise OptionsError("no chain for %s on %s" % (expiry, day))
     if not a.get("lot_size"):
+        if a.get("lot_refused"):
+            raise OptionsError(LOT_REFUSED)
         raise OptionsError("no lot size for %s %s" % (spec["underlying"], expiry))
     markets = {expiry: a}
     if spec["structure"] == "calendar":

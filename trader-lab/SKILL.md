@@ -295,6 +295,10 @@ python3 "<skill dir>/lab.py" hunt run EH-ID --rerun-superseded      # trials of 
   built-in guard pauses the run (exit code 4) before the machine runs short, every finished trial kept and
   the holdout sealed; the same command carries on. An interrupted trial left no row and runs again; the
   deflated Sharpe is charged for the registered grid, never for the attempts.
+- Option lots before 2024 come from trader-archive's dated lot-size history (`archive.py backfill
+  --datasets lothist`). Only exact lots are used unless `"allow_reconstructed_lots": true` is set in
+  `trader/config.json`; a hunt waits while under 95% of its train or validation contract-days have a lot
+  it accepts, and the dry run prints that coverage.
 
 - The file must match its manifest hash; an edited file is refused (a change
   is a new hypothesis with a new id). Only `status` and `outcome` are written

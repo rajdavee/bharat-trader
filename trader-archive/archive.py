@@ -9,6 +9,8 @@
     python3 archive.py export --symbol RELIANCE --from 2024-01-01 --adjusted
     python3 archive.py intraday --symbols RELIANCE,TCS --interval 1m --from 2026-09-01   # Upstox candles
     python3 archive.py snapshot-chain --symbols NIFTY --every 15  # option chains during market hours
+    python3 archive.py backfill --from 2010-01-01 --datasets lothist   # the dated F&O lot-size history
+    python3 archive.py lots --underlying NIFTY                    # its coverage by year and each lot change
 
 Everything lands under <workdir>/archive/ (default trader/archive, or $BT_ARCHIVE): one gzip CSV per
 dataset per trading day (archive/eq/2026/2026-10-30.csv.gz), and a manifest.json per dataset per
@@ -29,6 +31,10 @@ Datasets (all public, all from NSE except intraday):
   ca      corporate actions; splits and bonuses become the price adjustment factors
   sectors NSE's own industry classification of the F&O stocks (macro, sector, industry, basic
           industry from the quote API's secInfo), one dated snapshot a run (opt in: --datasets sectors)
+  lothist the dated F&O lot-size history (opt in: --datasets lothist): every contract's lot on every
+          day, "exact" from NSE's own numbers (the UDiFF bhavcopy's lot, the F&O market activity
+          reports from March 2011, fo_mktlots copies the Wayback Machine kept, NSE's index lot
+          circulars) or "reconstructed" from the legacy bhavcopy's turnover and open interest
 
 Politeness: a browser User-Agent and NSE's Referer, --pause seconds between NSE calls (default 1.5,
 never below 1.0), a growing wait after HTTP 401/403/429, and a stop after 3 blocks in a row with
@@ -37,7 +43,7 @@ no bhavcopy (an older holiday) is remembered in archive/calendar.json and never 
 
 The read API is pure and offline (no network, ever): load_daily, load_daily_many, load_intraday,
 load_fo_chain_eod, load_vix, load_index, load_ban, trading_days, adjustment_factors,
-sectors. trader-lab and
+sectors, lot_size, lot_history, lot_coverage, fill_lots. trader-lab and
 trader-timemachine use it when an archive is present and fall back to Yahoo when not.
 
 Standard library only. This is data infrastructure: it never places an order.
@@ -83,10 +89,11 @@ LEGACY_UNTIL = datetime.date(2024, 7, 5)   # last legacy cm/fo...bhav.csv (2024-
 UPSTOX_MINUTES_FROM = datetime.date(2022, 1, 1)   # Upstox minute candles start in January 2022
 NOT_PUBLISHED_DAYS = 3   # a 404 this recent may just be "not published yet": ask again next time
 
-DATASETS = ("eq", "fo", "index", "vix", "lots", "ban", "settle", "ca", "indexhist", "results", "members", "sectors")
+DATASETS = ("eq", "fo", "index", "vix", "lots", "ban", "settle", "ca", "indexhist", "results", "members", "sectors",
+            "lothist")
 DAILY = ("eq", "fo", "index", "ban", "settle")
 DEFAULT_DATASETS = ("eq", "fo", "index", "vix", "lots", "ban", "settle", "ca")
-LONG_DATASETS = ("indexhist", "results", "members", "sectors")     # opt in: --datasets all, or name them
+LONG_DATASETS = ("indexhist", "results", "members", "sectors", "lothist")   # opt in: --datasets all, or name them
 SERIES_PREF = ("EQ", "BE", "BZ", "SM", "ST")  # a stock that moves to trade-for-trade keeps its history
 MONTHS = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
 OPEN_MIN = 9 * 60 + 15
@@ -971,6 +978,8 @@ def backfill(store, http, start, end, datasets=DEFAULT_DATASETS, now=None, log=N
             summary["rows"]["members"] = fetch_members(store, http, start, end, now, log)
         if "sectors" in datasets:
             summary["rows"]["sectors"] = fetch_sectors(store, http, start, end, now, log)
+        if "lothist" in datasets:
+            summary["rows"]["lothist"] = fetch_lothist(store, http, start, end, now, log)
     finally:
         summary["calls"] = http.calls - calls0
         summary["downloaded_bytes"] = http.bytes - bytes0
@@ -1246,12 +1255,15 @@ def load_lots(day=None, root=None):
     return out
 
 
-def load_fo_chain_eod(underlying, day, root=None):
+def load_fo_chain_eod(underlying, day, root=None, lots="exact"):
     """The end-of-day F&O board of one underlying from the bhavcopy:
     {"date", "underlying", "spot", "format", "futures": [...], "options": [...]}; each option row has
     expiry, strike, option_type (CE/PE), open, high, low, close, settle, oi (shares), oi_change,
     volume (contracts), turnover, lot. None when the archive does not have that day. spot is NSE's
-    underlying price (UDiFF); for older legacy files it comes from the index or equity archive."""
+    underlying price (UDiFF); for older legacy files it comes from the index or equity archive.
+    A lot the bhavcopy lacks comes from the lot-size snapshot of that day, else from the dated lot history
+    (fill_lots: lots="exact" fills exact lots only, "any" reconstructed ones too, "none" nothing); each row
+    filled from the history carries lot_confidence, and chain["lots"] counts them."""
     root = default_root(root)
     k = iso(parse_day(day))
     p = Store(root).path("fo", k)
@@ -1281,13 +1293,16 @@ def load_fo_chain_eod(underlying, day, root=None):
         else:
             eq = load_daily(sym, k, k, adjusted=False, root=root)
             spot = eq[0]["c"] if eq else None
-    lots = None
+    snap = None
     for rec in futs + opts:
         if rec["lot"] is None:
-            if lots is None:
-                lots = load_lots(k, root).get(sym, {})
-            rec["lot"] = lots.get(rec["expiry"][:7])
-    return {"date": k, "underlying": sym, "spot": spot, "format": fmt, "futures": futs, "options": opts}
+            if snap is None:
+                snap = load_lots(k, root).get(sym, {})
+            rec["lot"] = snap.get(rec["expiry"][:7])
+    out = {"date": k, "underlying": sym, "spot": spot, "format": fmt, "futures": futs, "options": opts}
+    if lots and lots != "none":
+        fill_lots(out, root, lots)
+    return out
 
 
 def _intraday_dir(root, interval, symbol):
@@ -1671,7 +1686,7 @@ def history():
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
-    for sub in ("pdftext", "members", "continuous", "events", "expired"):
+    for sub in ("pdftext", "members", "continuous", "events", "expired", "lots"):
         __import__(name + "." + sub)
     return mod
 
@@ -2198,6 +2213,331 @@ def sectors(symbol=None, date=None, root=None, level="sector"):
     return {s: r[level] for s, r in sorted(recs.items()) if r.get(level)}
 
 
+# -- the dated F&O lot-size history
+
+LOT_DIR = "lothist"
+LOT_MKT = os.path.join(LOT_DIR, "mkt")
+LOT_WAYBACK = os.path.join(LOT_DIR, "wayback")
+LOT_SCAN = os.path.join(LOT_DIR, "scan")
+LOT_TABLE = os.path.join(LOT_DIR, "lothist.csv.gz")
+LOT_MKT_URL = ARCHIVES + "/archives/fo/mkt/fo%s.zip"
+LOT_WAYBACK_CDX = ("https://web.archive.org/cdx/search/cdx?url=%s&output=json&fl=timestamp,original,statuscode,digest"
+                   "&filter=statuscode:200&collapse=digest")
+LOT_WAYBACK_GET = "https://web.archive.org/web/%sid_/%s"
+LOT_WAYBACK_PAGES = ("nseindia.com/content/fo/fo_mktlots.csv", "www1.nseindia.com/content/fo/fo_mktlots.csv",
+                     "archives.nseindia.com/content/fo/fo_mktlots.csv",
+                     "nsearchives.nseindia.com/content/fo/fo_mktlots.csv")
+LOT_UDIFF_LOTS = UDIFF_FROM          # from here every F&O bhavcopy carries each contract's lot
+LOT_SAMPLE_DAYS = (1, 16)            # market activity reports fetched: the first session on or after these days
+LOT_COVERAGE_MIN = 0.95              # trader-lab: the share of contract-days a run needs an acceptable lot for
+
+
+def lot_sample_days(fo_days, start, end):
+    """The F&O sessions whose market activity report the lot history uses: the first session on or after the
+    1st and the 16th of each month, from March 2011 (the oldest report) to 2023 (UDiFF lots after)."""
+    lo = max(iso(start), iso(history().lots.MKT_FROM))
+    hi = min(iso(end), iso(LOT_UDIFF_LOTS - datetime.timedelta(days=1)))
+    out, taken = [], set()
+    for d in fo_days:
+        if not lo <= d <= hi:
+            continue
+        slot = (d[:7], 0 if int(d[8:]) < LOT_SAMPLE_DAYS[1] else 1)
+        if slot not in taken and int(d[8:]) >= LOT_SAMPLE_DAYS[slot[1]]:
+            taken.add(slot)
+            out.append(d)
+    return out
+
+
+def _lot_wayback(store, http, start, end, now, log):
+    """The copies of NSE's fo_mktlots.csv the Internet Archive kept: listed once a run (its CDX index), each
+    new copy fetched once into lothist/wayback/<YYYY>/<YYYY-MM-DD>.csv.gz (SNAP_COLS)."""
+    L = history().lots
+    man_path = os.path.join(store.root, LOT_WAYBACK, "manifest.json")
+    man = read_json(man_path, None) or {"schema": SCHEMA, "snapshots": {}, "listed": {}}
+    caps = {}
+    for page in LOT_WAYBACK_PAGES:
+        status, data = http.get(LOT_WAYBACK_CDX % page, accept="application/json")
+        if status != 200:
+            log("lot history: the Wayback Machine's index of %s answered HTTP %s" % (page, status))
+            continue
+        try:
+            rows = json.loads(data.decode("utf-8", "replace") or "[]")
+        except ValueError:
+            log("lot history: the Wayback Machine's index of %s is not JSON" % page)
+            continue
+        man["listed"][page] = {"at": _stamp(now), "captures": max(0, len(rows) - 1)}
+        for r in rows[1:]:
+            if len(r) >= 2 and re.match(r"^\d{14}$", r[0]):
+                d = "%s-%s-%s" % (r[0][:4], r[0][4:6], r[0][6:8])
+                if iso(start) <= d <= iso(end) and d < iso(LOT_UDIFF_LOTS) and r[0] > caps.get(d, ("",))[0]:
+                    caps[d] = (r[0], r[1])
+    got = 0
+    for d in sorted(caps):
+        ts, orig = caps[d]
+        if d in man["snapshots"] or store.has(LOT_WAYBACK, d):
+            continue
+        url = LOT_WAYBACK_GET % (ts, orig)
+        status, data = http.get(url)
+        if status != 200 or is_html(data):
+            log("lot history: Wayback copy %s answered HTTP %s, left for the next run" % (ts, status))
+            continue
+        rows = L.parse_mktlots_any(data.decode("utf-8", "replace"))
+        man["snapshots"][d] = {"timestamp": ts, "url": url, "rows": len(rows)}
+        if rows:
+            store.put_rows(LOT_WAYBACK, d, L.SNAP_COLS, rows, {"source_url": url, "format": "csv",
+                                                              "fetched_at": _stamp(now)})
+            got += 1
+        write_json(man_path, man)
+    write_json(man_path, man)
+    log("lot history: %d new Wayback copies of fo_mktlots.csv (%d in the window)" % (got, len(caps)))
+    return got
+
+
+def _lot_mkt(store, http, start, end, now, log):
+    """NSE's F&O market activity reports of the sample sessions into lothist/mkt/<YYYY>/<date>.csv.gz."""
+    L = history().lots
+    days = lot_sample_days(store.dates("fo"), start, end)
+    got = 0
+    for i, d in enumerate(days, 1):
+        if store.has(LOT_MKT, d) or store.missing(LOT_MKT, d):
+            continue
+        url = LOT_MKT_URL % ddmmyyyy(parse_day(d))
+        status, data = http.get(url)
+        if status in (404, 410):
+            store.mark_missing(LOT_MKT, d, status, url, _stamp(now))
+            continue
+        if status != 200 or is_html(data):
+            log("lot history: market activity %s answered HTTP %s, left for the next run" % (d, status))
+            continue
+        try:
+            z = zipfile.ZipFile(io.BytesIO(data))
+            files = dict((n, z.read(n).decode("latin-1")) for n in z.namelist() if n.lower().endswith(".csv"))
+        except (zipfile.BadZipFile, OSError):
+            log("lot history: market activity %s is not a zip" % d)
+            continue
+        rows = L.parse_mkt_activity(files)
+        store.put_rows(LOT_MKT, d, L.MKT_COLS, rows, {"source_url": url, "format": "zip", "source_bytes": len(data),
+                                                      "fetched_at": _stamp(now)})
+        got += 1
+        if got % 25 == 0:
+            log("lot history: %d market activity reports (%s, %d of %d sample sessions)" % (got, d, i, len(days)))
+    log("lot history: %d new market activity reports (%d sample sessions in the window)" % (got, len(days)))
+    return got
+
+
+def _fo_rows(path):
+    """The rows of one archived F&O bhavcopy, streamed (no header)."""
+    with gzip.open(path, "rt", encoding="utf-8", newline="") as fh:
+        rd = csv.reader(fh)
+        next(rd, None)
+        for r in rd:
+            yield r
+
+
+def _lot_scan(store, log):
+    """Scan the archived F&O bhavcopies a year at a time (cached in lothist/scan/<YYYY>.csv.gz, redone only
+    when that year's files change) -> merged SCAN_COLS rows."""
+    L = history().lots
+    man_path = os.path.join(store.root, LOT_SCAN, "manifest.json")
+    man = read_json(man_path, None) or {"schema": SCHEMA, "years": {}}
+    out = []
+    all_days = store.dates("fo")
+    for y in store.years("fo"):
+        days = [d for d in all_days if d[:4] == y]
+        sig = "%d:%d" % (len(days), sum(os.path.getsize(store.path("fo", d)) for d in days))
+        path = os.path.join(store.root, LOT_SCAN, "%s.csv.gz" % y)
+        if (man["years"].get(y) or {}).get("sig") == sig and os.path.exists(path):
+            out.extend(read_gz_csv(path)[1])
+            continue
+        t0 = time.time()
+        sc = L.Scanner()
+        for d in days:
+            sc.feed(d, _fo_rows(store.path("fo", d)))
+        rows = sc.rows()
+        atomic_write(path, gz_bytes(csv_text(L.SCAN_COLS, rows)))
+        man["years"][y] = {"sig": sig, "sessions": len(days), "segments": len(rows), "built_at": _stamp(ist_now()),
+                           "seconds": round(time.time() - t0, 1)}
+        write_json(man_path, man)
+        log("lot history: scanned the %s F&O bhavcopies (%d sessions, %d contract segments)" % (y, len(days), len(rows)))
+        out.extend([str(c) for c in r] for r in rows)
+    return L.merge_scan(out)
+
+
+def build_lothist(root, log=None, now=None):
+    """Build lothist/lothist.csv.gz (the lot table) from what the archive holds: the F&O bhavcopies, the market
+    activity reports, the fo_mktlots snapshots (the archive's own and the Wayback copies) and NSE's index
+    circulars. Offline. Returns the manifest written beside it."""
+    log = log or (lambda msg: None)
+    now = now or ist_now()
+    L = history().lots
+    store = Store(root)
+    t0 = time.time()
+    scan = _lot_scan(store, log)
+    mkt = []
+    for d in store.dates(LOT_MKT):
+        for r in read_gz_csv(store.path(LOT_MKT, d))[1]:
+            mkt.append((d, r[0], r[1], int(r[2])))
+    snaps = []
+    for d in store.dates(LOT_WAYBACK):
+        e = store.entry(LOT_WAYBACK, d) or {}
+        for r in read_gz_csv(store.path(LOT_WAYBACK, d))[1]:
+            snaps.append((d, r[1], r[2], int(r[3]), "fo_mktlots.csv (Wayback Machine copy)"))
+    for d in store.dates("lots"):
+        for r in read_gz_csv(store.path("lots", d))[1]:
+            snaps.append((d, r[1], r[2], int(float(r[3])), "fo_mktlots.csv (the archive's snapshot)"))
+    rows, rep = L.build_table(scan, mkt, snaps, store.dates("fo"))
+    blob = gz_bytes(csv_text(L.TABLE_COLS, rows))
+    atomic_write(os.path.join(root, LOT_TABLE), blob)
+    _LOTS_CACHE.clear()
+    cov = {}
+    if rows:
+        first, last = min(r[3] for r in rows), max(r[4] for r in rows)
+        idx = {}
+        for r in rows:
+            idx.setdefault(r[0], []).append(r)
+        for u in ("NIFTY", "BANKNIFTY"):
+            if u in idx:
+                cov[u] = _cov_pct(L.coverage(idx[u], first, last, monthly_only=True))
+        stock_rows = [r for u, rs in idx.items() if L.kind_of(u) == "stock" for r in rs]
+        cov["stocks"] = _cov_pct(L.coverage(stock_rows, first, last, monthly_only=True))
+    man = {"schema": SCHEMA, "built_at": _stamp(now), "rows": len(rows), "bytes": len(blob), "sha256": sha256(blob),
+           "seconds": round(time.time() - t0, 1), "segments": {k: rep[k] for k in ("exact", "reconstructed", "none")},
+           "by_source": rep["by_source"], "conflicts": len(rep["conflicts"]), "conflict_sample": rep["conflicts"][:40],
+           "inputs": {"scan_segments": len(scan), "mkt_reports": len(store.dates(LOT_MKT)), "mkt_rows": len(mkt),
+                      "wayback_copies": len(store.dates(LOT_WAYBACK)), "lots_snapshots": len(store.dates("lots"))},
+           "coverage": cov}
+    write_json(os.path.join(root, LOT_DIR, "manifest.json"), man)
+    log("lot history: %s contract segments (%s exact, %s reconstructed, %s unknown), %d conflicts, %.0f s" % (
+        "{:,}".format(len(rows)), "{:,}".format(rep["exact"]), "{:,}".format(rep["reconstructed"]),
+        "{:,}".format(rep["none"]), len(rep["conflicts"]), time.time() - t0))
+    return man
+
+
+def _cov_pct(c):
+    """coverage() counts -> {year: {"exact": %, "reconstructed": %, "none": %}} (shares of contract-days)."""
+    out = {}
+    for y, v in sorted(c.items()):
+        t = float(v["total"]) or 1.0
+        out[y] = {k: round(100.0 * v[k] / t, 1) for k in ("exact", "reconstructed", "none")}
+    return out
+
+
+def fetch_lothist(store, http, start, end, now, log):
+    """backfill --datasets lothist: the Wayback copies of fo_mktlots.csv and the market activity reports of the
+    sample sessions within start..end, then the lot table rebuilt from everything archived."""
+    got = 0
+    for step in (_lot_wayback, _lot_mkt):
+        got += step(store, http, start, end, now, log)
+    man = build_lothist(store.root, log, now)
+    return man["rows"] if man else got
+
+
+_LOTS_CACHE = {}
+
+
+def _lot_rows(root):
+    """{underlying: [TABLE_COLS row tuples, lot int or None]} of the lot table, cached by its mtime."""
+    path = os.path.join(default_root(root), LOT_TABLE)
+    try:
+        stamp = os.path.getmtime(path)
+    except OSError:
+        return None
+    key = os.path.abspath(path)
+    hit = _LOTS_CACHE.get(key)
+    if hit and hit[0] == stamp:
+        return hit[1]
+    by, by_exp, intern = {}, {}, {}
+    for r in read_gz_csv(path)[1]:
+        src = intern.setdefault(r[6], r[6])
+        t = (r[0], r[1], r[2], r[3], r[4], int(r[5]) if r[5] else None, src, r[7])
+        by.setdefault(r[0], []).append(t)
+        by_exp.setdefault((r[0], r[1]), []).append(t)
+    by[None] = by_exp
+    _LOTS_CACHE.clear()
+    _LOTS_CACHE[key] = (stamp, by)
+    return by
+
+
+def lot_history(underlying, root=None):
+    """The lot table's rows of one underlying, oldest expiry first: [{"underlying", "expiry", "monthly",
+    "effective_from", "effective_to", "lot", "source", "confidence"}]; [] when it has none, None when the
+    archive has no lot history yet (backfill --datasets lothist)."""
+    by = _lot_rows(root)
+    if by is None:
+        return None
+    L = history().lots
+    return [dict(zip(L.TABLE_COLS, r), monthly=r[2] == "M") for r in by.get(str(underlying).upper(), [])]
+
+
+def lot_size(underlying, day, expiry=None, root=None):
+    """The lot of one F&O contract on one day from the dated lot history: {"lot", "confidence" ("exact" or
+    "reconstructed"), "source", "expiry", "effective_from", "effective_to", "nearest"}, or None (no history,
+    or no lot known). expiry None: the nearest monthly contract alive that day. nearest: the day is outside
+    the contract's known segments and the closest one was used."""
+    by = _lot_rows(root)
+    if by is None:
+        return None
+    k, u = iso(parse_day(day)), str(underlying).upper()
+    if expiry:
+        e = iso(parse_day(expiry))
+        r = history().lots.pick(by[None].get((u, e), []), k, e)
+    else:
+        r = history().lots.pick(by.get(u, []), k)
+    if r is None or r[5] is None or r[7] not in ("exact", "reconstructed"):
+        return None
+    return {"lot": r[5], "confidence": r[7], "source": r[6], "expiry": r[1], "monthly": r[2] == "M",
+            "effective_from": r[3], "effective_to": r[4], "nearest": not (r[3] <= k <= r[4])}
+
+
+def lot_coverage(underlying, start, end, root=None, monthly_only=True):
+    """How much of start..end the lot history covers, in contract-days: {"by_year": {year: {"exact": %,
+    "reconstructed": %, "none": %}}, "exact_pct", "reconstructed_pct", "none_pct", "contract_days"} for one
+    underlying, or "STOCKS" (every stock), or "INDEX". None when the archive has no lot history."""
+    by = _lot_rows(root)
+    if by is None:
+        return None
+    L = history().lots
+    u = str(underlying).upper()
+    if u in ("STOCKS", "INDEX"):
+        rows = [r for k, rs in by.items() if k is not None and (L.kind_of(k) == "stock") == (u == "STOCKS")
+                for r in rs]
+    else:
+        rows = by.get(u, [])
+    c = L.coverage(rows, iso(parse_day(start)), iso(parse_day(end)), monthly_only)
+    pct = _cov_pct(c)
+    tot = pct.pop("all", {"exact": 0.0, "reconstructed": 0.0, "none": 100.0})
+    return {"by_year": pct, "exact_pct": tot["exact"], "reconstructed_pct": tot["reconstructed"],
+            "none_pct": tot["none"], "contract_days": (c.get("all") or {}).get("total", 0)}
+
+
+def fill_lots(chain, root=None, accept="exact"):
+    """Fill the lot of every future and option of a load_fo_chain_eod()-shaped chain that has none, from the
+    dated lot history. accept "exact": only exact lots are filled; a reconstructed one is left None and the
+    row marked lot_refused; "any": reconstructed lots too. Each filled row gets lot_confidence. Adds
+    chain["lots"] = {"exact", "reconstructed", "refused", "missing"} (rows) and returns it."""
+    counts = {"exact": 0, "reconstructed": 0, "refused": 0, "missing": 0}
+    recs = [r for r in (chain.get("futures") or []) + (chain.get("options") or []) if r.get("lot") is None]
+    if recs and _lot_rows(root) is not None:
+        memo = {}
+        for rec in recs:
+            e = rec.get("expiry")
+            if e not in memo:
+                memo[e] = lot_size(chain["underlying"], chain["date"], e, root)
+            got = memo[e]
+            if got is None:
+                counts["missing"] += 1
+            elif got["confidence"] == "exact" or accept == "any":
+                rec["lot"], rec["lot_confidence"] = got["lot"], got["confidence"]
+                counts[got["confidence"]] += 1
+            else:
+                rec["lot_refused"] = "reconstructed"
+                counts["refused"] += 1
+    else:
+        counts["missing"] = len(recs)
+    chain["lots"] = counts
+    return counts
+
+
 # -- continuous futures
 
 FUT_KINDS = ("IDF", "STF")
@@ -2543,6 +2883,11 @@ def long_status(root):
         snaps = sorted((man.get("lists") or {}).get("snapshots", {}))
         out["members"] = {"announcements": len(ds), "first": ds[0] if ds else None, "last": ds[-1] if ds else None,
                           "lists": snaps[-1] if snaps else None}
+    man = read_json(os.path.join(root, LOT_DIR, "manifest.json"), None)
+    if man and man.get("rows"):
+        out["lothist"] = {"rows": man["rows"], "built_at": man.get("built_at"), "segments": man.get("segments"),
+                          "mkt_reports": (man.get("inputs") or {}).get("mkt_reports", 0),
+                          "wayback_copies": (man.get("inputs") or {}).get("wayback_copies", 0)}
     man = read_json(os.path.join(root, "sectors", "manifest.json"), None)
     if man and man.get("snapshots"):
         ds = sorted(man["snapshots"])
@@ -3035,6 +3380,14 @@ def cmd_status(a):
         print("sector classification: %d snapshot%s (%s to %s), %d stocks in the latest%s" % (
             m["snapshots"], "" if m["snapshots"] == 1 else "s", m["first"], m["last"], m["symbols"],
             "" if m["complete"] else " (incomplete: run backfill --datasets sectors again)"))
+    if lg.get("lothist"):
+        m = lg["lothist"]
+        sg = m.get("segments") or {}
+        print("lot-size history: %s contract segments (%s exact, %s reconstructed, %s unknown), built %s from %d "
+              "market activity reports and %d Wayback copies" % (
+                  "{:,}".format(m["rows"]), "{:,}".format(sg.get("exact", 0)), "{:,}".format(sg.get("reconstructed", 0)),
+                  "{:,}".format(sg.get("none", 0)), (m.get("built_at") or "-")[:16].replace("T", " "),
+                  m["mkt_reports"], m["wayback_copies"]))
     print("Weekdays NSE had no session (learned): %d. Next: python3 archive.py update" % s["closed_days"])
     return 0
 
@@ -3270,6 +3623,55 @@ def cmd_sectors(a):
     return 0
 
 
+def cmd_lots(a):
+    root = default_root(a.root, a.workdir)
+    if a.build:
+        man = build_lothist(root, _log(a))
+        if a.json:
+            print(json.dumps(man, indent=1))
+            return 0
+    u = (a.underlying or "NIFTY").upper()
+    if a.date:
+        r = lot_size(u, a.date, a.expiry, root)
+        if a.json:
+            print(json.dumps(r, indent=1))
+            return 0 if r else 1
+        if r is None:
+            print("No lot known for %s on %s%s (python3 archive.py backfill --datasets lothist builds the history)."
+                  % (u, a.date, " expiry %s" % a.expiry if a.expiry else ""))
+            return 1
+        print("%s %s on %s: lot %d (%s; %s)%s" % (u, r["expiry"], a.date, r["lot"], r["confidence"], r["source"],
+                                                  " - the nearest known day of that contract" if r["nearest"] else ""))
+        return 0
+    start, end = a.start or "2000-01-01", a.end or iso(ist_now().date())
+    c = lot_coverage(u, start, end, root, monthly_only=not a.all_expiries)
+    if c is None:
+        print("No lot-size history in %s yet: python3 archive.py backfill --from 2010-01-01 --datasets lothist" % root)
+        return 1
+    if a.json:
+        print(json.dumps(c, indent=1))
+        return 0
+    print("Lot sizes of %s %s contracts, %s to %s: %.1f%% of contract-days exact, %.1f%% reconstructed, %.1f%% "
+          "unknown." % (u if u not in ("STOCKS", "INDEX") else "every " + u.lower()[:-1],
+                        "all" if a.all_expiries else "monthly", start, end, c["exact_pct"], c["reconstructed_pct"],
+                        c["none_pct"]))
+    print("%-6s %8s %14s %8s" % ("year", "exact", "reconstructed", "unknown"))
+    for y, v in sorted(c["by_year"].items()):
+        print("%-6s %7.1f%% %13.1f%% %7.1f%%" % (y, v["exact"], v["reconstructed"], v["none"]))
+    if u not in ("STOCKS", "INDEX"):
+        rows = lot_history(u, root) or []
+        changes, last = [], None
+        for r in sorted((r for r in rows if r["monthly"] and r["lot"]), key=lambda r: r["expiry"]):
+            if r["lot"] != last:
+                changes.append(r)
+                last = r["lot"]
+        if changes:
+            print("Lot by monthly expiry (each change):")
+            for r in changes:
+                print("  from the %s expiry: %d (%s; %s)" % (r["expiry"], r["lot"], r["confidence"], r["source"]))
+    return 0
+
+
 def cmd_results(a):
     root = default_root(a.root, a.workdir)
     evs = results_dates(a.symbol, a.start, a.end, root)
@@ -3404,6 +3806,15 @@ def main(argv=None):
     p.add_argument("--date", help="the snapshot on or before this day (default the latest)")
     p.add_argument("--level", default="sector", choices=list(SECTOR_LEVELS))
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("lots", help="the dated F&O lot-size history: one contract's lot, or the coverage by year")
+    p.add_argument("--underlying", help="NIFTY, BANKNIFTY, a stock, STOCKS (every stock) or INDEX (default NIFTY)")
+    p.add_argument("--date", help="the lot on this day (with --expiry: of that contract, else the nearest monthly)")
+    p.add_argument("--expiry", help="YYYY-MM-DD, the contract's expiry")
+    p.add_argument("--from", dest="start", help="coverage from (default 2000-01-01)")
+    p.add_argument("--to", dest="end", help="coverage to (default today)")
+    p.add_argument("--all-expiries", action="store_true", help="coverage of weekly and long-dated contracts too")
+    p.add_argument("--build", action="store_true", help="rebuild the table from what is archived (offline)")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("results", help="results (earnings) dates of a stock, for event studies")
     p.add_argument("--symbol", required=True)
     p.add_argument("--from", dest="start")
@@ -3434,7 +3845,7 @@ def main(argv=None):
     try:
         return {"backfill": cmd_backfill, "update": cmd_update, "status": cmd_status, "verify": cmd_verify,
                 "export": cmd_export, "intraday": cmd_intraday, "snapshot-chain": cmd_snapshot,
-                "continuous": cmd_continuous, "members": cmd_members, "sectors": cmd_sectors, "results": cmd_results,
+                "continuous": cmd_continuous, "members": cmd_members, "sectors": cmd_sectors, "results": cmd_results, "lots": cmd_lots,
                 "expired-options": cmd_expired, "capture-chains": cmd_capture}[a.cmd](a)
     except ArchiveError as e:
         print("archive: %s" % e, file=sys.stderr)

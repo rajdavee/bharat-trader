@@ -25,7 +25,7 @@ description: >-
   "1 minute data from Upstox", "is my data complete", "data gaps",
   "purana data download karo", or "update the archive". It never places an
   order.
-argument-hint: "[backfill --years 3 | update | status | verify | export --symbol X | intraday --symbols X | snapshot-chain | continuous | members | sectors | results | expired-options | capture-chains]"
+argument-hint: "[backfill --years 3 | update | status | verify | export --symbol X | intraday --symbols X | snapshot-chain | continuous | members | sectors | lots | results | expired-options | capture-chains]"
 ---
 
 # trader-archive
@@ -53,6 +53,8 @@ python3 "<skill dir>/archive.py" members --index NIFTY50 --date 2015-06-30    # 
 python3 "<skill dir>/archive.py" members --report                             # coverage and gaps of the rebuild
 python3 "<skill dir>/archive.py" results --symbol INFY --from 2015-01-01      # results dates, after-close flag
 python3 "<skill dir>/archive.py" sectors --symbol HDFCBANK                     # NSE's sector classification
+python3 "<skill dir>/archive.py" backfill --from 2010-01-01 --datasets lothist  # dated F&O lot sizes (exact or reconstructed)
+python3 "<skill dir>/archive.py" lots --underlying NIFTY                       # lot coverage by year, each lot change
 python3 "<skill dir>/archive.py" expired-options --broker upstox --underlying NIFTY --from 2026-08-01
 python3 "<skill dir>/archive.py" capture-chains --symbols NIFTY,BANKNIFTY --every 5 --sessions 0   # background
 ```
@@ -71,6 +73,7 @@ blocking): the next run of the same command carries on.
 | `index` | `content/indices/ind_close_all_DDMMYYYY.csv` | every NSE index, India VIX included, with P/E, P/B, yield |
 | `vix` | `api/historicalOR/vixhistory` (70 rows a call: a quarter at a time) | `vix/YYYY.csv.gz` |
 | `lots` | `content/fo/fo_mktlots.csv` (today only; NSE keeps no history) | one snapshot a day; from 2024 each F&O row carries its own lot |
+| `lothist` | `archives/fo/mkt/foDDMMYYYY.zip` (F&O market activity reports, from March 2011, two sessions a month), the Wayback Machine's copies of `fo_mktlots.csv` (2008 to 2024), NSE's index lot circulars (built in), and the archived F&O bhavcopies | `lothist/lothist.csv.gz`: every contract's lot per day with its source and `exact` or `reconstructed`; `lothist/mkt/`, `lothist/wayback/`, `lothist/scan/` |
 | `ban` | `archives/fo/sec_ban/fo_secban_DDMMYYYY.csv` | the ban list per day |
 | `settle` | `archives/nsccl/sett/FOSett_prce_DDMMYYYY.csv` | futures MTM settlement prices |
 | `ca` | `api/corporates-corporateActions` (a year a call) | raw JSON per year; splits and bonuses become price factors |
@@ -122,6 +125,8 @@ Import `archive.py` (by path) and call, with `root=` the archive folder:
 | `members(index, date)` | point-in-time constituents of NIFTY 50 / NEXT 50 / 100 / 200 / 500, as traded that day |
 | `membership(index)` | the rebuilt history: every composition with its dates, issues, unresolved names |
 | `sectors(symbol=None, date=None, level="sector")` | one stock's NSE classification (four levels, the snapshot date), or `{symbol: sector}` for all |
+| `lot_size(underlying, date, expiry=None)` | one contract's lot that day from the dated history: lot, `exact` or `reconstructed`, source; None when unknown |
+| `lot_coverage(underlying or "STOCKS", start, end)` | the share of contract-days with an exact, reconstructed or no lot, by year |
 | `results_dates(symbol, start, end)` | results events: the day, the minute out, after the close or not, the first session that could react |
 | `load_option_intraday(underlying, expiry, strike, type)` | expired-option candles fetched with `expired-options` |
 
